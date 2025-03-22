@@ -1,0 +1,443 @@
+# HomeMeal App Implementation Plan
+
+This plan outlines the development of the HomeMeal App, a mobile application built with React Native (using Expo) and Supabase as the backend. The app connects customers, meal makers, and delivery boys, providing a seamless meal planning and delivery experience. Follow the phases and steps outlined below to build every feature systematically.
+
+---
+
+## Phase 1: Project Initialization and Version Control
+
+### Step 1: Initialize the React Native Project with Expo
+
+- **Task:** Set up the base project structure.
+- **Explanation:** Use Expo to simplify React Native development. Start with a blank "minimal" template.
+- **How to Do It:**
+  1. Run the command in your terminal:
+     ```
+     expo init HomeMealApp --template blank
+     ```
+     Choose the "minimal" template when prompted.
+  2. Navigate to the project folder:
+     ```
+     cd HomeMealApp
+     ```
+  3. Start the app to verify it runs (you should see a basic "Hello World" screen):
+     ```
+     expo start
+     ```
+
+### Step 2: Set Up Git and GitHub
+
+- **Task:** Establish version control.
+- **Explanation:** Git allows you to track progress, manage changes, and collaborate with others.
+- **How to Do It:**
+  1. Initialize Git:
+     ```
+     git init
+     ```
+  2. Create a `.gitignore` file and add entries such as `node_modules/`, `.expo/`, etc.
+  3. Create a GitHub repository (e.g., "HomeMealApp") and link your local repository:
+     ```
+     git remote add origin <your-repo-url>
+     ```
+  4. Commit and push your changes:
+     ```
+     git add .
+     git commit -m "Initial setup"
+     git push -u origin main
+     ```
+
+_Status: [ ] DONE_
+
+---
+
+## Phase 2: Backend Setup with Supabase
+
+### Step 3: Create a Supabase Project
+
+- **Task:** Set up a new Supabase project to host your backend.
+- **Explanation:** Supabase provides PostgreSQL database services, authentication (via phone OTP and Google OAuth), real-time subscriptions, and serverless Edge Functions.
+- **How to Do It:**
+  1. Log in or sign up at [Supabase](https://supabase.com).
+  2. In your dashboard, click **New Project** and fill in:
+     - **Project Name:** HomeMealApp (or your preferred name)
+     - **Database Password:** Choose a strong password.
+     - **Region:** Pick one close to your users.
+  3. Once created, navigate to **Settings > API** to copy:
+     - **Project URL** (e.g., `https://xyz.supabase.co`)
+     - **Anon Key** (starts with `eyJ...`)
+
+### Step 4: Connect Supabase to the React Native App
+
+- **Task:** Integrate the Supabase client into your Expo project.
+- **How to Do It:**
+
+  1. Install dependencies:
+     ```
+     npm install @supabase/supabase-js expo-secure-store
+     ```
+  2. Create `src/utils/supabaseClient.js` with the following updates to use Expo Constants for environment variables:
+
+     ```javascript
+     import { createClient } from "@supabase/supabase-js";
+     import * as SecureStore from "expo-secure-store";
+     import Constants from "expo-constants";
+
+     // Using Expo Constants (make sure to add these variables in app.json under "extra")
+     const { SUPABASE_URL, SUPABASE_ANON_KEY } = Constants.manifest.extra;
+
+     export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+       auth: {
+         storage: {
+           async getItem(key) {
+             return await SecureStore.getItemAsync(key);
+           },
+           async setItem(key, value) {
+             await SecureStore.setItemAsync(key, value);
+           },
+           async removeItem(key) {
+             await SecureStore.deleteItemAsync(key);
+           },
+         },
+         autoRefreshToken: true,
+         persistSession: true,
+       },
+     });
+     ```
+
+  3. Test the client in `App.js` by importing and logging the Supabase client:
+
+     ```javascript
+     import { supabase } from "./src/utils/supabaseClient";
+
+     export default function App() {
+       console.log("Supabase Client:", supabase);
+       return null; // Replace with your UI later
+     }
+     ```
+
+  4. **Bonus:** Set up environment variables in `app.json` under the "extra" field:
+     ```json
+     {
+       "expo": {
+         // ... other Expo configuration
+         "extra": {
+           "SUPABASE_URL": "YOUR_PROJECT_URL",
+           "SUPABASE_ANON_KEY": "YOUR_ANON_KEY"
+         }
+       }
+     }
+     ```
+     Ensure that sensitive data is not exposed publicly in production builds.
+
+### Step 5: Configure Authentication Providers
+
+- **Task:** Enable phone OTP (required) and Google OAuth (optional) for authentication.
+- **How to Do It:**
+  1. In the Supabase Dashboard, navigate to **Authentication > Providers**.
+  2. **For Phone Auth:**
+     - Toggle ON phone authentication.
+     - Set SMS OTP length to 6.
+     - **Note:** Configure OTP expiry time to be 10 minutes. In your authentication flow, if the correct OTP is not provided within this timeframe, do not deliver the order, do not return the payment, and do not authenticate the user.
+     - Add test phone numbers (e.g., your own) with a fake OTP for development.
+  3. **For Google OAuth:**
+     - Toggle ON Google OAuth.
+     - Follow the instructions to create credentials in the Google Cloud Console.
+     - Paste the client ID into Supabase's Google OAuth settings.
+
+_Status: [ ] DONE_
+
+---
+
+## Phase 3: Database Schema Design
+
+### Step 6: Design and Create Database Tables
+
+- **Task:** Build all 17 tables to support various functionalities such as users, meals, orders, and chats.
+- **Tables Include:**
+
+  1. **Users (`users`):**
+     - Fields: `id`, `phone_number`, `email`, `name`, `profile_picture`, `role`, `created_at`
+     - Example SQL:
+       ```sql
+       CREATE TABLE users (
+         id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+         phone_number TEXT UNIQUE NOT NULL,
+         email TEXT UNIQUE,
+         name TEXT,
+         profile_picture TEXT,
+         role TEXT CHECK (role IN ('customer', 'maker', 'delivery_boy')) NOT NULL,
+         created_at TIMESTAMP DEFAULT NOW()
+       );
+       ```
+  2. **Food (`food`):** Lists individual food items.
+  3. **Maker_Foods (`maker_foods`):** Links makers to food items.
+  4. **Meals (`meals`):** Stores user-created meals.
+  5. **Meal_Plans (`meal_plans`):** Links meals to days and meal types.
+  6. **Orders (`orders`):** Tracks orders and their status.
+  7. **Makers (`makers`):** Extra details for makers.
+  8. **Delivery_Boys (`delivery_boys`):** Extra details for delivery partners.
+  9. **Delivery_Requests (`delivery_requests`):** Assigns orders to delivery boys.
+  10. **Gigs (`gigs`):** Unfulfilled orders for other makers to claim.
+  11. **OTP_Verifications (`otp_verifications`):** Manages OTP verification for deliveries.
+  12. **Ratings (`ratings`):** Stores reviews and ratings.
+  13. **Wallet (`wallet`):** Tracks user funds.
+  14. **Transactions (`transactions`):** Logs wallet transactions.
+  15. **Withdraw_Requests (`withdraw_requests`):** Handles payout requests.
+  16. **Notifications (`notifications`):** Logs push notifications.
+  17. **Chat (`chat`):** Stores messages between users.
+
+- **Additional Notes:**
+  - Ensure to define proper foreign key constraints among the tables (for example, linking orders to users, chats to orders/users, etc.).
+  - Incorporate indexes on frequently queried fields to enhance performance.
+
+### Step 7: Enable Row-Level Security (RLS)
+
+- **Task:** Secure data access based on user roles and ownership.
+- **How to Do It:**
+
+  1. Enable RLS for each table via the Supabase dashboard.
+  2. Add policies. For example:
+
+     ```sql
+     -- Only allow users to access their own records
+     CREATE POLICY "Users see own data" ON users
+     FOR SELECT USING (auth.uid() = id);
+
+     -- Role-based access for orders
+     CREATE POLICY "Role-based orders" ON orders
+     FOR SELECT USING (auth.uid() IN (user_id, maker_id, delivery_boy_id));
+     ```
+
+_Status: [ ] DONE_
+
+---
+
+## Phase 4: Authentication and Role-Based Access
+
+### Step 8: Implement Phone Number Authentication with OTP
+
+- **Task:** Use phone numbers for login/signup with OTP verification.
+- **How to Do It:**
+  1. Enable phone auth in Supabase.
+  2. Create `src/screens/PhoneLoginScreen.js` with:
+     - A text input for the phone number.
+     - A button to send OTP using `supabase.auth.signInWithOtp({ phone })`.
+     - Once OTP is sent, display an OTP input and a Verify button that uses `supabase.auth.verifyOtp({ phone, token: otp })`.
+  3. **Additional Requirements:**
+     - The OTP should expire after 10 minutes.
+     - If the OTP is not provided or is incorrect within the expiry time, do not deliver the order, do not refund the payment, and do not authenticate the user.
+  4. After successful verification, navigate to:
+     - `Dashboard` if the user exists.
+     - `RoleSelection` if the user is new.
+
+### Step 9: Role Selection and Details Entry
+
+- **Task:** Let new users select a role and enter their details.
+- **How to Do It:**
+  1. Create `src/screens/RoleSelectionScreen.js` to display buttons for roles (customer, maker, delivery_boy).
+  2. Create `src/screens/DetailsEntryScreen.js` with a form to capture name, email, and profile picture, and integrate Google OAuth to autofill these fields.
+
+### Step 10: Role-Based Navigation
+
+- **Task:** Direct users to dashboards based on their role.
+- **How to Do It:**
+  1. In your `App.js`, check if a user is authenticated.
+  2. Fetch the user's role from Supabase.
+  3. Render the corresponding dashboard (e.g., `CustomerDashboard`, `MakerDashboard`, or `DeliveryDashboard`).
+
+---
+
+## Phase 5: Core Frontend Screens and Meal Planning
+
+### Step 11: Build Core Navigation and Dashboards
+
+- **Task:** Create role-specific dashboards with bottom tab navigation.
+- **How to Do It:**
+  1. Install the bottom tab navigator:
+     ```
+     npm install @react-navigation/bottom-tabs
+     ```
+  2. Set up dashboards:
+     - **CustomerDashboard:** Tabs for Meal Planning, Orders, Wallet, Chat.
+     - **MakerDashboard:** Tabs for Food Management, Meals, Orders, Gigs, Wallet, Chat.
+     - **DeliveryDashboard:** Tabs for Delivery Requests, Orders, Wallet, Chat.
+
+### Step 12: Implement Meal Planning Feature
+
+- **Task:** Enable customers to create meal plans manually or using AI.
+- **How to Do It:**
+  1. Create `src/screens/MealPlanningScreen.js` that:
+     - Fetches meals from Supabase.
+     - Allows users to select meals, choose days (using day pickers), and choose a meal type.
+     - Saves the meal plan to the `meal_plans` table.
+  2. Optionally, add a "Suggest with AI" feature to recommend meals based on user preferences.
+
+_Status: [ ] DONE_
+
+---
+
+## Phase 6: Order Management System
+
+### Step 13: Build Order Management
+
+- **Task:** Implement order management actions based on user roles.
+- **How to Do It:**
+  1. Create `src/screens/OrdersScreen.js` to:
+     - Display orders and their status.
+     - Allow makers to accept or reject orders (if rejected, move the order to the `gigs` table).
+     - Allow delivery boys to mark orders as delivered after OTP confirmation.
+  2. **For Makers:** Create `src/screens/GigsScreen.js` for listing open gigs and allowing makers to claim orders.
+
+---
+
+## Phase 7: Wallet Functionality
+
+### Step 14: Implement Wallet System
+
+- **Task:** Manage funds for all users.
+- **How to Do It:**
+  1. Create `src/screens/WalletScreen.js` to:
+     - Display the user's balance (from the `wallet` table).
+     - List transaction history (from the `transactions` table).
+  2. Provide:
+     - An "Add Funds" button (for customers) that integrates a payment gateway (e.g., Razorpay).
+     - A "Transfer to Bank" or "Withdraw" option (for makers/delivery boys) that creates a withdrawal request.
+  3. **Note:** For now, standard integration is sufficient. Consider adding advanced security and verification measures for Razorpay integration in the future.
+
+---
+
+## Phase 8: Chat Functionality
+
+### Step 15: Implement Chat Feature
+
+- **Task:** Enable messaging tied to orders.
+- **How to Do It:**
+  1. Create `src/screens/ChatScreen.js` to:
+     - Fetch messages from the `chat` table for a given order.
+     - Allow sending messages using `supabase.from('chat').insert()`.
+  2. Design a UI with chat bubbles, an input field, and a send button.
+
+_Status: [ ] DONE_
+
+---
+
+## Phase 9: Real-Time Features
+
+### Step 16: Add Real-Time Updates
+
+- **Task:** Implement real-time subscriptions.
+- **How to Do It:**
+  1. In `OrdersScreen` and `ChatScreen`, use Supabase's real-time functionality:
+     ```javascript
+     useEffect(() => {
+       const subscription = supabase
+         .from("orders")
+         .on("UPDATE", (payload) => setOrders((prev) => [...prev, payload.new]))
+         .subscribe();
+       return () => supabase.removeSubscription(subscription);
+     }, []);
+     ```
+  2. Update the UI dynamically as orders and chats update.
+
+_Status: [ ] DONE_
+
+---
+
+## Phase 10: Payment Integration
+
+### Step 17: Integrate Razorpay for Wallet Top-ups
+
+- **Task:** Handle secure transactions for wallet top-ups.
+- **How to Do It:**
+  1. Sign up at [Razorpay](https://razorpay.com), and obtain your test keys.
+  2. Install the Razorpay SDK:
+     ```
+     npm install react-native-razorpay
+     ```
+  3. Update `WalletScreen.js` to:
+     - Open a payment modal using Razorpay.
+     - Upon success, update the wallet balance.
+  4. **Note:** Additional security measures can be incorporated in the future as needed.
+
+_Status: [ ] DONE_
+
+---
+
+## Phase 11: Push Notifications
+
+### Step 18: Set Up Push Notifications
+
+- **Task:** Send and log push notifications for key events.
+- **How to Do It:**
+  1. Set up Firebase Cloud Messaging (FCM) using `expo-notifications` and related packages.
+  2. Trigger notifications on order status changes by inserting a record into the `notifications` table.
+  3. Display system alerts or in-app notifications accordingly.
+
+_Status: [ ] DONE_
+
+---
+
+## Phase 12: AI-Powered Meal Suggestions
+
+### Step 19: Add AI Suggestions
+
+- **Task:** Provide meal recommendations based on user preferences.
+- **How to Do It:**
+  1. Add a `preferences` column (e.g., diet) to the `users` table.
+  2. In `MealPlanningScreen`, filter and suggest meals based on those preferences.
+  3. Highlight a "Suggested Meals" section in the UI.
+
+_Status: [ ] DONE_
+
+---
+
+## Phase 13: Compliance and Penalty System
+
+### Step 20: Implement Compliance Rules
+
+- **Task:** Monitor and enforce rules for makers and delivery boys.
+- **How to Do It:**
+  1. Increment `strike_count` in the `makers` or `delivery_boys` tables when issues occur (e.g., late delivery).
+  2. If `strike_count` exceeds a threshold (e.g., 3 strikes), mark the account as banned.
+  3. **Important:** There is an admin dashboard (not detailed here) to review strikes and manage banning decisions.
+  4. Optionally, create an admin screen to review and intervene in the workflow.
+
+_Status: [ ] DONE_
+
+---
+
+## Phase 14: Testing and Deployment
+
+### Step 21: Test the App
+
+- **Task:** Ensure all features work as expected.
+- **How to Do It:**
+  1. Install Jest for testing:
+     ```
+     npm install --save-dev jest
+     ```
+  2. Write unit and integration tests for authentication, orders, payments, etc.
+
+### Step 22: Deploy to App Stores
+
+- **Task:** Build and launch the app.
+- **How to Do It:**
+  1. Build the app with Expo:
+     ```
+     expo build:android
+     expo build:ios
+     ```
+  2. Submit the app to the Google Play Store and Apple App Store.
+
+_Status: [ ] DONE_
+
+---
+
+**Note:**
+
+- Always ensure environment variables are securely managed using Expo Constants; add them to `app.json` under the "extra" field.
+- Monitor the OTP validity strictly (10-minute expiry). If a valid OTP is not provided, do not proceed with order delivery or refund the payment.
+- As the project scales, further details like advanced database indexing or additional security for payment integrations can be added.
+- An admin dashboard exists to handle compliance issues and manage strikes/ban statuses for makers and delivery boys.
+
+This completes the updated detailed markdown implementation plan for the HomeMeal App. Future clarifications or changes can be integrated as needed.
