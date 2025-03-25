@@ -1,0 +1,1 @@
+// Note: In a real project, you would create the 'user-profiles' storage bucket in the Supabase dashboard

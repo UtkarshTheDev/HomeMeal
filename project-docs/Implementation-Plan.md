@@ -1,3 +1,8 @@
+---
+description: This plan outlines the development of the HomeMeal App, a mobile application built with React Native (using Expo) and Supabase as the backend. The app connects customers, meal makers, and delivery boys, providing a seamless meal planning and delivery experience. Follow the phases and steps outlined below to build every feature systematically. This just provide a basic structure of how to work on this project but you have to write to code keeping in mind of the user flow okay.
+globs: 
+alwaysApply: true
+---
 # HomeMeal App Implementation Plan
 
 This plan outlines the development of the HomeMeal App, a mobile application built with React Native (using Expo) and Supabase as the backend. The app connects customers, meal makers, and delivery boys, providing a seamless meal planning and delivery experience. Follow the phases and steps outlined below to build every feature systematically.
@@ -57,7 +62,7 @@ _Status: [ ] DONE_
 - **Task:** Set up a new Supabase project to host your backend.
 - **Explanation:** Supabase provides PostgreSQL database services, authentication (via phone OTP and Google OAuth), real-time subscriptions, and serverless Edge Functions.
 - **How to Do It:**
-  1. Log in or sign up at [Supabase](https://supabase.com).
+  1. Log in or sign up at [Supabase](mdc:https:/supabase.com).
   2. In your dashboard, click **New Project** and fill in:
      - **Project Name:** HomeMealApp (or your preferred name)
      - **Database Password:** Choose a strong password.
@@ -349,7 +354,7 @@ _Status: [ ] DONE_
 
 - **Task:** Handle secure transactions for wallet top-ups.
 - **How to Do It:**
-  1. Sign up at [Razorpay](https://razorpay.com), and obtain your test keys.
+  1. Sign up at [Razorpay](mdc:https:/razorpay.com), and obtain your test keys.
   2. Install the Razorpay SDK:
      ```
      npm install react-native-razorpay

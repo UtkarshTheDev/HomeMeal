@@ -1,3 +1,8 @@
+---
+description: This Product Requirements Document (PRD) outlines the specifications for the HomeMeal App, a subscription-based meal ordering and delivery platform. The app connects users with home chefs (referred to as "Makers") and delivery partners, automating the process of meal planning, ordering, and delivery. Key features include AI-powered meal suggestions, automated order placement, a two-stage payment system, and robust compliance mechanisms. This document provides developers with a complete guide, detailing functional and non-functional requirements, system architecture, workflows, and the technical stack.
+globs: 
+alwaysApply: true
+---
 # HomeMeal App Product Requirements Document
 
 ## 1. Introduction

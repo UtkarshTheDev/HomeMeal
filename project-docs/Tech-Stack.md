@@ -1,3 +1,8 @@
+---
+description: A full Tech Stack Document for this app
+globs: 
+alwaysApply: true
+---
 # Tech Stack Document for HomeMeal App
 
 ## 1. Frontend

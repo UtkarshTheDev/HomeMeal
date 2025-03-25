@@ -1,3 +1,8 @@
+---
+description: Frontend Guidlines For this project
+globs: 
+alwaysApply: true
+---
 # Frontend Guidelines Document
 
 ## 1. UI/UX Design Best Practices

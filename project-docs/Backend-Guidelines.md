@@ -1,3 +1,8 @@
+---
+description: This document outlines the backend architecture of the HomeMeal App, a subscription-based meal ordering and delivery platform. The backend is built using Supabase, a managed PostgreSQL database service that provides real-time capabilities, authentication, and serverless functions. The purpose of this document is to detail the architecture, API endpoints, data models, database schemas, and server logic. It also explains how the backend interacts with the frontend, ensures scalability, and provides a comprehensive view of the user flow from the backend’s perspective.
+globs: 
+alwaysApply: true
+---
 # Backend Structure Document for HomeMeal App
 
 ## 1. Introduction
