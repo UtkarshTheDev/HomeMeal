@@ -20,6 +20,7 @@ import Animated, {
   FadeInDown,
 } from "react-native-reanimated";
 import { supabase } from "@/src/utils/supabaseClient";
+import { ROUTES } from "@/src/utils/routes";
 
 const RoleSelectionScreen = () => {
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
@@ -99,7 +100,7 @@ const RoleSelectionScreen = () => {
         console.error("Error updating user role:", error);
       } else {
         // Navigate to profile setup
-        router.navigate("/(auth)/profile-setup");
+        router.navigate(ROUTES.AUTH_PROFILE_SETUP);
       }
     } catch (error) {
       console.error("Error selecting role:", error);
