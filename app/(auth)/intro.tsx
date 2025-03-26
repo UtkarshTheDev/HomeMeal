@@ -1,39 +1,126 @@
-import React from 'react';
-import { View, Text, Image, TouchableOpacity } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, Image, Dimensions, FlatList, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ROUTES } from '@/src/utils/routes';
+import Animated, { FadeIn } from 'react-native-reanimated';
+
+const { width } = Dimensions.get('window');
+
+const slides = [
+  {
+    id: '1',
+    image: require('@/assets/images/intro1.png'),
+    title: 'Fresh Home Cooked Meals',
+    description: 'Get delicious homemade food delivered to your doorstep'
+  },
+  {
+    id: '2',
+    image: require('@/assets/images/intro2.png'),
+    title: 'Plan Your Meals',
+    description: 'Create meal plans and get automatic daily deliveries'
+  },
+  {
+    id: '3',
+    image: require('@/assets/images/intro3.png'),
+    title: 'Safe & Reliable',
+    description: 'Verified home chefs and delivery partners at your service'
+  }
+];
 
 export default function IntroScreen() {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const flatListRef = useRef<FlatList>(null);
   const router = useRouter();
 
-  return (
-    <View style={{ flex: 1, backgroundColor: '#ffffff', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+  const renderItem = ({ item }) => (
+    <View style={{ width, alignItems: 'center', padding: 20 }}>
       <Image
-        source={require('@/assets/images/logo.png')}
-        style={{ width: 150, height: 150, marginBottom: 30 }}
+        source={item.image}
+        style={{ width: width * 0.8, height: width * 0.8 }}
         resizeMode="contain"
       />
-      <Text style={{ fontSize: 24, fontWeight: 'bold', marginBottom: 10 }}>
-        Welcome to HomeMeal
+      <Text style={{ 
+        fontSize: 24, 
+        fontWeight: 'bold', 
+        marginTop: 30,
+        textAlign: 'center',
+        color: '#000'
+      }}>
+        {item.title}
       </Text>
-      <Text style={{ fontSize: 16, textAlign: 'center', marginBottom: 40, color: '#666' }}>
-        Fresh homemade food delivered to your doorstep
+      <Text style={{ 
+        fontSize: 16, 
+        textAlign: 'center', 
+        marginTop: 10,
+        color: '#666',
+        paddingHorizontal: 20
+      }}>
+        {item.description}
       </Text>
-      <TouchableOpacity
-        onPress={() => router.push(ROUTES.AUTH_LOGIN)}
-        style={{
-          backgroundColor: '#DFD218',
-          paddingVertical: 15,
-          paddingHorizontal: 40,
-          borderRadius: 25,
-          width: '100%',
-          alignItems: 'center',
+    </View>
+  );
+
+  const handleNext = () => {
+    if (currentIndex === slides.length - 1) {
+      router.push(ROUTES.AUTH_LOGIN);
+    } else {
+      flatListRef.current?.scrollToIndex({
+        index: currentIndex + 1,
+        animated: true
+      });
+    }
+  };
+
+  return (
+    <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
+      <FlatList
+        ref={flatListRef}
+        data={slides}
+        renderItem={renderItem}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={(e) => {
+          const index = Math.round(e.nativeEvent.contentOffset.x / width);
+          setCurrentIndex(index);
         }}
-      >
-        <Text style={{ color: '#000', fontSize: 16, fontWeight: '600' }}>
-          Get Started
-        </Text>
-      </TouchableOpacity>
+      />
+      
+      <View style={{ padding: 20, paddingBottom: 40 }}>
+        {/* Dots indicator */}
+        <View style={{ 
+          flexDirection: 'row', 
+          justifyContent: 'center',
+          marginBottom: 20
+        }}>
+          {slides.map((_, index) => (
+            <View
+              key={index}
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 4,
+                backgroundColor: currentIndex === index ? '#FF7A00' : '#ddd',
+                marginHorizontal: 4
+              }}
+            />
+          ))}
+        </View>
+
+        <TouchableOpacity
+          onPress={handleNext}
+          style={{
+            backgroundColor: '#FF7A00',
+            paddingVertical: 15,
+            borderRadius: 25,
+            alignItems: 'center'
+          }}
+        >
+          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>
+            {currentIndex === slides.length - 1 ? 'Get Started' : 'Next'}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }

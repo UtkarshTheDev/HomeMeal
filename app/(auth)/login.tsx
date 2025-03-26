@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import {
   View,
   Text,
@@ -11,107 +11,79 @@ import {
   Alert,
   TouchableWithoutFeedback,
   Keyboard,
+  Dimensions,
 } from "react-native";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
-  useSharedValue,
   useAnimatedStyle,
+  useSharedValue,
   withSpring,
   withTiming,
-  withDelay,
   withSequence,
+  withDelay,
+  Easing,
 } from "react-native-reanimated";
 import { supabase } from "@/src/utils/supabaseClient";
 import { ROUTES } from "@/src/utils/routes";
+import { FontAwesome } from "@expo/vector-icons";
 
-const LoginScreen = () => {
+const { width } = Dimensions.get("window");
+
+export default function LoginScreen() {
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
-
-  // Animation values
-  const logoScale = useSharedValue(0.8);
-  const formOpacity = useSharedValue(0);
-  const formTranslateY = useSharedValue(50);
-  const buttonScale = useSharedValue(1);
-
-  // Ref for input
   const phoneInputRef = useRef<TextInput>(null);
 
-  // Animation styles
-  const logoAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: logoScale.value }],
-    };
-  });
+  // Animation values
+  const logoScale = useSharedValue(0.3);
+  const logoOpacity = useSharedValue(0);
+  const formScale = useSharedValue(0.9);
+  const formOpacity = useSharedValue(0);
+  const buttonScale = useSharedValue(1);
 
-  const formAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: formOpacity.value,
-      transform: [{ translateY: formTranslateY.value }],
-    };
-  });
+  React.useEffect(() => {
+    logoScale.value = withSequence(
+      withSpring(1.2, { damping: 10 }),
+      withSpring(1, { damping: 15 })
+    );
+    logoOpacity.value = withSpring(1);
 
-  const buttonAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: buttonScale.value }],
-    };
-  });
-
-  // Start animations on component mount
-  useEffect(() => {
-    logoScale.value = withSpring(1, { damping: 13, stiffness: 100 });
-    formOpacity.value = withDelay(300, withTiming(1, { duration: 500 }));
-    formTranslateY.value = withDelay(300, withTiming(0, { duration: 500 }));
+    formScale.value = withDelay(400, withSpring(1, { damping: 12 }));
+    formOpacity.value = withDelay(400, withTiming(1, { duration: 800 }));
   }, []);
 
-  // Validate phone number format
-  const isValidPhoneNumber = (number: string) => {
-    // Remove any non-digit characters
-    const digits = number.replace(/\D/g, "");
+  const logoStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: logoScale.value }],
+    opacity: logoOpacity.value,
+  }));
 
-    // Basic validation: check if it's a 10-digit number (without country code)
-    return digits.length === 10;
-  };
+  const formStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: formScale.value }],
+    opacity: formOpacity.value,
+  }));
 
-  // Format phone number as user types
-  const formatPhoneNumber = (text: string) => {
-    // Remove any non-digit characters
-    const digits = text.replace(/\D/g, "");
-
-    // Keep only first 10 digits
-    const truncated = digits.substring(0, 10);
-
-    // Format as XXX-XXX-XXXX
-    if (truncated.length > 6) {
-      return `${truncated.substring(0, 3)}-${truncated.substring(
-        3,
-        6
-      )}-${truncated.substring(6)}`;
-    } else if (truncated.length > 3) {
-      return `${truncated.substring(0, 3)}-${truncated.substring(3)}`;
-    } else {
-      return truncated;
-    }
-  };
+  const buttonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: buttonScale.value }],
+  }));
 
   const handlePhoneChange = (text: string) => {
-    setPhone(formatPhoneNumber(text));
+    const digits = text.replace(/\D/g, "");
+    setPhone(digits);
   };
 
-  const handleSignIn = async () => {
-    Keyboard.dismiss();
-
-    // Animate button press
+  const handleGetStarted = async () => {
     buttonScale.value = withSequence(
-      withTiming(0.9, { duration: 100 }),
+      withTiming(0.95, { duration: 100 }),
       withTiming(1, { duration: 100 })
     );
 
-    // Validate phone
-    if (!isValidPhoneNumber(phone)) {
+    Keyboard.dismiss();
+
+    if (phone.length !== 10) {
       Alert.alert(
-        "Invalid Phone Number",
+        "Invalid Phone",
         "Please enter a valid 10-digit phone number"
       );
       return;
@@ -120,24 +92,15 @@ const LoginScreen = () => {
     setLoading(true);
 
     try {
-      // Ensure phone is in international format (add +91 for India)
-      const phoneWithCountryCode = `+91${phone.replace(/\D/g, "")}`;
-
+      const phoneWithCountryCode = `+91${phone}`;
       const { error } = await supabase.auth.signInWithOtp({
         phone: phoneWithCountryCode,
       });
 
-      if (error) {
-        Alert.alert("Error", error.message);
-      } else {
-        router.navigate(ROUTES.AUTH_VERIFY);
-      }
-    } catch (error) {
-      console.error("Error sending OTP:", error);
-      Alert.alert(
-        "Error",
-        "Failed to send verification code. Please try again."
-      );
+      if (error) throw error;
+      router.push(ROUTES.AUTH_VERIFY);
+    } catch (error: any) {
+      Alert.alert("Error", error.message);
     } finally {
       setLoading(false);
     }
@@ -145,77 +108,107 @@ const LoginScreen = () => {
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <KeyboardAvoidingView
-        className="flex-1 bg-white"
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <StatusBar style="dark" />
+      <View className="flex-1 bg-background-light">
+        <StatusBar style="light" />
 
-        <View className="flex-1 justify-center items-center px-6">
-          <Animated.View
-            className="w-full items-center mb-10"
-            style={logoAnimatedStyle}
-          >
+        {/* Top Gradient Section */}
+        <LinearGradient
+          colors={["#FF5C00", "#FF7A00", "#FF9D4D"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          className="h-[45%] w-full items-center justify-center"
+          style={{ backgroundColor: "#FF7A00" }}
+        >
+          <Animated.View className="items-center" style={logoStyle}>
             <Image
               source={require("@/assets/images/logo.png")}
-              className="w-40 h-40"
+              className="w-32 h-32"
+              style={{ tintColor: "#FFFFFF" }}
               resizeMode="contain"
             />
-            <Text className="text-3xl font-bold text-primary mt-4">
-              HomeMeal
-            </Text>
-            <Text className="text-text-secondary text-center mt-2">
-              Fresh homemade food at your doorstep
+            <Text className="text-4xl font-bold text-white mt-4">HomeMeal</Text>
+            <Text className="text-white/90 text-lg mt-2">
+              Fresh homemade food delivered
             </Text>
           </Animated.View>
+        </LinearGradient>
 
-          <Animated.View className="w-full" style={formAnimatedStyle}>
-            <Text className="text-text-primary text-2xl font-bold mb-6">
-              Login with your phone
-            </Text>
+        {/* Form Section */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          className="flex-1"
+        >
+          <Animated.View className="flex-1 px-6" style={formStyle}>
+            <View className="bg-white rounded-3xl -mt-10 p-8 shadow-2xl">
+              <Text className="text-3xl font-bold text-text-primary mb-2">
+                Get Started
+              </Text>
+              <Text className="text-text-secondary text-base mb-8">
+                Enter your phone number to continue
+              </Text>
 
-            <View className="mb-6">
-              <Text className="text-text-secondary mb-2">Phone Number</Text>
-              <View className="flex-row items-center bg-gray-100 rounded-lg overflow-hidden">
-                <View className="py-4 px-3 bg-gray-200">
-                  <Text className="text-text-primary">+91</Text>
+              {/* Phone Input */}
+              <View className="mb-8">
+                <View className="flex-row items-center bg-background-card rounded-2xl overflow-hidden border-[0.5px] border-gray-200">
+                  <View className="px-4 py-4 border-r border-gray-200">
+                    <Text className="text-text-primary font-semibold">+91</Text>
+                  </View>
+                  <TextInput
+                    ref={phoneInputRef}
+                    className="flex-1 px-4 py-4 text-text-primary text-lg font-medium"
+                    placeholder="Enter phone number"
+                    value={phone}
+                    onChangeText={handlePhoneChange}
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                  />
                 </View>
-                <TextInput
-                  ref={phoneInputRef}
-                  className="flex-1 py-4 px-3 text-text-primary"
-                  placeholder="Enter your phone number"
-                  value={phone}
-                  onChangeText={handlePhoneChange}
-                  keyboardType="phone-pad"
-                  maxLength={12} // 10 digits + 2 hyphens
-                />
               </View>
+
+              {/* Get Started Button */}
+              <Animated.View style={buttonStyle}>
+                <TouchableOpacity
+                  onPress={handleGetStarted}
+                  disabled={loading}
+                  className="w-full"
+                >
+                  <LinearGradient
+                    colors={["#FF5C00", "#FF7A00"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    className="h-[56px] rounded-2xl items-center justify-center shadow-lg"
+                    style={{ elevation: 4 }}
+                  >
+                    {loading ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <View className="flex-row items-center space-x-4">
+                        <Text className="text-white font-bold text-lg mr-2">
+                          Get Started
+                        </Text>
+                        <FontAwesome
+                          name="arrow-right"
+                          size={18}
+                          color="#FFFFFF"
+                        />
+                      </View>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </Animated.View>
+
+              {/* Terms Text */}
+              <Text className="text-text-tertiary text-center text-sm mt-6">
+                By continuing, you agree to our{" "}
+                <Text className="text-primary font-semibold">Terms</Text> and{" "}
+                <Text className="text-primary font-semibold">
+                  Privacy Policy
+                </Text>
+              </Text>
             </View>
-
-            <Animated.View style={buttonAnimatedStyle}>
-              <TouchableOpacity
-                className="bg-primary py-4 rounded-lg items-center"
-                onPress={handleSignIn}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#ffffff" />
-                ) : (
-                  <Text className="text-white font-bold text-base">
-                    Send Verification Code
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </Animated.View>
-
-            <Text className="text-text-tertiary text-center mt-6">
-              By continuing, you agree to our Terms and Privacy Policy
-            </Text>
           </Animated.View>
-        </View>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </View>
     </TouchableWithoutFeedback>
   );
-};
-
-export default LoginScreen;
+}
