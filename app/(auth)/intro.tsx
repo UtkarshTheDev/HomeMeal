@@ -1,60 +1,79 @@
-import React, { useState, useRef } from 'react';
-import { View, Text, Image, Dimensions, FlatList, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
-import { ROUTES } from '@/src/utils/routes';
-import Animated, { FadeIn } from 'react-native-reanimated';
+import React, { useState, useRef } from "react";
+import {
+  View,
+  Text,
+  Image,
+  Dimensions,
+  FlatList,
+  TouchableOpacity,
+  ListRenderItem,
+} from "react-native";
+import { useRouter } from "expo-router";
+import { ROUTES } from "@/src/utils/routes";
+import Animated, { FadeIn } from "react-native-reanimated";
 
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
 
-const slides = [
+interface SlideItem {
+  id: string;
+  image: any;
+  title: string;
+  description: string;
+}
+
+const slides: SlideItem[] = [
   {
-    id: '1',
-    image: require('@/assets/images/intro1.png'),
-    title: 'Fresh Home Cooked Meals',
-    description: 'Get delicious homemade food delivered to your doorstep'
+    id: "1",
+    image: require("@/assets/images/intro1.png"),
+    title: "Fresh Home Cooked Meals",
+    description: "Get delicious homemade food delivered to your doorstep",
   },
   {
-    id: '2',
-    image: require('@/assets/images/intro2.png'),
-    title: 'Plan Your Meals',
-    description: 'Create meal plans and get automatic daily deliveries'
+    id: "2",
+    image: require("@/assets/images/intro2.png"),
+    title: "Plan Your Meals",
+    description: "Create meal plans and get automatic daily deliveries",
   },
   {
-    id: '3',
-    image: require('@/assets/images/intro3.png'),
-    title: 'Safe & Reliable',
-    description: 'Verified home chefs and delivery partners at your service'
-  }
+    id: "3",
+    image: require("@/assets/images/intro3.png"),
+    title: "Safe & Reliable",
+    description: "Verified home chefs and delivery partners at your service",
+  },
 ];
 
 export default function IntroScreen() {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlatList<SlideItem>>(null);
   const router = useRouter();
 
-  const renderItem = ({ item }) => (
-    <View style={{ width, alignItems: 'center', padding: 20 }}>
+  const renderItem: ListRenderItem<SlideItem> = ({ item }) => (
+    <View style={{ width, alignItems: "center", padding: 20 }}>
       <Image
         source={item.image}
         style={{ width: width * 0.8, height: width * 0.8 }}
         resizeMode="contain"
       />
-      <Text style={{ 
-        fontSize: 24, 
-        fontWeight: 'bold', 
-        marginTop: 30,
-        textAlign: 'center',
-        color: '#000'
-      }}>
+      <Text
+        style={{
+          fontSize: 24,
+          fontWeight: "bold",
+          marginTop: 30,
+          textAlign: "center",
+          color: "#000",
+        }}
+      >
         {item.title}
       </Text>
-      <Text style={{ 
-        fontSize: 16, 
-        textAlign: 'center', 
-        marginTop: 10,
-        color: '#666',
-        paddingHorizontal: 20
-      }}>
+      <Text
+        style={{
+          fontSize: 16,
+          textAlign: "center",
+          marginTop: 10,
+          color: "#666",
+          paddingHorizontal: 20,
+        }}
+      >
         {item.description}
       </Text>
     </View>
@@ -66,13 +85,13 @@ export default function IntroScreen() {
     } else {
       flatListRef.current?.scrollToIndex({
         index: currentIndex + 1,
-        animated: true
+        animated: true,
       });
     }
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
+    <View style={{ flex: 1, backgroundColor: "#ffffff" }}>
       <FlatList
         ref={flatListRef}
         data={slides}
@@ -84,15 +103,18 @@ export default function IntroScreen() {
           const index = Math.round(e.nativeEvent.contentOffset.x / width);
           setCurrentIndex(index);
         }}
+        keyExtractor={(item) => item.id}
       />
-      
+
       <View style={{ padding: 20, paddingBottom: 40 }}>
         {/* Dots indicator */}
-        <View style={{ 
-          flexDirection: 'row', 
-          justifyContent: 'center',
-          marginBottom: 20
-        }}>
+        <View
+          style={{
+            flexDirection: "row",
+            justifyContent: "center",
+            marginBottom: 20,
+          }}
+        >
           {slides.map((_, index) => (
             <View
               key={index}
@@ -100,8 +122,8 @@ export default function IntroScreen() {
                 width: 8,
                 height: 8,
                 borderRadius: 4,
-                backgroundColor: currentIndex === index ? '#FF7A00' : '#ddd',
-                marginHorizontal: 4
+                backgroundColor: currentIndex === index ? "#FFAD00" : "#ddd",
+                marginHorizontal: 4,
               }}
             />
           ))}
@@ -110,14 +132,14 @@ export default function IntroScreen() {
         <TouchableOpacity
           onPress={handleNext}
           style={{
-            backgroundColor: '#FF7A00',
+            backgroundColor: "#FF6B00",
             paddingVertical: 15,
             borderRadius: 25,
-            alignItems: 'center'
+            alignItems: "center",
           }}
         >
-          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>
-            {currentIndex === slides.length - 1 ? 'Get Started' : 'Next'}
+          <Text style={{ color: "#fff", fontSize: 16, fontWeight: "600" }}>
+            {currentIndex === slides.length - 1 ? "Get Started" : "Next"}
           </Text>
         </TouchableOpacity>
       </View>

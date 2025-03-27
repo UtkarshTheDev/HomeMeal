@@ -113,11 +113,11 @@ export default function LoginScreen() {
 
         {/* Top Gradient Section */}
         <LinearGradient
-          colors={["#FF5C00", "#FF7A00", "#FF9D4D"]}
+          colors={["#FFAD00", "#FF6B00", "#FF4D1F"]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           className="h-[45%] w-full items-center justify-center"
-          style={{ backgroundColor: "#FF7A00" }}
+          style={{ backgroundColor: "#FF6B00" }}
         >
           <Animated.View className="items-center" style={logoStyle}>
             <Image
@@ -173,7 +173,7 @@ export default function LoginScreen() {
                   className="w-full"
                 >
                   <LinearGradient
-                    colors={["#FF5C00", "#FF7A00"]}
+                    colors={["#FFAD00", "#FF6B00"]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     className="h-[56px] rounded-2xl items-center justify-center shadow-lg"

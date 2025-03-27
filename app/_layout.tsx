@@ -1,5 +1,9 @@
 import FontAwesome from "@expo/vector-icons/FontAwesome";
-import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
+import {
+  DarkTheme,
+  DefaultTheme,
+  ThemeProvider,
+} from "@react-navigation/native";
 import { useFonts } from "expo-font";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -56,7 +60,9 @@ export default function RootLayout() {
     const initializeApp = async () => {
       if (isSupabaseConfigured()) {
         try {
-          const { data: { session } } = await supabase.auth.getSession();
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
           setSession(session);
         } catch (error) {
           console.error("Error getting session:", error);
@@ -65,16 +71,18 @@ export default function RootLayout() {
         }
 
         // Set up auth state listener
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-          (_event, session) => {
-            setSession(session);
-            setIsLoading(false);
-          }
-        );
+        const {
+          data: { subscription },
+        } = supabase.auth.onAuthStateChange((_event, session) => {
+          setSession(session);
+          setIsLoading(false);
+        });
 
         return () => subscription.unsubscribe();
       } else {
-        console.warn("Supabase is not configured. Please add your Supabase URL and anon key.");
+        console.warn(
+          "Supabase is not configured. Please add your Supabase URL and anon key."
+        );
         setIsLoading(false);
       }
     };
@@ -103,10 +111,10 @@ export default function RootLayout() {
   return (
     <SupabaseContext.Provider value={{ session, isLoading }}>
       <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-        <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
+        <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
           <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="(auth)" />
             <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="(auth)" />
             <Stack.Screen name="modal" options={{ presentation: "modal" }} />
           </Stack>
         </View>
