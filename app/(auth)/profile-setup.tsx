@@ -24,6 +24,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { supabase } from "@/src/utils/supabaseClient";
 import { useSupabase } from "@/src/utils/useSupabase";
+import { uploadImage as uploadImageUtil } from "@/src/utils/userHelpers";
 
 const ProfileSetupScreen = () => {
   const { session } = useSupabase();
@@ -117,30 +118,16 @@ const ProfileSetupScreen = () => {
     if (!session?.user) return null;
 
     try {
-      // Convert image URI to blob
-      const response = await fetch(uri);
-      const blob = await response.blob();
+      // Use our utility function to upload the image
+      const publicUrl = await uploadImageUtil(uri, "profiles");
 
-      // Generate a unique file name
-      const fileName = `profile-${session.user.id}-${Date.now()}.jpg`;
-      const filePath = `profiles/${fileName}`;
-
-      // Upload to Supabase Storage
-      const { data, error } = await supabase.storage
-        .from("avatars")
-        .upload(filePath, blob);
-
-      if (error) {
-        console.error("Error uploading image:", error);
+      if (publicUrl) {
+        console.log("Image uploaded successfully:", publicUrl);
+        return publicUrl;
+      } else {
+        console.error("Failed to upload image");
         return null;
       }
-
-      // Get the public URL
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("avatars").getPublicUrl(filePath);
-
-      return publicUrl;
     } catch (error) {
       console.error("Error in uploadImage:", error);
       return null;
@@ -169,40 +156,61 @@ const ProfileSetupScreen = () => {
     setLoading(true);
 
     try {
+      const userId = session.user.id;
+      console.log("Saving profile for user:", userId);
+
       // Upload profile image if selected
       let profileImageUrl = null;
       if (profileImage) {
-        profileImageUrl = await uploadImage(profileImage);
+        try {
+          profileImageUrl = await uploadImage(profileImage);
+        } catch (uploadError) {
+          console.error("Error uploading profile image:", uploadError);
+          // Continue without image if there's an error
+        }
       }
 
       // Update user profile in database
-      const { error } = await supabase
-        .from("users")
-        .update({
-          name,
-          email: email || null, // Handle empty string
-          profile_image_url: profileImageUrl,
-        })
-        .eq("id", session.user.id);
+      try {
+        const { error } = await supabase
+          .from("users")
+          .update({
+            name,
+            email: email || null, // Handle empty string
+            profile_image_url: profileImageUrl,
+            profile_setup_stage: "complete", // Mark profile as complete
+          })
+          .eq("id", userId);
 
-      if (error) {
-        console.error("Error updating profile:", error);
-        Alert.alert("Error", "Failed to update profile");
-      } else {
-        // Redirect to the appropriate interface based on user role
-        if (userRole === "customer") {
-          router.replace("/(tabs)" as any);
-        } else if (userRole === "maker") {
-          router.replace("/(tabs)" as any);
-        } else if (userRole === "delivery_boy") {
-          router.replace("/(tabs)" as any);
+        if (error) {
+          console.error("Error updating profile:", error);
+          Alert.alert(
+            "Warning",
+            "There was an issue saving your profile, but we'll continue with what we have."
+          );
         } else {
-          router.replace("/(tabs)" as any);
+          console.log("Successfully saved profile");
         }
+      } catch (updateError) {
+        console.error("Exception updating profile:", updateError);
+        Alert.alert(
+          "Warning",
+          "There was an issue saving your profile, but we'll continue with what we have."
+        );
       }
+
+      // Redirect to the main app interface
+      console.log("Navigating to main app interface");
+      router.replace("/(tabs)" as any);
     } catch (error) {
       console.error("Error in saveProfile:", error);
-      Alert.alert("Error", "An unexpected error occurred");
+      Alert.alert(
+        "Error",
+        "An unexpected error occurred, but we'll try to continue."
+      );
+
+      // Try to navigate anyway
+      router.replace("/(tabs)" as any);
     } finally {
       setLoading(false);
     }

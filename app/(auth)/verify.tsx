@@ -10,7 +10,7 @@ import {
   Alert,
   Keyboard,
 } from "react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import Animated, {
   FadeInDown,
@@ -19,18 +19,28 @@ import Animated, {
 } from "react-native-reanimated";
 import { supabase } from "@/src/utils/supabaseClient";
 import { ROUTES } from "@/src/utils/routes";
+import { LinearGradient } from "expo-linear-gradient";
+import {
+  checkUserStatus,
+  formatPhoneForDisplay,
+} from "@/src/utils/userHelpers";
 
 const OTP_LENGTH = 6;
 
 export default function VerifyScreen() {
+  const params = useLocalSearchParams();
+  const phoneNumber = (params.phone as string) || "+91 XXXXXXXX"; // Get phone from params
+
   const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(""));
   const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [resendTimer, setResendTimer] = useState(30);
   const [canResend, setCanResend] = useState(false);
+  const [autoVerifyAttempted, setAutoVerifyAttempted] = useState(false);
   const inputRefs = useRef<Array<TextInput | null>>(
     Array(OTP_LENGTH).fill(null)
   );
-  const phone = "+91 XXXXXX6789"; // Replace with actual phone from state
+  const [error, setError] = useState("");
 
   useEffect(() => {
     inputRefs.current[0]?.focus();
@@ -40,8 +50,9 @@ export default function VerifyScreen() {
   // Effect to automatically verify OTP when all digits are entered
   useEffect(() => {
     const otpCode = otp.join("");
-    if (otpCode.length === OTP_LENGTH) {
-      verifyOtp(otpCode);
+    if (otpCode.length === OTP_LENGTH && !autoVerifyAttempted) {
+      setAutoVerifyAttempted(true);
+      handleVerify();
     }
   }, [otp]);
 
@@ -77,32 +88,139 @@ export default function VerifyScreen() {
     }
   };
 
-  const verifyOtp = async (otpCode: string) => {
-    if (loading) return; // Prevent multiple verification attempts
+  const handleVerify = async () => {
+    if (loading) return;
 
-    Keyboard.dismiss();
-    if (otpCode.length !== OTP_LENGTH) {
+    // Convert otp array to string if needed
+    const otpCode = typeof otp === "string" ? otp : otp.join("");
+
+    if (otpCode.length < 6) {
+      setError("Please enter all 6 digits");
       return;
     }
 
     setLoading(true);
+    setError("");
+
     try {
-      const { error } = await supabase.auth.verifyOtp({
-        phone: phone.replace(/\D/g, ""),
+      // Verify the OTP with Supabase
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone: phoneNumber,
         token: otpCode,
         type: "sms",
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("OTP verification error:", error);
 
-      // According to the user flow, after successful verification,
-      // the user should be directed to role selection
-      router.replace(ROUTES.AUTH_ROLE_SELECTION);
+        // Check if it's an expired token error
+        if (
+          error.message.includes("token is expired") ||
+          error.message.includes("invalid token") ||
+          error.message.includes("Invalid Refresh Token")
+        ) {
+          setError("Verification code has expired. Please request a new code.");
+          setLoading(false);
+
+          // Automatically trigger resend after a short delay
+          setTimeout(() => {
+            if (canResend) {
+              resendOtp();
+            } else {
+              setError(
+                "Please wait and try the resend button when it becomes available."
+              );
+            }
+          }, 1500);
+
+          return;
+        }
+
+        throw error;
+      }
+
+      // Get the user ID from the authentication result
+      const userId = data?.user?.id;
+      if (!userId) {
+        throw new Error("Authentication successful but no user ID returned");
+      }
+
+      // First, safely check if a user record already exists in the users table
+      let userExists = false;
+      let existingUser = null;
+
+      try {
+        const { data: user, error: userCheckError } = await supabase
+          .from("users")
+          .select(
+            "id, role, phone_number, address, location, name, profile_setup_stage"
+          )
+          .eq("id", userId)
+          .maybeSingle(); // Use maybeSingle instead of single to avoid errors
+
+        if (!userCheckError && user) {
+          userExists = true;
+          existingUser = user;
+        }
+      } catch (e) {
+        console.log("Error checking user, assuming new user:", e);
+      }
+
+      // If the user doesn't exist in our users table, create a new entry
+      if (!userExists) {
+        console.log("Creating new user with ID:", userId);
+        try {
+          // Insert a new user record with basic information
+          const { error: insertError } = await supabase.from("users").insert({
+            id: userId,
+            phone_number: phoneNumber,
+            created_at: new Date().toISOString(),
+          });
+
+          if (insertError) {
+            console.error("Error creating user record:", insertError);
+            // Continue even if there's an error - the auth is successful
+          } else {
+            console.log(
+              "Successfully created new user in database with ID:",
+              userId
+            );
+          }
+        } catch (insertErr) {
+          console.error("Exception creating user record:", insertErr);
+          // Continue execution - auth is successful
+        }
+
+        // Navigate to role selection for new users
+        router.replace(ROUTES.AUTH_ROLE_SELECTION);
+        setLoading(false);
+        return;
+      }
+
+      // For existing users, check their profile status
+      console.log("User exists, checking profile status:", existingUser);
+
+      // We know existingUser is not null here because userExists is true
+      if (!existingUser?.role) {
+        // No role selected yet
+        router.replace(ROUTES.AUTH_ROLE_SELECTION);
+      } else if (!existingUser?.location || !existingUser?.address) {
+        // No location set yet
+        router.replace(ROUTES.LOCATION_SETUP);
+      } else if (
+        !existingUser?.name ||
+        !existingUser?.profile_setup_stage ||
+        existingUser?.profile_setup_stage !== "complete"
+      ) {
+        // Profile incomplete
+        router.replace(ROUTES.AUTH_PROFILE_SETUP);
+      } else {
+        // Complete profile - redirect to home
+        router.replace(ROUTES.TABS);
+      }
     } catch (error: any) {
-      Alert.alert("Error", error.message);
-      // Clear OTP fields for retry
-      setOtp(Array(OTP_LENGTH).fill(""));
-      inputRefs.current[0]?.focus();
+      console.error("Verification error:", error);
+      setError(error.message || "Failed to verify code. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -113,10 +231,14 @@ export default function VerifyScreen() {
     setLoading(true);
     setCanResend(false);
     setResendTimer(30);
+    setAutoVerifyAttempted(false);
 
     try {
+      // Clean the phone number
+      const cleanedPhone = phoneNumber.replace(/[^\d+]/g, "");
+
       const { error } = await supabase.auth.signInWithOtp({
-        phone: phone.replace(/\s/g, ""),
+        phone: cleanedPhone,
       });
 
       if (error) throw error;
@@ -126,7 +248,11 @@ export default function VerifyScreen() {
       inputRefs.current[0]?.focus();
       startResendTimer();
     } catch (error: any) {
-      Alert.alert("Error", error.message);
+      console.error("Resend OTP Error:", error);
+      Alert.alert(
+        "Error Sending Code",
+        error.message || "Failed to send verification code. Please try again."
+      );
     } finally {
       setLoading(false);
     }
@@ -147,7 +273,7 @@ export default function VerifyScreen() {
           <Text className="text-4xl font-bold text-primary">Verification</Text>
           <Text className="text-base text-text-secondary">
             Enter the 6-digit code we sent to{"\n"}
-            {phone}
+            {formatPhoneForDisplay(phoneNumber)}
           </Text>
         </Animated.View>
 
@@ -182,35 +308,61 @@ export default function VerifyScreen() {
             className="items-center mb-8"
           >
             <ActivityIndicator size="large" color="#FF6B00" />
-            <Text className="text-text-secondary mt-4">Verifying...</Text>
+            <Text className="text-text-secondary mt-4">
+              {verifying ? "Verifying..." : "Processing..."}
+            </Text>
           </Animated.View>
         )}
 
         <Animated.View
           entering={FadeInUp.delay(1200).duration(1000)}
-          className="items-center mt-4"
+          className="space-y-6"
         >
-          <View className="flex-row justify-center items-center space-x-1">
-            <Text className="text-text-secondary">
-              Didn't receive the code?
-            </Text>
-            {canResend ? (
-              <TouchableOpacity onPress={resendOtp} className="py-2 px-1">
-                <Text className="text-primary font-semibold">Resend</Text>
-              </TouchableOpacity>
-            ) : (
-              <Text className="text-text-tertiary">Wait {resendTimer}s</Text>
-            )}
-          </View>
-
+          {/* Manual Verify Button */}
           <TouchableOpacity
-            className="mt-6"
-            onPress={() => router.push(ROUTES.AUTH_LOGIN)}
+            onPress={handleVerify}
+            disabled={loading || otp.join("").length !== OTP_LENGTH}
+            className="w-full"
           >
-            <Text className="text-secondary font-semibold text-center">
-              Change Phone Number
-            </Text>
+            <LinearGradient
+              colors={["#FFAD00", "#FF6B00"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              className={`h-[54px] rounded-xl items-center justify-center shadow-sm ${
+                loading ? "opacity-70" : ""
+              }`}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text className="text-white font-bold text-base">Verify</Text>
+              )}
+            </LinearGradient>
           </TouchableOpacity>
+
+          <View className="items-center">
+            <View className="flex-row justify-center items-center space-x-1">
+              <Text className="text-text-secondary">
+                Didn't receive the code?
+              </Text>
+              {canResend ? (
+                <TouchableOpacity onPress={resendOtp} className="py-2 px-1">
+                  <Text className="text-primary font-semibold">Resend</Text>
+                </TouchableOpacity>
+              ) : (
+                <Text className="text-text-tertiary">Wait {resendTimer}s</Text>
+              )}
+            </View>
+
+            <TouchableOpacity
+              className="mt-6"
+              onPress={() => router.push(ROUTES.AUTH_LOGIN)}
+            >
+              <Text className="text-secondary font-semibold text-center">
+                Change Phone Number
+              </Text>
+            </TouchableOpacity>
+          </View>
         </Animated.View>
       </View>
     </KeyboardAvoidingView>

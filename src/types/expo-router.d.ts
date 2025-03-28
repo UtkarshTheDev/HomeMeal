@@ -8,6 +8,7 @@ declare module "expo-router" {
     | "/(auth)/verify"
     | "/(auth)/role-selection"
     | "/(auth)/profile-setup"
+    | "/(auth)/location-setup"
     | "/(tabs)"
     | "/(tabs)/meal-plans"
     | "/(tabs)/orders"

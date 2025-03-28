@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
-import { View } from 'react-native';
-import { useRouter } from 'expo-router';
-import { ROUTES } from '@/src/utils/routes';
-import { LinearGradient } from 'expo-linear-gradient';
+import { useEffect } from "react";
+import { View } from "react-native";
+import { useRouter } from "expo-router";
+import { ROUTES } from "@/src/utils/routes";
+import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -11,8 +11,10 @@ import Animated, {
   withSequence,
   withDelay,
   Easing,
-} from 'react-native-reanimated';
-import { StatusBar } from 'expo-status-bar';
+} from "react-native-reanimated";
+import { StatusBar } from "expo-status-bar";
+import { supabase } from "@/src/utils/supabaseClient";
+import { refreshSupabaseToken } from "@/src/utils/refreshToken";
 
 export default function SplashScreen() {
   const router = useRouter();
@@ -22,6 +24,21 @@ export default function SplashScreen() {
   const textOpacity = useSharedValue(0);
 
   useEffect(() => {
+    // Try to refresh the token on app start
+    const refreshToken = async () => {
+      try {
+        const session = await refreshSupabaseToken();
+        console.log(
+          "Token refresh attempt on app start:",
+          session ? "successful" : "failed"
+        );
+      } catch (error) {
+        console.error("Error refreshing token on app start:", error);
+      }
+    };
+
+    refreshToken();
+
     // Animate logo
     scale.value = withSequence(
       withSpring(1.2, { damping: 10 }),
@@ -30,14 +47,8 @@ export default function SplashScreen() {
     opacity.value = withSpring(1);
 
     // Animate text
-    textScale.value = withDelay(
-      400,
-      withSpring(1, { damping: 12 })
-    );
-    textOpacity.value = withDelay(
-      400,
-      withTiming(1, { duration: 800 })
-    );
+    textScale.value = withDelay(400, withSpring(1, { damping: 12 }));
+    textOpacity.value = withDelay(400, withTiming(1, { duration: 800 }));
 
     // Navigate after animation
     const timer = setTimeout(() => {
@@ -65,12 +76,12 @@ export default function SplashScreen() {
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         className="flex-1 justify-center items-center"
-        style={{ backgroundColor: '#FFA500' }}
+        style={{ backgroundColor: "#FFA500" }}
       >
         <Animated.Image
-          source={require('@/assets/images/logo.png')}
+          source={require("@/assets/images/logo.png")}
           className="w-40 h-40"
-          style={[logoStyle, { tintColor: '#FFFFFF' }]}
+          style={[logoStyle, { tintColor: "#FFFFFF" }]}
           resizeMode="contain"
         />
 
@@ -81,10 +92,7 @@ export default function SplashScreen() {
           HomeMeal
         </Animated.Text>
 
-        <Animated.Text
-          className="text-white/90 text-lg mt-2"
-          style={textStyle}
-        >
+        <Animated.Text className="text-white/90 text-lg mt-2" style={textStyle}>
           Fresh homemade food
         </Animated.Text>
       </LinearGradient>

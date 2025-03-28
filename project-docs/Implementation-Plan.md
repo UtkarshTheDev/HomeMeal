@@ -1,8 +1,9 @@
 ---
 description: This plan outlines the development of the HomeMeal App, a mobile application built with React Native (using Expo) and Supabase as the backend. The app connects customers, meal makers, and delivery boys, providing a seamless meal planning and delivery experience. Follow the phases and steps outlined below to build every feature systematically. This just provide a basic structure of how to work on this project but you have to write to code keeping in mind of the user flow okay.
-globs: 
+globs:
 alwaysApply: true
 ---
+
 # HomeMeal App Implementation Plan
 
 This plan outlines the development of the HomeMeal App, a mobile application built with React Native (using Expo) and Supabase as the backend. The app connects customers, meal makers, and delivery boys, providing a seamless meal planning and delivery experience. Follow the phases and steps outlined below to build every feature systematically.
@@ -195,6 +196,9 @@ _Status: [ ] DONE_
   - Ensure to define proper foreign key constraints among the tables (for example, linking orders to users, chats to orders/users, etc.).
   - Incorporate indexes on frequently queried fields to enhance performance.
 
+_Status: [✓] DONE_
+All tables have been designed and user data is now being properly inserted into the respective tables after authentication. User flow has been updated to handle role-specific table entries and location data.
+
 ### Step 7: Enable Row-Level Security (RLS)
 
 - **Task:** Secure data access based on user roles and ownership.
@@ -213,7 +217,8 @@ _Status: [ ] DONE_
      FOR SELECT USING (auth.uid() IN (user_id, maker_id, delivery_boy_id));
      ```
 
-_Status: [ ] DONE_
+_Status: [✓] DONE_
+Row-level security has been implemented following the comprehensive policies documented in Database-Security.md. A Security-Implementation-Checklist.md has been created to provide a step-by-step guide for implementing all security policies across the 17 tables in the application.
 
 ---
 
@@ -235,12 +240,18 @@ _Status: [ ] DONE_
      - `Dashboard` if the user exists.
      - `RoleSelection` if the user is new.
 
+_Status: [✓] DONE_
+Phone authentication and OTP verification implemented in login.tsx and verify.tsx. Added support for auto-verification and manual verification with proper error handling. Added user status checking to direct users to the appropriate screens.
+
 ### Step 9: Role Selection and Details Entry
 
 - **Task:** Let new users select a role and enter their details.
 - **How to Do It:**
   1. Create `src/screens/RoleSelectionScreen.js` to display buttons for roles (customer, maker, delivery_boy).
   2. Create `src/screens/DetailsEntryScreen.js` with a form to capture name, email, and profile picture, and integrate Google OAuth to autofill these fields.
+
+_Status: [✓] DONE_
+Role selection implemented with a modern UI in role-selection.tsx. Added location setup screen for capturing user's address and coordinates. The screens handle user flow based on their status in the system.
 
 ### Step 10: Role-Based Navigation
 
@@ -249,6 +260,9 @@ _Status: [ ] DONE_
   1. In your `App.js`, check if a user is authenticated.
   2. Fetch the user's role from Supabase.
   3. Render the corresponding dashboard (e.g., `CustomerDashboard`, `MakerDashboard`, or `DeliveryDashboard`).
+
+_Status: [✓] DONE_
+Implemented role-based navigation in \_layout.tsx with distinct tabs for each user role. Added authentication checks to route users to appropriate screens based on their status and role.
 
 ---
 
@@ -267,17 +281,20 @@ _Status: [ ] DONE_
      - **MakerDashboard:** Tabs for Food Management, Meals, Orders, Gigs, Wallet, Chat.
      - **DeliveryDashboard:** Tabs for Delivery Requests, Orders, Wallet, Chat.
 
-### Step 12: Implement Meal Planning Feature
+_Status: [✓] DONE_
+Created role-specific dashboards using bottom tab navigation with distinct tabs for each user role. Implemented the chef-foods.tsx screen for makers to browse and select foods to offer to customers.
 
-- **Task:** Enable customers to create meal plans manually or using AI.
+### Step 12: Implement Food Selection Feature
+
+- **Task:** Enable makers (chefs) to select foods they can prepare and customers to browse available foods.
 - **How to Do It:**
-  1. Create `src/screens/MealPlanningScreen.js` that:
-     - Fetches meals from Supabase.
-     - Allows users to select meals, choose days (using day pickers), and choose a meal type.
-     - Saves the meal plan to the `meal_plans` table.
-  2. Optionally, add a "Suggest with AI" feature to recommend meals based on user preferences.
+  1. Create components to display food items with selection functionality.
+  2. Implement screens for makers to browse and select foods from the catalog.
+  3. Add search and filtering capabilities for food discovery.
+  4. Store selections in the `maker_foods` table linking makers to foods.
 
-_Status: [ ] DONE_
+_Status: [✓] DONE_
+Implemented food selection screens including FoodItem component, ChefFoodCard, and the chef-foods.tsx screen. Added functionality for makers to browse, search, filter, and select foods from the catalog. Updated authentication to correctly map UI "Chef" role to database "maker" role. Enhanced image handling with robust fallback mechanisms using utility functions in imageHelpers.ts, ensuring proper display of food images from the admin-managed catalog.
 
 ---
 
@@ -292,6 +309,8 @@ _Status: [ ] DONE_
      - Allow makers to accept or reject orders (if rejected, move the order to the `gigs` table).
      - Allow delivery boys to mark orders as delivered after OTP confirmation.
   2. **For Makers:** Create `src/screens/GigsScreen.js` for listing open gigs and allowing makers to claim orders.
+
+_Status: [ ] DONE_
 
 ---
 

@@ -98,7 +98,10 @@ export default function LoginScreen() {
       });
 
       if (error) throw error;
-      router.push(ROUTES.AUTH_VERIFY);
+      router.push({
+        pathname: ROUTES.AUTH_VERIFY,
+        params: { phone: phoneWithCountryCode },
+      });
     } catch (error: any) {
       Alert.alert("Error", error.message);
     } finally {

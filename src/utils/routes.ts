@@ -8,6 +8,7 @@ export const ROUTES = {
   AUTH_VERIFY: "/(auth)/verify",
   AUTH_ROLE_SELECTION: "/(auth)/role-selection",
   AUTH_PROFILE_SETUP: "/(auth)/profile-setup",
+  LOCATION_SETUP: "/(auth)/location-setup",
 
   // Tab routes
   TABS: "/(tabs)",
