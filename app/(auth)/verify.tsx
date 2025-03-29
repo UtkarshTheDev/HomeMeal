@@ -207,11 +207,7 @@ export default function VerifyScreen() {
       } else if (!existingUser?.location || !existingUser?.address) {
         // No location set yet
         router.replace(ROUTES.LOCATION_SETUP);
-      } else if (
-        !existingUser?.name ||
-        !existingUser?.profile_setup_stage ||
-        existingUser?.profile_setup_stage !== "complete"
-      ) {
+      } else if (!existingUser?.name) {
         // Profile incomplete
         router.replace(ROUTES.AUTH_PROFILE_SETUP);
       } else {

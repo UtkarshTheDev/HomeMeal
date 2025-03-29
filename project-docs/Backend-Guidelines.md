@@ -1,17 +1,18 @@
 ---
-description: This document outlines the backend architecture of the HomeMeal App, a subscription-based meal ordering and delivery platform. The backend is built using Supabase, a managed PostgreSQL database service that provides real-time capabilities, authentication, and serverless functions. The purpose of this document is to detail the architecture, API endpoints, data models, database schemas, and server logic. It also explains how the backend interacts with the frontend, ensures scalability, and provides a comprehensive view of the user flow from the backend’s perspective.
-globs: 
+description: This document outlines the backend architecture of the HomeMeal App, a subscription-based meal ordering and delivery platform. The backend is built using Supabase, a managed PostgreSQL database service that provides real-time capabilities, authentication, and serverless functions. The purpose of this document is to detail the architecture, API endpoints, data models, database schemas, and server logic. It also explains how the backend interacts with the frontend, ensures scalability, and provides a comprehensive view of the user flow from the backend's perspective.
+globs:
 alwaysApply: true
 ---
+
 # Backend Structure Document for HomeMeal App
 
 ## 1. Introduction
 
-This document outlines the backend architecture of the HomeMeal App, a subscription-based meal ordering and delivery platform. The backend is built using Supabase, a managed PostgreSQL database service that provides real-time capabilities, authentication, and serverless functions. The purpose of this document is to detail the architecture, API endpoints, data models, database schemas, and server logic. It also explains how the backend interacts with the frontend, ensures scalability, and provides a comprehensive view of the user flow from the backend’s perspective.
+This document outlines the backend architecture of the HomeMeal App, a subscription-based meal ordering and delivery platform. The backend is built using Supabase, a managed PostgreSQL database service that provides real-time capabilities, authentication, and serverless functions. The purpose of this document is to detail the architecture, API endpoints, data models, database schemas, and server logic. It also explains how the backend interacts with the frontend, ensures scalability, and provides a comprehensive view of the user flow from the backend's perspective.
 
 ## 2. Architecture Overview
 
-The backend architecture is designed around Supabase’s ecosystem, leveraging its features to manage data, authentication, real-time updates, and automated processes. The key components include:
+The backend architecture is designed around Supabase's ecosystem, leveraging its features to manage data, authentication, real-time updates, and automated processes. The key components include:
 
 ### Database: PostgreSQL, hosted on Supabase, serves as the primary data store.
 
@@ -34,23 +35,21 @@ The database consists of 17 interrelated tables, each designed to support specif
 Purpose: Stores information for all users (customers, makers, delivery boys).
 
 Fields:
-id (UUID, primary key)
 
-name (varchar)
-
-email (varchar, unique)
-
-phone_number (varchar, unique)
-
-role (enum: 'customer', 'maker', 'delivery_boy')
-
-location (json: latitude, longitude)
-
-profile_image_url (varchar)
-
-created_at (timestamp)
-
-updated_at (timestamp)
+- id (UUID, primary key)
+- name (varchar)
+- email (varchar, unique, nullable)
+- phone_number (varchar, unique)
+- role (enum: 'customer', 'maker', 'delivery_boy')
+- address (varchar, nullable)
+- city (varchar, nullable)
+- pincode (varchar, nullable)
+- location (jsonb: { latitude, longitude, address, city, pincode })
+- image_url (varchar, nullable)
+- strike_count (integer, default: 0)
+- banned (boolean, default: false)
+- created_at (timestamp with time zone, default: now())
+- updated_at (timestamp with time zone, nullable)
 
 ### Food Table (food)
 
@@ -374,19 +373,20 @@ The data models correspond to the database tables and define the structure of th
 
 ### User
 
-id (UUID)
-
-name (string)
-
-email (string)
-
-phone_number (string)
-
-role (string: 'customer', 'maker', 'delivery_boy')
-
-location (object: {latitude, longitude})
-
-profile_image_url (string)
+- id (UUID)
+- name (string)
+- email (string, nullable)
+- phone_number (string)
+- role (string: 'customer', 'maker', 'delivery_boy')
+- address (string, nullable)
+- city (string, nullable)
+- pincode (string, nullable)
+- location (object: {latitude, longitude, address, city, pincode})
+- image_url (string, nullable)
+- strike_count (number)
+- banned (boolean)
+- created_at (Date)
+- updated_at (Date, nullable)
 
 ### Food
 
@@ -604,7 +604,7 @@ Supabase distributes requests across servers internally.
 
 These practices ensure performance and reliability as the user base expands.
 
-## 9. User Flow from the Backend’s Perspective
+## 9. User Flow from the Backend's Perspective
 
 The backend handles user interactions as follows:
 
@@ -661,4 +661,4 @@ This flow ensures all user actions are processed efficiently and consistently.
 
 ## 10. Conclusion
 
-The HomeMeal App’s backend, built on Supabase, provides a robust and scalable foundation for meal planning, order management, and payments. With a well-defined database schema, RESTful API endpoints, and serverless logic, it supports seamless frontend interaction and real-time features. Scalability is ensured through optimization and Supabase’s inherent capabilities, while the user flow is meticulously handled to deliver a reliable experience. This document serves as a guide for understanding and maintaining the backend structure.
+The HomeMeal App's backend, built on Supabase, provides a robust and scalable foundation for meal planning, order management, and payments. With a well-defined database schema, RESTful API endpoints, and serverless logic, it supports seamless frontend interaction and real-time features. Scalability is ensured through optimization and Supabase's inherent capabilities, while the user flow is meticulously handled to deliver a reliable experience. This document serves as a guide for understanding and maintaining the backend structure.

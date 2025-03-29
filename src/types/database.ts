@@ -3,9 +3,18 @@ export interface User {
   name: string;
   email: string | null;
   phone_number: string;
-  role: 'customer' | 'maker' | 'delivery_boy';
-  location: { latitude: number; longitude: number } | null;
-  profile_image_url: string | null;
+  role: "customer" | "maker" | "delivery_boy";
+  address: string | null;
+  city: string | null;
+  pincode: string | null;
+  location: {
+    latitude: number;
+    longitude: number;
+    address?: string;
+    city?: string;
+    pincode?: string;
+  } | null;
+  image_url: string | null;
   strike_count: number;
   banned: boolean;
   created_at: string;
@@ -38,7 +47,13 @@ export interface Order {
   foods: string[];
   maker_id: string;
   delivery_boy_id: string | null;
-  status: 'pending' | 'accepted' | 'prepared' | 'in_transit' | 'delivered' | 'cancelled';
+  status:
+    | "pending"
+    | "accepted"
+    | "prepared"
+    | "in_transit"
+    | "delivered"
+    | "cancelled";
   otp: string;
   created_at: string;
   updated_at: string;
@@ -56,8 +71,8 @@ export interface Transaction {
   id: string;
   user_id: string;
   amount: number;
-  type: 'credit' | 'debit';
-  status: 'pending' | 'completed' | 'failed';
+  type: "credit" | "debit";
+  status: "pending" | "completed" | "failed";
   order_id: string | null;
   payment_method: string;
   transaction_id: string;

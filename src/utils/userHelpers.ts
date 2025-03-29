@@ -104,8 +104,7 @@ export const checkUserStatus = async () => {
         userData.phone_number &&
         userData.role &&
         userData.address &&
-        userData.location &&
-        userData.profile_setup_stage === "complete"
+        userData.location
     );
 
     return {

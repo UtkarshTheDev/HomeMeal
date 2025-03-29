@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -9,29 +9,209 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Image,
+  Dimensions,
 } from "react-native";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
-import Animated, { FadeInUp, FadeIn } from "react-native-reanimated";
+import Animated, {
+  FadeInUp,
+  FadeIn,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  interpolateColor,
+  ZoomIn,
+  SlideInRight,
+  FadeInDown,
+  FadeOutDown,
+  Layout,
+} from "react-native-reanimated";
 import { supabase } from "@/src/utils/supabaseClient";
 import { ROUTES } from "@/src/utils/routes";
-import { FontAwesome } from "@expo/vector-icons";
+import {
+  getCurrentLocation,
+  requestLocationPermission,
+  reverseGeocode,
+} from "@/src/utils/locationService";
+import {
+  FontAwesome5,
+  MaterialIcons,
+  Feather,
+  Ionicons,
+  MaterialCommunityIcons,
+  Entypo,
+} from "@expo/vector-icons";
+
+const { width, height } = Dimensions.get("window");
+const CARD_HEIGHT = height * 0.25;
 
 export default function LocationSetupScreen() {
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
   const [pincode, setPincode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [fetchingLocation, setFetchingLocation] = useState(false);
+  const [detectedAddress, setDetectedAddress] = useState<{
+    address: string;
+    city: string;
+    pincode: string;
+    country: string;
+  } | null>(null);
+  const [coordinates, setCoordinates] = useState({
+    latitude: 20.5937, // Default to center of India
+    longitude: 78.9629,
+    latitudeDelta: 0.0922,
+    longitudeDelta: 0.0421,
+  });
+  const [locationDetected, setLocationDetected] = useState(false);
+  const [locationPermissionDenied, setLocationPermissionDenied] =
+    useState(false);
 
-  // In a production app, you would use a Maps API to get actual coordinates
-  // For now, we'll just simulate getting coordinates
-  const getCoordinates = () => {
-    // Simulated coordinates - in a real app, you would get these from a geocoding API
+  // Track form completion directly in state for better control
+  const [progress, setProgress] = useState(0);
+
+  // Animation values
+  const detectedAddressOpacity = useSharedValue(0);
+  const buttonScale = useSharedValue(1);
+  const progressValue = useSharedValue(0);
+  const headerHeight = useSharedValue(200);
+  const locationBoxHeight = useSharedValue(160);
+  const locationBoxOpacity = useSharedValue(1);
+  const successAnimationProgress = useSharedValue(0);
+
+  // Track form completion progress
+  useEffect(() => {
+    let completedCount = 0;
+    if (address.trim()) completedCount++;
+    if (city.trim()) completedCount++;
+    if (pincode.trim()) completedCount++;
+
+    const newProgress = completedCount / 3;
+    setProgress(newProgress);
+    progressValue.value = withTiming(newProgress, { duration: 300 });
+  }, [address, city, pincode]);
+
+  // Animated styles
+  const detectedAddressStyle = useAnimatedStyle(() => {
     return {
-      latitude: 12.9716 + Math.random() * 0.05, // Random coordinates near Bangalore
-      longitude: 77.5946 + Math.random() * 0.05,
+      opacity: detectedAddressOpacity.value,
+      transform: [
+        {
+          translateY: withTiming(detectedAddressOpacity.value * 0, {
+            duration: 300,
+          }),
+        },
+      ],
     };
+  });
+
+  const buttonAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: buttonScale.value }],
+    };
+  });
+
+  const progressBarStyle = useAnimatedStyle(() => {
+    return {
+      width: `${progressValue.value * 100}%`,
+      backgroundColor: interpolateColor(
+        progressValue.value,
+        [0, 0.5, 1],
+        ["#FF9800", "#FFAD00", "#FF6B00"]
+      ),
+    };
+  });
+
+  const headerStyle = useAnimatedStyle(() => {
+    return {
+      height: headerHeight.value,
+    };
+  });
+
+  const locationBoxStyle = useAnimatedStyle(() => {
+    return {
+      height: locationBoxHeight.value,
+      opacity: locationBoxOpacity.value,
+      marginBottom: withTiming(locationDetected ? 0 : 24, { duration: 300 }),
+      transform: [
+        {
+          translateY: withTiming(locationBoxOpacity.value === 0 ? -20 : 0, {
+            duration: 300,
+          }),
+        },
+      ],
+    };
+  });
+
+  // Request location permission and get current location
+  const fetchCurrentLocation = async () => {
+    setFetchingLocation(true);
+    try {
+      const hasPermission = await requestLocationPermission();
+
+      if (!hasPermission) {
+        setLocationPermissionDenied(true);
+        Alert.alert(
+          "Location Access Denied",
+          "Please enable location access in your device settings to use automatic location detection.",
+          [{ text: "OK" }]
+        );
+        setFetchingLocation(false);
+        return;
+      }
+
+      setLocationPermissionDenied(false);
+      const location = await getCurrentLocation();
+      setCoordinates({
+        ...coordinates,
+        latitude: location.latitude,
+        longitude: location.longitude,
+      });
+
+      // Get address from coordinates
+      const addressDetails = await reverseGeocode(
+        location.latitude,
+        location.longitude
+      );
+
+      if (addressDetails) {
+        // Set detected address for display
+        setDetectedAddress({
+          address: addressDetails.address,
+          city: addressDetails.city || "",
+          pincode: addressDetails.pincode || "",
+          country: addressDetails.country || "",
+        });
+
+        // Auto-fill the form fields
+        setAddress(addressDetails.address);
+        setCity(addressDetails.city || "");
+        setPincode(addressDetails.pincode || "");
+
+        // Show address card with animation
+        setLocationDetected(true);
+        detectedAddressOpacity.value = withTiming(1, { duration: 500 });
+
+        // Shrink header to make more room for the form
+        headerHeight.value = withTiming(160, { duration: 300 });
+
+        // Animate hiding the location box with style
+        locationBoxHeight.value = withTiming(0, { duration: 600 });
+        locationBoxOpacity.value = withTiming(0, { duration: 500 });
+        successAnimationProgress.value = withTiming(1, { duration: 800 });
+      }
+    } catch (error) {
+      console.error("Error fetching location:", error);
+      Alert.alert(
+        "Location Error",
+        "We couldn't get your current location. Please try again or enter your address manually.",
+        [{ text: "OK" }]
+      );
+    } finally {
+      setFetchingLocation(false);
+    }
   };
 
   const handleSaveLocation = async () => {
@@ -41,6 +221,7 @@ export default function LocationSetupScreen() {
     }
 
     setLoading(true);
+    buttonScale.value = withTiming(0.95, { duration: 200 });
 
     try {
       const { data: userData } = await supabase.auth.getUser();
@@ -51,13 +232,10 @@ export default function LocationSetupScreen() {
       const userId = userData.user.id;
       console.log("Updating location for user:", userId);
 
-      // Get coordinates from address (simulated)
-      const { latitude, longitude } = getCoordinates();
-
       // Create location object for database
       const locationData = {
-        latitude,
-        longitude,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
         address,
         city,
         pincode,
@@ -72,7 +250,6 @@ export default function LocationSetupScreen() {
             city: city,
             pincode: pincode,
             location: locationData,
-            profile_setup_stage: "location_set",
           })
           .eq("id", userId);
 
@@ -165,13 +342,74 @@ export default function LocationSetupScreen() {
       router.replace(ROUTES.AUTH_PROFILE_SETUP);
     } finally {
       setLoading(false);
+      buttonScale.value = withTiming(1, { duration: 200 });
     }
+  };
+
+  const renderInputField = (
+    label: string,
+    value: string,
+    setter: React.Dispatch<React.SetStateAction<string>>,
+    placeholder: string,
+    icon: JSX.Element,
+    isMultiline: boolean = false,
+    keyboardType: "default" | "number-pad" = "default",
+    maxLength?: number,
+    customOnChange?: (text: string) => void
+  ) => {
+    const isCompleted = value.trim().length > 0;
+
+    return (
+      <Animated.View
+        entering={FadeInUp.delay(
+          label === "Address" ? 300 : label === "City" ? 400 : 500
+        ).duration(500)}
+      >
+        <View className="mb-4">
+          <View className="flex-row items-center mb-1">
+            {icon}
+            <Text className="ml-2 text-gray-700 font-medium text-[16px]">
+              {label}
+            </Text>
+            {isCompleted && (
+              <Animated.View entering={ZoomIn.duration(300)}>
+                <MaterialIcons
+                  name="check-circle"
+                  size={18}
+                  color="#4CAF50"
+                  style={{ marginLeft: 5 }}
+                />
+              </Animated.View>
+            )}
+          </View>
+          <View
+            className={`bg-white border rounded-2xl overflow-hidden shadow-sm ${
+              isCompleted ? "border-green-500" : "border-gray-200"
+            }`}
+          >
+            <TextInput
+              className="px-4 py-3 text-gray-800 text-[16px]"
+              placeholder={placeholder}
+              value={value}
+              onChangeText={customOnChange || setter}
+              multiline={isMultiline}
+              numberOfLines={isMultiline ? 3 : 1}
+              keyboardType={keyboardType}
+              maxLength={maxLength}
+              style={
+                isMultiline ? { minHeight: 80, textAlignVertical: "top" } : {}
+              }
+            />
+          </View>
+        </View>
+      </Animated.View>
+    );
   };
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      className="flex-1 bg-white"
+      style={{ flex: 1, backgroundColor: "#F5F8FF" }}
     >
       <StatusBar style="dark" />
 
@@ -180,113 +418,325 @@ export default function LocationSetupScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <View className="flex-1 px-6 pt-16 pb-10 justify-between">
-          {/* Header Section */}
-          <Animated.View entering={FadeInUp.duration(800)} className="mb-10">
-            <View className="flex-row items-center mb-4">
-              <View className="w-10 h-10 rounded-full bg-primary/10 items-center justify-center">
-                <FontAwesome name="map-marker" size={20} color="#FFAD00" />
+        {/* Header with Illustration */}
+        <Animated.View
+          entering={FadeInUp.duration(800)}
+          style={[{ width: "100%" }, headerStyle]}
+        >
+          {/* Modern gradient header with decorative elements */}
+          <LinearGradient
+            colors={["#FF6B00", "#FFAD00"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{ width: "100%", height: "100%", position: "relative" }}
+          >
+            <View className="absolute top-4 right-4">
+              <View className="bg-white/20 rounded-full h-16 w-16" />
+            </View>
+            <View className="absolute bottom-8 left-5">
+              <View className="bg-white/20 rounded-full h-8 w-8" />
+            </View>
+            <View className="absolute top-12 left-12">
+              <View className="bg-white/10 rounded-full h-6 w-6" />
+            </View>
+
+            <View className="items-center justify-center h-full">
+              <View className="bg-white/30 p-5 rounded-full mb-3">
+                <MaterialIcons name="location-on" size={45} color="#fff" />
               </View>
-              <Text className="text-3xl font-bold text-text-primary ml-3">
-                Set Your Location
+            </View>
+          </LinearGradient>
+
+          <LinearGradient
+            colors={["rgba(245, 248, 255, 0)", "rgba(245, 248, 255, 1)"]}
+            style={{
+              position: "absolute",
+              bottom: 0,
+              width: width,
+              height: 80,
+            }}
+          />
+
+          <View className="absolute bottom-2 left-0 right-0 px-6">
+            <Text className="text-3xl font-bold text-slate-800">
+              Set Your Location
+            </Text>
+            <Text className="text-gray-600 text-base mt-[2px]">
+              Help us find delicious meals near you
+            </Text>
+          </View>
+        </Animated.View>
+
+        <View className="flex-1 px-6 pb-8">
+          {/* Progress Bar */}
+          <Animated.View
+            entering={FadeInUp.delay(200).duration(500)}
+            className="mt-4 mb-6"
+          >
+            <View className="h-3 bg-gray-200 rounded-full overflow-hidden">
+              <Animated.View style={[{ height: "100%" }, progressBarStyle]} />
+            </View>
+            <View className="flex-row justify-between mt-2">
+              <Text className="text-gray-500 text-xs">Address Details</Text>
+              <Text className="font-medium text-xs">
+                {Math.round(progress * 100)}% Complete
               </Text>
             </View>
-            <Text className="text-text-secondary text-base">
-              We need your location to show nearby meal options and for delivery
-            </Text>
           </Animated.View>
 
-          {/* Form Section */}
-          <Animated.View
-            entering={FadeInUp.delay(300).duration(800)}
-            className="space-y-5 mb-10"
-          >
-            {/* Address Input */}
-            <View>
-              <Text className="text-text-primary font-medium mb-2">
-                Address
+          {/* Modern GPS Location Detection Card with hide animation when location detected */}
+          {!locationDetected ? (
+            <Animated.View
+              entering={FadeInUp.delay(300).duration(600)}
+              exiting={FadeOutDown.duration(500)}
+              style={locationBoxStyle}
+              className="mb-6 overflow-hidden"
+            >
+              <TouchableOpacity
+                onPress={fetchCurrentLocation}
+                disabled={fetchingLocation}
+                activeOpacity={0.9}
+                className="overflow-hidden rounded-2xl shadow-md"
+              >
+                <View className="bg-white border border-orange-100 rounded-2xl">
+                  <View className="pt-4 px-5 pb-3">
+                    <View className="flex-row items-center mb-3">
+                      <View className="bg-orange-50 p-3 mr-4 rounded-xl">
+                        <MaterialIcons
+                          name="my-location"
+                          size={28}
+                          color="#FF6B00"
+                        />
+                      </View>
+                      <View className="flex-1">
+                        <Text className="text-gray-800 font-bold text-lg">
+                          Use Current Location
+                        </Text>
+                        <Text className="text-gray-500 text-sm">
+                          Get your address automatically via GPS
+                        </Text>
+                      </View>
+                      <View className="ml-2">
+                        <View className="bg-orange-100 rounded-full p-2">
+                          <Ionicons
+                            name="arrow-forward"
+                            size={22}
+                            color="#FF6B00"
+                          />
+                        </View>
+                      </View>
+                    </View>
+
+                    <LinearGradient
+                      colors={["#FF8A00", "#FF6B00"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      className="rounded-xl overflow-hidden mt-1"
+                    >
+                      {fetchingLocation ? (
+                        <View className="p-3 flex-row items-center justify-center">
+                          <ActivityIndicator color="#FFFFFF" size="small" />
+                          <Text className="text-white ml-2 font-medium">
+                            Detecting your location...
+                          </Text>
+                        </View>
+                      ) : locationPermissionDenied ? (
+                        <View className="p-3 flex-row items-center justify-center">
+                          <MaterialIcons
+                            name="location-disabled"
+                            size={18}
+                            color="#FFFFFF"
+                          />
+                          <Text className="text-white ml-2 font-medium">
+                            Enable location access in settings
+                          </Text>
+                        </View>
+                      ) : (
+                        <View className="p-3 flex-row items-center justify-center">
+                          <MaterialIcons
+                            name="speed"
+                            size={18}
+                            color="#FFFFFF"
+                          />
+                          <Text className="text-white ml-2 font-medium">
+                            Faster & easier than typing
+                          </Text>
+                        </View>
+                      )}
+                    </LinearGradient>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
+          ) : null}
+
+          {/* Show line separator with text only if location is not detected */}
+          {!locationDetected ? (
+            <Animated.View
+              entering={FadeInUp.delay(400).duration(500)}
+              exiting={FadeOutDown.duration(300)}
+              className="flex-row items-center mb-6"
+            >
+              <View className="flex-1 h-[1px] bg-gray-300" />
+              <Text className="mx-4 text-gray-500 font-medium">
+                OR ENTER MANUALLY
               </Text>
-              <TextInput
-                className="bg-background-card border border-gray-200 rounded-xl px-4 py-3 text-text-primary"
-                placeholder="Enter your full address"
-                value={address}
-                onChangeText={setAddress}
-                multiline={true}
-                numberOfLines={3}
-                style={{ minHeight: 100, textAlignVertical: "top" }}
-              />
-            </View>
+              <View className="flex-1 h-[1px] bg-gray-300" />
+            </Animated.View>
+          ) : null}
+
+          {/* Detected Address Card with enhanced animation (shows when location is fetched) */}
+          {locationDetected && (
+            <Animated.View
+              entering={FadeInUp.duration(500)}
+              layout={Layout.springify()}
+              className="bg-white shadow-md rounded-xl border border-green-100 mb-4 overflow-hidden"
+            >
+              <Animated.View style={detectedAddressStyle}>
+                <View className="p-4">
+                  <View className="flex-row items-center mb-3">
+                    <View className="bg-green-50 p-2 rounded-lg">
+                      <MaterialIcons
+                        name="location-searching"
+                        size={20}
+                        color="#10B981"
+                      />
+                    </View>
+                    <Text className="ml-2 text-gray-800 font-bold text-base">
+                      We found your location
+                    </Text>
+                    <View className="ml-auto bg-green-50 px-2 py-1 rounded-md">
+                      <Text className="text-green-600 text-xs font-medium">
+                        Auto-filled
+                      </Text>
+                    </View>
+                  </View>
+
+                  {detectedAddress && (
+                    <View className="bg-gray-50 p-3 rounded-lg">
+                      <View className="flex-row items-start mb-2">
+                        <MaterialIcons
+                          name="location-on"
+                          size={16}
+                          color="#FF6B00"
+                          style={{ marginTop: 2 }}
+                        />
+                        <Text className="text-gray-700 ml-2 flex-1">
+                          {detectedAddress.address}
+                        </Text>
+                      </View>
+                      <View className="flex-row items-center justify-between">
+                        <View className="flex-row items-center">
+                          <MaterialCommunityIcons
+                            name="city-variant-outline"
+                            size={16}
+                            color="#64748B"
+                          />
+                          <Text className="text-gray-600 ml-2">
+                            {detectedAddress.city}
+                          </Text>
+                        </View>
+                        <View className="flex-row items-center">
+                          <MaterialIcons name="pin" size={16} color="#64748B" />
+                          <Text className="text-gray-600 ml-1">
+                            {detectedAddress.pincode || "N/A"}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  )}
+                </View>
+              </Animated.View>
+            </Animated.View>
+          )}
+
+          {/* Form Section with adaptive animations */}
+          <Animated.View className="mt-2" layout={Layout.springify()}>
+            {/* Address Input */}
+            {renderInputField(
+              "Address",
+              address,
+              setAddress,
+              "Enter your full address",
+              <MaterialIcons name="location-on" size={18} color="#FF6B00" />,
+              true
+            )}
 
             {/* City Input */}
-            <View>
-              <Text className="text-text-primary font-medium mb-2">City</Text>
-              <TextInput
-                className="bg-background-card border border-gray-200 rounded-xl px-4 py-3 text-text-primary"
-                placeholder="Enter your city"
-                value={city}
-                onChangeText={setCity}
-              />
-            </View>
+            {renderInputField(
+              "City",
+              city,
+              setCity,
+              "Enter your city",
+              <MaterialCommunityIcons
+                name="city-variant-outline"
+                size={18}
+                color="#FF6B00"
+              />,
+              false
+            )}
 
             {/* Pincode Input */}
-            <View>
-              <Text className="text-text-primary font-medium mb-2">
-                Pincode
-              </Text>
-              <TextInput
-                className="bg-background-card border border-gray-200 rounded-xl px-4 py-3 text-text-primary"
-                placeholder="Enter your pincode"
-                value={pincode}
-                onChangeText={(text) => setPincode(text.replace(/[^0-9]/g, ""))}
-                keyboardType="number-pad"
-                maxLength={6}
-              />
-            </View>
-          </Animated.View>
-
-          {/* Use Current Location Button (Simulated) */}
-          <Animated.View
-            entering={FadeInUp.delay(400).duration(800)}
-            className="mb-10"
-          >
-            <TouchableOpacity
-              className="flex-row items-center justify-center py-3 border border-primary rounded-xl"
-              onPress={() => {
-                setAddress("123 Main Street, Some Locality");
-                setCity("Bangalore");
-                setPincode("560001");
-              }}
-            >
-              <FontAwesome name="location-arrow" size={16} color="#FFAD00" />
-              <Text className="text-primary font-medium ml-2">
-                Use My Current Location
-              </Text>
-            </TouchableOpacity>
+            {renderInputField(
+              "Pincode",
+              pincode,
+              setPincode,
+              "Enter your pincode",
+              <MaterialIcons name="pin" size={18} color="#FF6B00" />,
+              false,
+              "number-pad",
+              6,
+              (text) => setPincode(text.replace(/[^0-9]/g, ""))
+            )}
           </Animated.View>
 
           {/* Save Location Button */}
-          <Animated.View entering={FadeIn.delay(500).duration(800)}>
+          <Animated.View
+            entering={FadeInUp.delay(700).duration(500)}
+            style={buttonAnimatedStyle}
+            className="mt-auto pt-4"
+          >
             <TouchableOpacity
               onPress={handleSaveLocation}
-              disabled={loading}
+              disabled={
+                loading || !address.trim() || !city.trim() || !pincode.trim()
+              }
               className="w-full"
             >
               <LinearGradient
                 colors={["#FFAD00", "#FF6B00"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                className={`h-[54px] rounded-xl items-center justify-center shadow-sm
-                  ${loading ? "opacity-70" : ""}`}
+                className={`py-4 rounded-2xl items-center justify-center shadow-md
+                  ${
+                    !address.trim() || !city.trim() || !pincode.trim()
+                      ? "opacity-70"
+                      : ""
+                  }`}
               >
                 {loading ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
-                  <Text className="text-white font-bold text-base">
-                    Save & Continue
-                  </Text>
+                  <View className="flex-row items-center">
+                    <Text className="text-white font-bold text-lg">
+                      Save & Continue
+                    </Text>
+                    <Feather
+                      name="arrow-right"
+                      size={20}
+                      color="#FFFFFF"
+                      style={{ marginLeft: 8 }}
+                    />
+                  </View>
                 )}
               </LinearGradient>
             </TouchableOpacity>
+
+            {(!address.trim() || !city.trim() || !pincode.trim()) && (
+              <Text className="text-center text-gray-500 text-sm mt-2">
+                Please fill in all fields to continue
+              </Text>
+            )}
           </Animated.View>
         </View>
       </ScrollView>

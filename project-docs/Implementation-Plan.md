@@ -253,6 +253,20 @@ Phone authentication and OTP verification implemented in login.tsx and verify.ts
 _Status: [✓] DONE_
 Role selection implemented with a modern UI in role-selection.tsx. Added location setup screen for capturing user's address and coordinates. The screens handle user flow based on their status in the system.
 
+### Step 9.1: Google Authentication and Environment Variables
+
+- **Task:** Implement Google Authentication for profile setup and move sensitive keys to environment variables.
+- **How to Do It:**
+  1. Set up project in Google Cloud Console and obtain OAuth credentials.
+  2. Create `.env` file for environment variables and add to `.gitignore`.
+  3. Create `.env.example` with placeholders for required variables.
+  4. Implement Google Sign-In in profile setup screen using Expo Auth Session.
+  5. Update UI with Lucide icons for modern, consistent appearance.
+  6. Document the setup process and environment variable structure.
+
+_Status: [✓] DONE_
+Implemented Google Authentication with environment variables for secure credential management. Created UI-Components.md to document the new icon system and UI patterns. Updated Google-Authentication.md with detailed setup instructions. Modernized the profile setup UI with Lucide icons and improved visual hierarchy.
+
 ### Step 10: Role-Based Navigation
 
 - **Task:** Direct users to dashboards based on their role.

@@ -23,21 +23,54 @@ import Animated, {
   FadeInUp,
 } from "react-native-reanimated";
 import { supabase } from "@/src/utils/supabaseClient";
-import { useSupabase } from "@/src/utils/useSupabase";
 import { uploadImage as uploadImageUtil } from "@/src/utils/userHelpers";
+import * as WebBrowser from "expo-web-browser";
+// @ts-ignore - Ignore type checking for expo-auth-session
+import { useAuthRequest, makeRedirectUri } from "expo-auth-session";
+import { User } from "lucide-react-native";
+import { LinearGradient } from "expo-linear-gradient";
+
+// Required for Google Sign-In
+WebBrowser.maybeCompleteAuthSession();
+
+// Google Authentication configuration
+const googleAuthDiscovery = {
+  authorizationEndpoint: "https://accounts.google.com/o/oauth2/v2/auth",
+  tokenEndpoint: "https://oauth2.googleapis.com/token",
+  revocationEndpoint: "https://oauth2.googleapis.com/revoke",
+};
+
+// Use environment variables for Google Client IDs
+const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
 
 const ProfileSetupScreen = () => {
-  const { session } = useSupabase();
-  const [userRole, setUserRole] = useState<string | null>(null);
+  // We'll use supabase directly instead of the useSupabase hook
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [profileImage, setProfileImage] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetchingUserData, setFetchingUserData] = useState(true);
+  const [googleSignInLoading, setGoogleSignInLoading] = useState(false);
+
+  // Configure Google Sign-In with Expo Auth Session
+  const [request, response, promptAsync] = useAuthRequest(
+    {
+      clientId: WEB_CLIENT_ID,
+      iosClientId: IOS_CLIENT_ID,
+      androidClientId: ANDROID_CLIENT_ID,
+      scopes: ["profile", "email"],
+      redirectUri: makeRedirectUri({ useProxy: true }),
+    },
+    googleAuthDiscovery
+  );
 
   // Animation values
   const buttonScale = useSharedValue(1);
+  const googleButtonScale = useSharedValue(1);
 
   // Animation styles
   const buttonAnimatedStyle = useAnimatedStyle(() => {
@@ -46,43 +79,103 @@ const ProfileSetupScreen = () => {
     };
   });
 
+  const googleButtonAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: googleButtonScale.value }],
+    };
+  });
+
   // Fetch user data on component mount
   useEffect(() => {
     const fetchUserData = async () => {
-      if (!session?.user) {
-        console.error("No authenticated user found");
-        setFetchingUserData(false);
-        return;
-      }
-
       try {
-        // Get the current user's data
-        const { data: userData, error } = await supabase
-          .from("users")
-          .select("*")
-          .eq("id", session.user.id)
-          .single();
+        // Get the current user
+        const { data: userData, error: authError } =
+          await supabase.auth.getUser();
 
-        if (error) {
-          console.error("Error fetching user data:", error);
-        } else if (userData) {
-          // Pre-fill form with existing data if available
-          setUserRole(userData.role);
-          if (userData.name) setName(userData.name);
-          if (userData.email) setEmail(userData.email);
-          if (userData.phone_number) setPhoneNumber(userData.phone_number);
-          if (userData.profile_image_url)
-            setProfileImage(userData.profile_image_url);
+        if (authError || !userData?.user) {
+          console.error("No authenticated user found", authError);
+          setFetchingUserData(false);
+          return;
+        }
+
+        const userId = userData.user.id;
+
+        try {
+          // Get the current user's data
+          const { data: profileData, error } = await supabase
+            .from("users")
+            .select("*")
+            .eq("id", userId)
+            .single();
+
+          if (error) {
+            console.error("Error fetching user data:", error);
+          } else if (profileData) {
+            // Pre-fill form with existing data if available
+            setUserRole(profileData.role);
+            if (profileData.name) setName(profileData.name);
+            if (profileData.email) setEmail(profileData.email);
+            if (profileData.phone_number)
+              setPhoneNumber(profileData.phone_number);
+            if (profileData.image_url) setProfileImage(profileData.image_url);
+          }
+        } catch (error) {
+          console.error("Error in fetchUserData:", error);
+        } finally {
+          setFetchingUserData(false);
         }
       } catch (error) {
-        console.error("Error in fetchUserData:", error);
-      } finally {
+        console.error("Error getting auth user:", error);
         setFetchingUserData(false);
       }
     };
 
     fetchUserData();
-  }, [session]);
+  }, []);
+
+  // Handle Google Sign-In response
+  useEffect(() => {
+    const handleGoogleResponse = async () => {
+      if (response?.type === "success") {
+        setGoogleSignInLoading(true);
+        try {
+          // Get user info from Google
+          const { authentication } = response;
+          const accessToken = authentication?.accessToken;
+
+          if (accessToken) {
+            // Fetch user details from Google
+            const userInfoResponse = await fetch(
+              "https://www.googleapis.com/userinfo/v2/me",
+              {
+                headers: { Authorization: `Bearer ${accessToken}` },
+              }
+            );
+
+            const userInfo = await userInfoResponse.json();
+
+            // Update form fields with Google data
+            if (userInfo.name) setName(userInfo.name);
+            if (userInfo.email) setEmail(userInfo.email);
+            if (userInfo.picture) setProfileImage(userInfo.picture);
+
+            // Note: Google doesn't provide phone number, so we keep the existing one
+          }
+        } catch (error) {
+          console.error("Error fetching Google user data:", error);
+          Alert.alert(
+            "Error",
+            "Failed to get data from Google. Please try again or fill in the details manually."
+          );
+        } finally {
+          setGoogleSignInLoading(false);
+        }
+      }
+    };
+
+    handleGoogleResponse();
+  }, [response]);
 
   // Pick image from gallery
   const pickImage = async () => {
@@ -113,10 +206,26 @@ const ProfileSetupScreen = () => {
     }
   };
 
+  // Handle Google Sign-In button press
+  const handleGoogleSignIn = async () => {
+    googleButtonScale.value = withSequence(
+      withTiming(0.95, { duration: 100 }),
+      withTiming(1, { duration: 100 })
+    );
+
+    try {
+      await promptAsync({ useProxy: true });
+    } catch (error) {
+      console.error("Error initiating Google Sign-In:", error);
+      Alert.alert(
+        "Error",
+        "Failed to connect to Google. Please try again or fill in the details manually."
+      );
+    }
+  };
+
   // Upload image to Supabase Storage
   const uploadImage = async (uri: string) => {
-    if (!session?.user) return null;
-
     try {
       // Use our utility function to upload the image
       const publicUrl = await uploadImageUtil(uri, "profiles");
@@ -136,14 +245,21 @@ const ProfileSetupScreen = () => {
 
   // Save the user profile
   const saveProfile = async () => {
-    if (!session?.user) {
-      Alert.alert("Error", "You must be logged in");
-      return;
-    }
-
     // Validate form
     if (!name.trim()) {
       Alert.alert("Required Field", "Please enter your name");
+      return;
+    }
+
+    if (!email.trim()) {
+      Alert.alert("Required Field", "Please enter your email address");
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      Alert.alert("Invalid Email", "Please enter a valid email address");
       return;
     }
 
@@ -156,47 +272,54 @@ const ProfileSetupScreen = () => {
     setLoading(true);
 
     try {
-      const userId = session.user.id;
+      // Get current user
+      const { data: userData, error: authError } =
+        await supabase.auth.getUser();
+
+      if (authError || !userData?.user) {
+        Alert.alert("Error", "You must be logged in");
+        setLoading(false);
+        return;
+      }
+
+      const userId = userData.user.id;
       console.log("Saving profile for user:", userId);
 
       // Upload profile image if selected
-      let profileImageUrl = null;
+      let imageUrl = null;
       if (profileImage) {
         try {
-          profileImageUrl = await uploadImage(profileImage);
+          // If the image is from Google (starts with https), use it directly
+          if (profileImage.startsWith("http")) {
+            imageUrl = profileImage;
+          } else {
+            // Otherwise upload it to Supabase
+            imageUrl = await uploadImage(profileImage);
+          }
         } catch (uploadError) {
           console.error("Error uploading profile image:", uploadError);
           // Continue without image if there's an error
         }
       }
 
-      // Update user profile in database
-      try {
-        const { error } = await supabase
-          .from("users")
-          .update({
-            name,
-            email: email || null, // Handle empty string
-            profile_image_url: profileImageUrl,
-            profile_setup_stage: "complete", // Mark profile as complete
-          })
-          .eq("id", userId);
+      // Update user profile
+      const { error: updateError } = await supabase
+        .from("users")
+        .update({
+          name: name,
+          email: email,
+          image_url: imageUrl || null,
+        })
+        .eq("id", userId);
 
-        if (error) {
-          console.error("Error updating profile:", error);
-          Alert.alert(
-            "Warning",
-            "There was an issue saving your profile, but we'll continue with what we have."
-          );
-        } else {
-          console.log("Successfully saved profile");
-        }
-      } catch (updateError) {
-        console.error("Exception updating profile:", updateError);
+      if (updateError) {
+        console.error("Error updating profile:", updateError);
         Alert.alert(
           "Warning",
           "There was an issue saving your profile, but we'll continue with what we have."
         );
+      } else {
+        console.log("Successfully saved profile");
       }
 
       // Redirect to the main app interface
@@ -208,9 +331,6 @@ const ProfileSetupScreen = () => {
         "Error",
         "An unexpected error occurred, but we'll try to continue."
       );
-
-      // Try to navigate anyway
-      router.replace("/(tabs)" as any);
     } finally {
       setLoading(false);
     }
@@ -218,260 +338,219 @@ const ProfileSetupScreen = () => {
 
   if (fetchingUserData) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
         <ActivityIndicator size="large" color="#FF6B00" />
-        <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
   }
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 0}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ flex: 1, backgroundColor: "#FFFFFF" }}
     >
       <StatusBar style="dark" />
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ flexGrow: 1 }}
       >
-        <Animated.View
-          entering={FadeInUp.delay(100).duration(500)}
-          style={styles.header}
-        >
-          <Image
-            source={require("@/assets/images/logo.png")}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-          <Text style={styles.title}>Complete Your Profile</Text>
-          <Text style={styles.subtitle}>
-            Please provide your details to get started
+        <View style={{ padding: 20 }}>
+          <Text style={{ fontSize: 28, fontWeight: "bold", marginBottom: 10 }}>
+            Complete Your Profile
           </Text>
-        </Animated.View>
+          <Text style={{ fontSize: 16, color: "#64748B", marginBottom: 30 }}>
+            Let's get to know you better
+          </Text>
 
-        <Animated.View
-          entering={FadeInUp.delay(200).duration(500)}
-          style={styles.profileImageContainer}
-        >
-          <TouchableOpacity
-            onPress={pickImage}
-            style={styles.imagePickerButton}
+          {/* Profile Image Picker */}
+          <View style={{ alignItems: "center", marginBottom: 30 }}>
+            <TouchableOpacity onPress={pickImage}>
+              {profileImage ? (
+                <Image
+                  source={{ uri: profileImage }}
+                  style={{
+                    width: 120,
+                    height: 120,
+                    borderRadius: 60,
+                    marginBottom: 10,
+                  }}
+                />
+              ) : (
+                <View
+                  style={{
+                    width: 120,
+                    height: 120,
+                    borderRadius: 60,
+                    backgroundColor: "#F3F4F6",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    marginBottom: 10,
+                  }}
+                >
+                  <User size={50} color="#A0AEC0" />
+                </View>
+              )}
+              <Text style={{ color: "#FF6B00", fontWeight: "600" }}>
+                {profileImage ? "Change Photo" : "Add Photo"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Google Sign-In Button */}
+          <Animated.View
+            style={[{ marginBottom: 20 }, googleButtonAnimatedStyle]}
           >
-            {profileImage ? (
-              <Image
-                source={{ uri: profileImage }}
-                style={styles.profileImage}
-              />
-            ) : (
-              <View style={styles.placeholderImage}>
-                <Text style={styles.placeholderText}>Add Photo</Text>
-              </View>
-            )}
-            <View style={styles.editIconContainer}>
-              <Text style={styles.editIcon}>+</Text>
-            </View>
-          </TouchableOpacity>
-        </Animated.View>
+            <TouchableOpacity
+              onPress={handleGoogleSignIn}
+              disabled={googleSignInLoading}
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#fff",
+                padding: 12,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "#E2E8F0",
+              }}
+            >
+              {googleSignInLoading ? (
+                <ActivityIndicator size="small" color="#4285F4" />
+              ) : (
+                <>
+                  <Image
+                    source={require("@/assets/images/google-logo.png")}
+                    style={{ width: 24, height: 24, marginRight: 10 }}
+                    resizeMode="contain"
+                  />
+                  <Text
+                    style={{
+                      fontSize: 16,
+                      color: "#2D3748",
+                      fontWeight: "500",
+                    }}
+                  >
+                    Fill from Google Account
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </Animated.View>
 
-        <Animated.View
-          entering={FadeInUp.delay(300).duration(500)}
-          style={styles.formContainer}
-        >
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Full Name</Text>
+          {/* Divider */}
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              marginVertical: 20,
+            }}
+          >
+            <View style={{ flex: 1, height: 1, backgroundColor: "#E2E8F0" }} />
+            <Text style={{ paddingHorizontal: 10, color: "#64748B" }}>
+              OR FILL MANUALLY
+            </Text>
+            <View style={{ flex: 1, height: 1, backgroundColor: "#E2E8F0" }} />
+          </View>
+
+          {/* Form fields */}
+          <View style={{ marginBottom: 16 }}>
+            <Text style={{ fontSize: 14, color: "#4A5568", marginBottom: 8 }}>
+              Full Name *
+            </Text>
             <TextInput
-              style={styles.input}
+              style={{
+                backgroundColor: "#F8FAFC",
+                padding: 16,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "#E2E8F0",
+                fontSize: 16,
+              }}
               placeholder="Enter your full name"
               value={name}
               onChangeText={setName}
-              autoCapitalize="words"
             />
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Email (Optional)</Text>
+          <View style={{ marginBottom: 16 }}>
+            <Text style={{ fontSize: 14, color: "#4A5568", marginBottom: 8 }}>
+              Email Address *
+            </Text>
             <TextInput
-              style={styles.input}
-              placeholder="Enter your email address"
+              style={{
+                backgroundColor: "#F8FAFC",
+                padding: 16,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "#E2E8F0",
+                fontSize: 16,
+              }}
+              placeholder="Enter your email"
               value={email}
               onChangeText={setEmail}
-              autoCapitalize="none"
               keyboardType="email-address"
+              autoCapitalize="none"
             />
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Phone Number</Text>
+          <View style={{ marginBottom: 16 }}>
+            <Text style={{ fontSize: 14, color: "#4A5568", marginBottom: 8 }}>
+              Phone Number
+            </Text>
             <TextInput
-              style={[styles.input, styles.disabledInput]}
+              style={{
+                backgroundColor: "#F8FAFC",
+                padding: 16,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "#E2E8F0",
+                fontSize: 16,
+                color: "#A0AEC0",
+              }}
               value={phoneNumber}
               editable={false}
             />
-            <Text style={styles.helperText}>
+            <Text style={{ fontSize: 12, color: "#A0AEC0", marginTop: 4 }}>
               Phone number cannot be changed
             </Text>
           </View>
-        </Animated.View>
 
-        <Animated.View
-          entering={FadeInUp.delay(400).duration(500)}
-          style={[styles.buttonContainer, buttonAnimatedStyle]}
-        >
-          <TouchableOpacity
-            style={styles.saveButton}
-            onPress={saveProfile}
-            disabled={loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.saveButtonText}>Save Profile</Text>
-            )}
-          </TouchableOpacity>
-        </Animated.View>
+          <Animated.View style={buttonAnimatedStyle}>
+            <TouchableOpacity
+              onPress={saveProfile}
+              disabled={loading}
+              style={{ marginTop: 20, marginBottom: 40 }}
+            >
+              <LinearGradient
+                colors={["#FFAD00", "#FF6B00"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={{
+                  padding: 16,
+                  borderRadius: 12,
+                  alignItems: "center",
+                }}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" />
+                ) : (
+                  <Text
+                    style={{
+                      color: "#FFFFFF",
+                      fontSize: 16,
+                      fontWeight: "600",
+                    }}
+                  >
+                    Save & Continue
+                  </Text>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#ffffff",
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#ffffff",
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: "#666666",
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: 40,
-    paddingBottom: 40,
-  },
-  header: {
-    alignItems: "center",
-    marginBottom: 32,
-  },
-  logo: {
-    width: 60,
-    height: 60,
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#333333",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    color: "#666666",
-    textAlign: "center",
-  },
-  profileImageContainer: {
-    alignItems: "center",
-    marginBottom: 32,
-  },
-  imagePickerButton: {
-    position: "relative",
-  },
-  profileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-  },
-  placeholderImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: "#f0f0f0",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderStyle: "dashed",
-  },
-  placeholderText: {
-    fontSize: 16,
-    color: "#999999",
-  },
-  editIconContainer: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    backgroundColor: "#FF6B00",
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 3,
-    borderColor: "#FFFFFF",
-  },
-  editIcon: {
-    fontSize: 20,
-    color: "#FFFFFF",
-    fontWeight: "bold",
-  },
-  formContainer: {
-    marginBottom: 24,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 16,
-    color: "#333333",
-    marginBottom: 8,
-    fontWeight: "500",
-  },
-  input: {
-    backgroundColor: "#f8f8f8",
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    color: "#333333",
-  },
-  disabledInput: {
-    backgroundColor: "#f0f0f0",
-    color: "#999999",
-  },
-  helperText: {
-    fontSize: 13,
-    color: "#999999",
-    marginTop: 6,
-  },
-  buttonContainer: {
-    marginTop: 12,
-  },
-  saveButton: {
-    backgroundColor: "#FF6B00",
-    borderRadius: 12,
-    paddingVertical: 16,
-    alignItems: "center",
-    shadowColor: "#FF6B00",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  saveButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-});
 
 export default ProfileSetupScreen;
