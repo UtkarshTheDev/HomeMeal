@@ -9,6 +9,9 @@ export const ROUTES = {
   AUTH_ROLE_SELECTION: "/(auth)/role-selection",
   AUTH_PROFILE_SETUP: "/(auth)/profile-setup",
   LOCATION_SETUP: "/(auth)/location-setup",
+  MEAL_CREATION_SETUP: "/(auth)/meal-creation-setup",
+  MAKER_SELECTION_SETUP: "/(auth)/maker-selection-setup",
+  WALLET_SETUP: "/(auth)/wallet-setup",
 
   // Tab routes
   TABS: "/(tabs)",
@@ -16,6 +19,8 @@ export const ROUTES = {
   TAB_ORDERS: "/(tabs)/orders",
   TAB_PROFILE: "/(tabs)/profile",
   TAB_SEARCH: "/(tabs)/search",
+  TAB_CREATE_MEAL_PLAN: "/(tabs)/create-meal-plan",
+  TAB_WALLET: "/(tabs)/wallet",
 
   // Modal route
   MODAL: "/modal",

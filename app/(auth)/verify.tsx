@@ -145,29 +145,19 @@ export default function VerifyScreen() {
         throw new Error("Authentication successful but no user ID returned");
       }
 
-      // First, safely check if a user record already exists in the users table
-      let userExists = false;
-      let existingUser = null;
+      // Use checkUserStatus to get comprehensive user status
+      const { isNewUser, hasRole, hasLocation, hasCompletedProfile, userData } =
+        await checkUserStatus();
 
-      try {
-        const { data: user, error: userCheckError } = await supabase
-          .from("users")
-          .select(
-            "id, role, phone_number, address, location, name, profile_setup_stage"
-          )
-          .eq("id", userId)
-          .maybeSingle(); // Use maybeSingle instead of single to avoid errors
+      console.log("User status:", {
+        isNewUser,
+        hasRole,
+        hasLocation,
+        hasCompletedProfile,
+      });
 
-        if (!userCheckError && user) {
-          userExists = true;
-          existingUser = user;
-        }
-      } catch (e) {
-        console.log("Error checking user, assuming new user:", e);
-      }
-
-      // If the user doesn't exist in our users table, create a new entry
-      if (!userExists) {
+      // If user is new, create a record in the users table
+      if (isNewUser) {
         console.log("Creating new user with ID:", userId);
         try {
           // Insert a new user record with basic information
@@ -179,7 +169,17 @@ export default function VerifyScreen() {
 
           if (insertError) {
             console.error("Error creating user record:", insertError);
-            // Continue even if there's an error - the auth is successful
+            // Check if it's a duplicate key error (user already exists)
+            if (insertError.code === "23505") {
+              console.log("User already exists, continuing with flow...");
+              // We'll handle navigation below based on user status
+            } else {
+              // For other errors, show a message but continue (auth is successful)
+              Alert.alert(
+                "Warning",
+                "Your account was created but we couldn't save all your information. Some features may be limited."
+              );
+            }
           } else {
             console.log(
               "Successfully created new user in database with ID:",
@@ -191,23 +191,20 @@ export default function VerifyScreen() {
           // Continue execution - auth is successful
         }
 
-        // Navigate to role selection for new users
+        // For new users, always go to role selection first
         router.replace(ROUTES.AUTH_ROLE_SELECTION);
         setLoading(false);
         return;
       }
 
-      // For existing users, check their profile status
-      console.log("User exists, checking profile status:", existingUser);
-
-      // We know existingUser is not null here because userExists is true
-      if (!existingUser?.role) {
+      // For existing users, navigate based on their profile completion status
+      if (!hasRole) {
         // No role selected yet
         router.replace(ROUTES.AUTH_ROLE_SELECTION);
-      } else if (!existingUser?.location || !existingUser?.address) {
+      } else if (!hasLocation) {
         // No location set yet
         router.replace(ROUTES.LOCATION_SETUP);
-      } else if (!existingUser?.name) {
+      } else if (!hasCompletedProfile) {
         // Profile incomplete
         router.replace(ROUTES.AUTH_PROFILE_SETUP);
       } else {
@@ -297,6 +294,15 @@ export default function VerifyScreen() {
             </Animated.View>
           ))}
         </Animated.View>
+
+        {error ? (
+          <Animated.View
+            entering={FadeIn.duration(300)}
+            className="items-center mb-4"
+          >
+            <Text className="text-red-500">{error}</Text>
+          </Animated.View>
+        ) : null}
 
         {loading && (
           <Animated.View

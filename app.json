@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+    "scheme": "homemeal",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "backgroundColor": "#ffffff",
@@ -15,14 +15,16 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.homemeal.app"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/logo.png",
         "backgroundColor": "#ffffff"
       },
-      "jsEngine": "hermes"
+      "jsEngine": "hermes",
+      "package": "com.homemeal.app"
     },
     "web": {
       "bundler": "metro",
@@ -32,6 +34,7 @@
     "plugins": ["expo-router"],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "owner": "homemeal"
   }
 }

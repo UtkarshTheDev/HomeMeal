@@ -1,112 +1,165 @@
-import { useEffect, useRef } from "react";
-import { View, Dimensions, Text, Image } from "react-native";
-import LottieView from "lottie-react-native";
+import React, { useEffect } from "react";
+import { View, StyleSheet, Text, Dimensions, Image } from "react-native";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withTiming,
-  withSpring,
+  withDelay,
+  withSequence,
   Easing,
-  runOnJS,
-  interpolateColor,
+  FadeIn,
+  SlideInUp,
 } from "react-native-reanimated";
+import { LinearGradient } from "expo-linear-gradient";
 
-const { width } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
 
 interface SplashAnimationProps {
-  onAnimationComplete: () => void;
+  onAnimationComplete?: () => void;
 }
 
-export default function SplashAnimation({
+// HomeMeal letters for staggered animation
+const APP_NAME = "HomeMeal";
+
+export const SplashAnimation: React.FC<SplashAnimationProps> = ({
   onAnimationComplete,
-}: SplashAnimationProps) {
-  const lottieRef = useRef<LottieView>(null);
-  const scale = useSharedValue(0.8);
-  const opacity = useSharedValue(0);
-  const textOpacity = useSharedValue(0);
-  const textY = useSharedValue(20);
-  const subtitleOpacity = useSharedValue(0);
-  const subtitleY = useSharedValue(15);
+}) => {
+  // Animation values
+  const logoOpacity = useSharedValue(0);
+  const logoTranslateY = useSharedValue(20);
+  const taglineOpacity = useSharedValue(0);
 
-  const logoStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
-    opacity: opacity.value,
-  }));
-
-  const textStyle = useAnimatedStyle(() => ({
-    opacity: textOpacity.value,
-    transform: [{ translateY: textY.value }],
-  }));
-
-  const subtitleStyle = useAnimatedStyle(() => ({
-    opacity: subtitleOpacity.value,
-    transform: [{ translateY: subtitleY.value }],
+  // Create animation values for each letter
+  const letterAnimations = APP_NAME.split("").map(() => ({
+    opacity: useSharedValue(0),
+    y: useSharedValue(10),
   }));
 
   useEffect(() => {
-    // Logo animation
-    opacity.value = withTiming(1, { duration: 500 });
-    scale.value = withSpring(1, {
-      damping: 15,
-      stiffness: 100,
+    // Animate logo with fade and subtle slide up
+    logoOpacity.value = withTiming(1, {
+      duration: 800,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
     });
 
-    // Text animation with staggered effect
-    setTimeout(() => {
-      textOpacity.value = withTiming(1, { duration: 400 });
-      textY.value = withTiming(0, { duration: 500 });
+    logoTranslateY.value = withTiming(0, {
+      duration: 1000,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+    });
 
-      // Subtitle animation
-      setTimeout(() => {
-        subtitleOpacity.value = withTiming(1, { duration: 400 });
-        subtitleY.value = withTiming(0, { duration: 500 });
-      }, 150);
-    }, 200);
-
-    // Start fade out after 1.8 seconds
-    setTimeout(() => {
-      opacity.value = withTiming(
-        0,
-        {
-          duration: 400,
-          easing: Easing.out(Easing.ease),
-        },
-        (finished) => {
-          if (finished) {
-            runOnJS(onAnimationComplete)();
-          }
-        }
+    // Animate letters with staggered effect
+    letterAnimations.forEach((letter, index) => {
+      letter.opacity.value = withDelay(
+        800 + index * 80,
+        withTiming(1, { duration: 300 })
       );
-      textOpacity.value = withTiming(0, { duration: 300 });
-      subtitleOpacity.value = withTiming(0, { duration: 300 });
-    }, 1800);
-  }, []);
+
+      letter.y.value = withDelay(
+        800 + index * 80,
+        withTiming(0, {
+          duration: 400,
+          easing: Easing.bezier(0.16, 1, 0.3, 1),
+        })
+      );
+    });
+
+    // Animate tagline
+    taglineOpacity.value = withDelay(1600, withTiming(1, { duration: 600 }));
+
+    // Call onAnimationComplete callback after animation finishes if provided
+    if (onAnimationComplete) {
+      const timer = setTimeout(() => {
+        onAnimationComplete();
+      }, 3000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [onAnimationComplete]);
+
+  // Animated styles
+  const logoStyle = useAnimatedStyle(() => ({
+    opacity: logoOpacity.value,
+    transform: [{ translateY: logoTranslateY.value }],
+  }));
+
+  const taglineStyle = useAnimatedStyle(() => ({
+    opacity: taglineOpacity.value,
+  }));
+
+  // Create animated styles for letters
+  const letterStyles = letterAnimations.map((letter) =>
+    useAnimatedStyle(() => ({
+      opacity: letter.opacity.value,
+      transform: [{ translateY: letter.y.value }],
+    }))
+  );
 
   return (
-    <Animated.View className="absolute w-full h-full flex justify-center items-center bg-gradient-to-br from-gradient-start via-gradient-middle to-gradient-end">
-      <View className="items-center">
-        <Animated.View style={logoStyle}>
+    <View style={styles.container}>
+      <LinearGradient colors={["#FF6B00", "#FFAD00"]} style={styles.gradient}>
+        {/* Logo */}
+        <Animated.View style={[styles.logoContainer, logoStyle]}>
           <Image
-            source={require("@/assets/images/logo.png")}
-            style={{ width: 120, height: 120, tintColor: "#FFFFFF" }}
-            resizeMode="contain"
+            source={require("../../../assets/images/logo.png")}
+            style={styles.logo}
+            tintColor="#FFFFFF"
           />
         </Animated.View>
 
-        <Animated.Text
-          className="text-4xl font-bold text-white mt-4"
-          style={textStyle}
-        >
-          HomeMeal
-        </Animated.Text>
+        {/* App name with animated letters */}
+        <View style={styles.nameContainer}>
+          {APP_NAME.split("").map((letter, index) => (
+            <Animated.Text
+              key={`letter-${index}`}
+              style={[styles.nameLetter, letterStyles[index]]}
+            >
+              {letter}
+            </Animated.Text>
+          ))}
+        </View>
 
-        <Animated.Text
-          className="text-white/80 text-base mt-2"
-          style={subtitleStyle}
-        >
-          Fresh homemade food delivered
+        {/* Tagline */}
+        <Animated.Text style={[styles.tagline, taglineStyle]}>
+          Home-cooked meals, delivered.
         </Animated.Text>
-      </View>
-    </Animated.View>
+      </LinearGradient>
+    </View>
   );
-}
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  gradient: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  logoContainer: {
+    marginBottom: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logo: {
+    width: 100,
+    height: 100,
+    resizeMode: "contain",
+  },
+  nameContainer: {
+    flexDirection: "row",
+    marginBottom: 10,
+  },
+  nameLetter: {
+    fontSize: 32,
+    fontWeight: "bold",
+    color: "#FFFFFF",
+    marginHorizontal: 1,
+  },
+  tagline: {
+    fontSize: 16,
+    color: "#FFFFFF",
+    fontWeight: "400",
+    opacity: 0.9,
+  },
+});

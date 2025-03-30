@@ -4,6 +4,8 @@ import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/src/utils/supabaseClient";
 import { router } from "expo-router";
 import { ROUTES } from "@/src/utils/routes";
+import LoadingScreen from "@/src/components/LoadingScreen";
+import { SplashAnimation } from "@/src/components/animations/SplashAnimation";
 
 // Define the types of users we have in our app
 export type UserRole = "customer" | "maker" | "delivery_boy" | null;
@@ -18,7 +20,7 @@ type AuthContextType = {
   isInitializing: boolean;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<Session | null>;
-  checkOnboardingStatus: () => Promise<boolean>;
+  checkOnboardingStatus: () => Promise<{ isComplete: boolean; route?: string }>;
 };
 
 // Create the auth context
@@ -31,7 +33,7 @@ const AuthContext = createContext<AuthContextType>({
   isInitializing: true,
   signOut: async () => {},
   refreshSession: async () => null,
-  checkOnboardingStatus: async () => false,
+  checkOnboardingStatus: async () => ({ isComplete: false }),
 });
 
 // Create the auth provider component
@@ -44,6 +46,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [userDetails, setUserDetails] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
+  const [shouldShowLoadingScreen, setShouldShowLoadingScreen] =
+    useState<boolean>(false);
+  const [splashAnimationComplete, setSplashAnimationComplete] =
+    useState<boolean>(false);
 
   // Function to refresh the session token
   const refreshSession = async (): Promise<Session | null> => {
@@ -144,13 +150,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   // Check the user's onboarding status
-  const checkOnboardingStatus = async (): Promise<boolean> => {
-    if (!user) return false;
+  const checkOnboardingStatus = async (): Promise<{
+    isComplete: boolean;
+    route?: string;
+  }> => {
+    if (!user) return { isComplete: false };
 
     try {
       // Fetch user details
       const details = await fetchUserDetails(user.id);
-      if (!details) return false;
+      if (!details) return { isComplete: false, route: ROUTES.AUTH_INTRO };
 
       setUserDetails(details);
       setUserRole(details.role);
@@ -158,20 +167,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       // Check what stage of onboarding the user is in
       if (!details.role) {
         // No role selected - needs to select role
-        router.replace(ROUTES.AUTH_ROLE_SELECTION);
-        return false;
+        return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
       } else if (!details.location || !details.address) {
         // No location set - needs to set location
-        router.replace(ROUTES.LOCATION_SETUP);
-        return false;
+        return { isComplete: false, route: ROUTES.LOCATION_SETUP };
       } else if (
         !details.name ||
         !details.profile_setup_stage ||
         details.profile_setup_stage !== "complete"
       ) {
         // Profile incomplete - needs to complete profile
-        router.replace(ROUTES.AUTH_PROFILE_SETUP);
-        return false;
+        return { isComplete: false, route: ROUTES.AUTH_PROFILE_SETUP };
+      } else if (!details.meal_creation_complete) {
+        // Meal creation not done - direct to meal creation setup
+        return { isComplete: false, route: ROUTES.MEAL_CREATION_SETUP };
+      } else if (!details.maker_selection_complete) {
+        // Maker selection not done - direct to maker selection
+        return { isComplete: false, route: ROUTES.MAKER_SELECTION_SETUP };
+      } else if (!details.wallet_setup_complete) {
+        // Wallet setup not done - direct to wallet setup
+        return { isComplete: false, route: ROUTES.WALLET_SETUP };
       }
 
       // If wallet creation is required, attempt to create it
@@ -183,16 +198,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       // User has completed onboarding
-      return true;
+      return { isComplete: true, route: ROUTES.TABS };
     } catch (error) {
       console.error("Error checking onboarding status:", error);
-      return false;
+      return { isComplete: false, route: ROUTES.AUTH_INTRO };
     }
   };
 
   // Sign out function
   const signOut = async () => {
     setIsLoading(true);
+    // Show loading screen after a short delay to prevent flicker on quick operations
+    const loadingTimer = setTimeout(() => {
+      setShouldShowLoadingScreen(true);
+    }, 300);
+
     try {
       const { error } = await supabase.auth.signOut();
       if (error) {
@@ -205,13 +225,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       setUserDetails(null);
 
       // Navigate to the intro screen
-      router.replace(ROUTES.AUTH_INTRO);
+      router.replace(ROUTES.AUTH_INTRO as any);
     } catch (error) {
       console.error("Error signing out:", error);
       Alert.alert("Error", "Failed to sign out. Please try again.");
     } finally {
+      clearTimeout(loadingTimer);
+      setShouldShowLoadingScreen(false);
       setIsLoading(false);
     }
+  };
+
+  // Handler for when splash animation completes
+  const handleSplashAnimationComplete = () => {
+    setSplashAnimationComplete(true);
+    // Slight delay to prevent screen flash if loading is very quick
+    setTimeout(() => {
+      setIsInitializing(false);
+    }, 100);
   };
 
   // Set up the auth state listener
@@ -239,9 +270,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       } catch (error) {
         console.error("Error initializing auth:", error);
-      } finally {
-        setIsInitializing(false);
       }
+
+      // We'll let the splash animation determine when to finish initializing
+      // instead of using a timeout
     };
 
     // Initialize auth
@@ -279,32 +311,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   // Handle navigation based on auth state
   useEffect(() => {
+    // Create a flag to prevent navigation if component is unmounted
+    let isMounted = true;
+
     const handleAuthStateChange = async () => {
-      // Don't do anything while initializing
-      if (isInitializing) return;
+      // Don't do anything while initializing or if splash animation isn't complete
+      if (isInitializing || !splashAnimationComplete) return;
 
       setIsLoading(true);
 
+      // Only show loading screen if operation takes longer than 300ms
+      // This prevents flickering for quick operations
+      const loadingTimer = setTimeout(() => {
+        if (isMounted) {
+          setShouldShowLoadingScreen(true);
+        }
+      }, 300);
+
       try {
         if (session && user) {
-          // User is signed in - check onboarding status
-          const onboardingComplete = await checkOnboardingStatus();
+          // User is signed in - check onboarding status but don't navigate yet
+          const { isComplete, route } = await checkOnboardingStatus();
 
-          if (onboardingComplete) {
-            // Only navigate to tabs if onboarding is complete
-            router.replace(ROUTES.TABS);
+          // Only navigate if component is still mounted
+          if (isMounted && route) {
+            // Use as any to handle TypeScript error with router.replace
+            router.replace(route as any);
           }
-        } else {
+        } else if (isMounted) {
           // User is not signed in - navigate to auth intro
-          router.replace(ROUTES.AUTH_INTRO);
+          router.replace(ROUTES.AUTH_INTRO as any);
         }
       } finally {
-        setIsLoading(false);
+        clearTimeout(loadingTimer);
+        if (isMounted) {
+          setShouldShowLoadingScreen(false);
+          setIsLoading(false);
+        }
       }
     };
 
     handleAuthStateChange();
-  }, [session, isInitializing]);
+
+    // Cleanup function to prevent state updates after unmounting
+    return () => {
+      isMounted = false;
+    };
+  }, [session, isInitializing, splashAnimationComplete]);
 
   // Create the context value
   const value = {
@@ -319,21 +372,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     checkOnboardingStatus,
   };
 
-  // Show loading screen while initializing
+  // Show splash animation while initializing
   if (isInitializing) {
     return (
-      <View
-        style={{
-          flex: 1,
-          justifyContent: "center",
-          alignItems: "center",
-          backgroundColor: "#FFFFFF",
-        }}
-      >
-        <ActivityIndicator size="large" color="#FF6B00" />
-        <Text style={{ marginTop: 12, color: "#64748B" }}>Loading...</Text>
-      </View>
+      <SplashAnimation onAnimationComplete={handleSplashAnimationComplete} />
     );
+  }
+
+  // Show loading screen during significant loading operations
+  if (isLoading && shouldShowLoadingScreen) {
+    return <LoadingScreen message="Loading..." showLogo={true} />;
   }
 
   // Return the provider with the context value

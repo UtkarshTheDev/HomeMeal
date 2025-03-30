@@ -1,12 +1,51 @@
-import React from "react";
-import { View, Text, Image, ScrollView, TouchableOpacity } from "react-native";
+import React, { useEffect, useState } from "react";
+import {
+  View,
+  Text,
+  Image,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+} from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSupabase } from "@/src/utils/useSupabase";
+import { useAuth } from "@/src/providers/AuthProvider";
 
 export default function HomeScreen() {
-  const { session } = useSupabase();
-  const username = session?.user?.user_metadata?.name || "there";
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Use both context providers for more reliable data access
+  const supabaseContext = useSupabase();
+  const authContext = useAuth();
+
+  // Make sure we safely access these properties with proper fallbacks
+  const session = supabaseContext?.session;
+  const user = authContext?.user;
+
+  // Extract username safely with fallbacks
+  const username =
+    user?.user_metadata?.name || session?.user?.user_metadata?.name || "there";
+
+  // Handle loading state
+  useEffect(() => {
+    // Set loading to false after a brief delay to ensure contexts are ready
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Display a loading screen while contexts are initializing
+  if (isLoading) {
+    return (
+      <SafeAreaView className="flex-1 bg-white justify-center items-center">
+        <StatusBar style="dark" />
+        <ActivityIndicator size="large" color="#FF6B00" />
+      </SafeAreaView>
+    );
+  }
 
   // In a real app, these would come from an API
   const popularMakers = [
@@ -184,7 +223,7 @@ export default function HomeScreen() {
             <View className="bg-blue-700 px-4 py-2 rounded-md self-start">
               <Text className="text-sm font-bold text-white">Start Now</Text>
             </View>
-    </View>
+          </View>
           <Image
             source={require("@/assets/images/logo.png")}
             className="w-20 h-20 ml-2"

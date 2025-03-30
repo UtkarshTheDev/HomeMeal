@@ -48,12 +48,18 @@ The HomeMeal app uses Google Authentication to:
 2. Click "Create Credentials" > "OAuth client ID"
 3. Select "Web application" as the application type
 4. Name: "HomeMeal Web Client"
-5. Add authorized JavaScript origins:
-   - For development: `https://localhost:19006`
-   - For production: Your actual domain
-6. Add authorized redirect URIs:
-   - For development: `https://auth.expo.io/@your-expo-username/HomeMeal`
-   - For production: Your actual redirect URI
+
+5. **Critical Step: Add the correct authorized JavaScript origins:**
+   - `https://auth.expo.io`
+   - `https://localhost`
+   - `http://localhost`
+6. **Critical Step: Add the correct authorized redirect URIs:**
+
+   - `https://auth.expo.io/@your-expo-username/HomeMeal` (replace with your actual Expo username)
+   - `https://auth.expo.io/homemeal`
+
+   **Important:** The redirect URI must match exactly what Expo Auth Session is using. For development in Expo Go, the auth.expo.io proxy service is typically used.
+
 7. Click "Create"
 8. Note the Client ID and Client Secret
 
@@ -78,6 +84,21 @@ For Android:
 
 ## Implementation in the App
 
+### Update App Configuration
+
+Modify your app.json to set the correct scheme:
+
+```json
+{
+  "expo": {
+    "name": "HomeMeal",
+    "slug": "homemeal",
+    "scheme": "homemeal"
+    // other configuration
+  }
+}
+```
+
 ### Update Environment Variables
 
 Add your Google Client IDs to your `.env` file:
@@ -98,42 +119,28 @@ The app is configured to use Google authentication via environment variables:
 ```typescript
 // Use environment variables for Google Client IDs
 const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
-const IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
-const ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
 
-// Configure Google Sign-In with environment variables
-const [request, response, promptAsync] = Google.useAuthRequest({
-  clientId: WEB_CLIENT_ID,
-  iosClientId: IOS_CLIENT_ID,
-  androidClientId: ANDROID_CLIENT_ID,
-  scopes: ["profile", "email"],
-});
-```
+// Configure Google Sign-In
+const [request, response, promptAsync] = useAuthRequest(
+  {
+    clientId: WEB_CLIENT_ID,
+    scopes: ["profile", "email"],
+    redirectUri: makeRedirectUri({
+      scheme: "homemeal",
+    }),
+  },
+  googleAuthDiscovery
+);
 
-### Lucide Icons Implementation
-
-The app now uses Lucide icons instead of FontAwesome for a more modern and consistent UI:
-
-1. Install the required package:
-
-```bash
-npm install lucide-react-native
-```
-
-2. Import and use icons:
-
-```typescript
-import { User, Upload } from "lucide-react-native";
-
-// Example usage in a component
-<User size={50} color="#A0AEC0" />;
+// When calling the prompt
+await promptAsync();
 ```
 
 ## Testing the Google Sign-In
 
 1. Run your app in development mode
 2. Navigate to the profile setup screen
-3. Click on the "Fill from Google Account" button
+3. Click on the "Continue with Google" button
 4. You should be redirected to Google's sign-in page
 5. After signing in, you should be redirected back to the app with your profile information filled in
 
@@ -141,25 +148,84 @@ import { User, Upload } from "lucide-react-native";
 
 ### Common Issues
 
-1. **Redirect URI not registered**: Make sure you've added the correct redirect URI in the Google Cloud Console.
+1. **Error 400: invalid_request with redirect_uri issues**
 
-   Solution: In the Google Cloud Console, add `https://auth.expo.io/@your-expo-username/HomeMeal` as an authorized redirect URI.
+   This happens when the redirect URI used by your app doesn't match what's registered in Google Cloud Console.
 
-2. **Client ID not recognized**: Make sure you're using the correct client ID for the platform you're testing on.
+   **Solution:**
 
-   Solution: Use the web client ID for web, iOS client ID for iOS, and Android client ID for Android.
+   - Double-check that you've added EXACTLY the right redirect URIs in Google Cloud Console.
+   - For Expo Go, make sure you have `https://auth.expo.io/@your-expo-username/HomeMeal` (with your actual username).
+   - Make sure your app.json has the correct scheme.
+   - Verify you're not overriding the redirectUri or useProxy parameters incorrectly.
 
-3. **"Error 400: redirect_uri_mismatch"**: The redirect URI in your request doesn't match the ones you've registered.
+2. **Error 400: redirect_uri_mismatch**
 
-   Solution: Make sure your app's slug and owner in app.json match what you've registered in the Google Cloud Console.
+   Similar to the above, but specifically indicates a mismatch.
 
-4. **Can't see the Google Button**: Make sure you've added the Google logo image to your assets.
+   **Solution:**
 
-   Solution: Add the Google logo image to `assets/images/google-logo.png`.
+   - Check the exact error message as it usually shows the URI that was used.
+   - Register that exact URI in Google Cloud Console.
+   - Make sure your app's slug and scheme in app.json match what you've registered.
 
-5. **Environment variables not working**: Make sure you've properly set up the `.env` file and that the variables are correctly named with the `EXPO_PUBLIC_` prefix.
+3. **Error: No authentication provider available**
 
-   Solution: Double-check your `.env` file and make sure to restart your Expo development server after making changes.
+   This can happen if expo-auth-session is not properly set up.
+
+   **Solution:**
+
+   - Verify that you've installed the latest version of expo-auth-session.
+   - Make sure WebBrowser.maybeCompleteAuthSession() is called at the top level of your component.
+
+4. **Error: idpiframe_initialization_failed**
+
+   This can happen due to third-party cookies being blocked.
+
+   **Solution:**
+
+   - Test on a device/browser that allows third-party cookies.
+   - For development, disable cookie restrictions in your browser.
+
+### Debugging Tips
+
+1. **Log Request Parameters:**
+
+   ```typescript
+   console.log("Auth Request Config:", {
+     clientId: WEB_CLIENT_ID,
+     redirectUri: makeRedirectUri({
+       scheme: "homemeal",
+     }),
+   });
+   ```
+
+2. **Check the Auth Response:**
+
+   ```typescript
+   console.log("Auth Response:", response);
+   ```
+
+3. **Verify Redirect URI:**
+
+   ```typescript
+   import * as WebBrowser from "expo-web-browser";
+   import { makeRedirectUri } from "expo-auth-session";
+
+   // Log what redirectUri is being used
+   console.log(
+     "Redirect URI:",
+     makeRedirectUri({
+       scheme: "homemeal",
+     })
+   );
+
+   // Check if there's any pending auth session
+   console.log(
+     "Auth Session State:",
+     WebBrowser.getCustomTabsSupportingBrowsersAsync()
+   );
+   ```
 
 ## Security Considerations
 
