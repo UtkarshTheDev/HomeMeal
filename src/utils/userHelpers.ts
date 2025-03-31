@@ -27,6 +27,7 @@ export const checkUserStatus = async () => {
       }
 
       if (!authData?.user) {
+        // Keep this log as it's important for debugging authentication issues
         console.log("No authenticated user found");
         return {
           isNewUser: true,
@@ -58,19 +59,33 @@ export const checkUserStatus = async () => {
         .eq("id", userId)
         .maybeSingle();
 
+      // Handle the "no rows found" error gracefully - it just means the user is new
       if (error) {
-        console.error("Error fetching user data:", error);
-        return {
-          isNewUser: true,
-          hasRole: false,
-          hasLocation: false,
-          hasCompletedProfile: false,
-          userData: null,
-        };
+        // Check if this is a "no rows found" error, which is expected for new users
+        if (error.code === "PGRST116" && error.message.includes("no rows")) {
+          // This is an expected case for new users, not a true error
+          return {
+            isNewUser: true,
+            hasRole: false,
+            hasLocation: false,
+            hasCompletedProfile: false,
+            userData: null,
+          };
+        } else {
+          // This is an actual database error
+          console.error("Error fetching user data:", error);
+          return {
+            isNewUser: true,
+            hasRole: false,
+            hasLocation: false,
+            hasCompletedProfile: false,
+            userData: null,
+          };
+        }
       }
 
       if (!data) {
-        console.log("No user data found, user is new");
+        // User exists in auth but not in the database yet - they are considered new
         return {
           isNewUser: true,
           hasRole: false,

@@ -89,12 +89,15 @@ export default function MakerSelectionScreen() {
 
     try {
       const { data, error } = await supabase
-        .from("user_profiles")
+        .from("users")
         .select("location")
-        .eq("user_id", user.id)
+        .eq("id", user.id)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error fetching user location:", error);
+        return;
+      }
 
       if (data?.location) {
         setUserLocation(data.location);
@@ -109,11 +112,16 @@ export default function MakerSelectionScreen() {
     setIsLoading(true);
     try {
       const { data, error } = await supabase
-        .from("maker_profiles")
+        .from("makers")
         .select("*")
         .eq("is_verified", true);
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error fetching makers:", error);
+        setMakers([]);
+        setFilteredMakers([]);
+        return;
+      }
 
       // Calculate distance if user location is available
       let processedMakers = data || [];
@@ -133,6 +141,8 @@ export default function MakerSelectionScreen() {
       setFilteredMakers(processedMakers);
     } catch (error) {
       console.error("Error fetching makers:", error);
+      setMakers([]);
+      setFilteredMakers([]);
     } finally {
       setIsLoading(false);
     }
@@ -339,159 +349,168 @@ export default function MakerSelectionScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
 
       {/* Header */}
-      <View style={styles.header}>
+      <View style={styles.headerContainer}>
         <Text style={styles.title}>Find Makers</Text>
         <Text style={styles.subtitle}>Discover home chefs near you</Text>
       </View>
 
-      {/* Search Bar */}
-      <View style={styles.searchBarContainer}>
-        <Feather
-          name="search"
-          size={20}
-          color="#64748B"
-          style={styles.searchIcon}
-        />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search by name or specialty..."
-          placeholderTextColor="#94A3B8"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity
-            onPress={() => setSearchQuery("")}
-            style={styles.clearButton}
+      {/* Main Content */}
+      <ScrollView
+        style={styles.contentContainer}
+        contentContainerStyle={{ paddingBottom: 120 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Search Bar */}
+        <View style={styles.searchBarContainer}>
+          <Feather
+            name="search"
+            size={20}
+            color="#64748B"
+            style={styles.searchIcon}
+          />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by name or specialty..."
+            placeholderTextColor="#94A3B8"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity
+              onPress={() => setSearchQuery("")}
+              style={styles.clearButton}
+            >
+              <Feather name="x" size={18} color="#64748B" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* Filters */}
+        <Animated.View style={[styles.filtersContainer, filterButtonStyle]}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filtersScrollContent}
           >
-            <Feather name="x" size={18} color="#64748B" />
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.filterButton,
+                activeFilter === "all" && styles.activeFilterButton,
+              ]}
+              onPress={() => handleFilterSelect("all")}
+            >
+              <Feather
+                name="grid"
+                size={14}
+                color={activeFilter === "all" ? "#FF6B00" : "#64748B"}
+              />
+              <Text
+                style={[
+                  styles.filterButtonText,
+                  activeFilter === "all" && styles.activeFilterText,
+                ]}
+              >
+                All
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.filterButton,
+                activeFilter === "rating" && styles.activeFilterButton,
+              ]}
+              onPress={() => handleFilterSelect("rating")}
+            >
+              <FontAwesome
+                name="star"
+                size={14}
+                color={activeFilter === "rating" ? "#FF6B00" : "#64748B"}
+              />
+              <Text
+                style={[
+                  styles.filterButtonText,
+                  activeFilter === "rating" && styles.activeFilterText,
+                ]}
+              >
+                Top Rated
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.filterButton,
+                activeFilter === "distance" && styles.activeFilterButton,
+              ]}
+              onPress={() => handleFilterSelect("distance")}
+            >
+              <Feather
+                name="map-pin"
+                size={14}
+                color={activeFilter === "distance" ? "#FF6B00" : "#64748B"}
+              />
+              <Text
+                style={[
+                  styles.filterButtonText,
+                  activeFilter === "distance" && styles.activeFilterText,
+                ]}
+              >
+                Nearest
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.filterButton,
+                activeFilter === "specialty" && styles.activeFilterButton,
+              ]}
+              onPress={() => handleFilterSelect("specialty")}
+            >
+              <Ionicons
+                name="restaurant-outline"
+                size={14}
+                color={activeFilter === "specialty" ? "#FF6B00" : "#64748B"}
+              />
+              <Text
+                style={[
+                  styles.filterButtonText,
+                  activeFilter === "specialty" && styles.activeFilterText,
+                ]}
+              >
+                Specialty
+              </Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </Animated.View>
+
+        {/* Makers List */}
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#FF6B00" />
+          </View>
+        ) : filteredMakers.length === 0 ? (
+          <View style={styles.emptyStateContainer}>
+            <FontAwesome name="search" size={50} color="#CCC" />
+            <Text style={styles.emptyStateTitle}>No Makers Found</Text>
+            <Text style={styles.emptyStateSubtitle}>
+              {searchQuery
+                ? "Try a different search term or filter"
+                : "We couldn't find any makers in your area yet"}
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={filteredMakers}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMakerItem}
+            contentContainerStyle={styles.makersList}
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={false}
+          />
         )}
-      </View>
-
-      {/* Filters */}
-      <Animated.View style={[styles.filtersContainer, filterButtonStyle]}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filtersScrollContent}
-        >
-          <TouchableOpacity
-            style={[
-              styles.filterButton,
-              activeFilter === "all" && styles.activeFilterButton,
-            ]}
-            onPress={() => handleFilterSelect("all")}
-          >
-            <Feather
-              name="grid"
-              size={14}
-              color={activeFilter === "all" ? "#FF6B00" : "#64748B"}
-            />
-            <Text
-              style={[
-                styles.filterButtonText,
-                activeFilter === "all" && styles.activeFilterText,
-              ]}
-            >
-              All
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.filterButton,
-              activeFilter === "rating" && styles.activeFilterButton,
-            ]}
-            onPress={() => handleFilterSelect("rating")}
-          >
-            <FontAwesome
-              name="star"
-              size={14}
-              color={activeFilter === "rating" ? "#FF6B00" : "#64748B"}
-            />
-            <Text
-              style={[
-                styles.filterButtonText,
-                activeFilter === "rating" && styles.activeFilterText,
-              ]}
-            >
-              Top Rated
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.filterButton,
-              activeFilter === "distance" && styles.activeFilterButton,
-            ]}
-            onPress={() => handleFilterSelect("distance")}
-          >
-            <Feather
-              name="map-pin"
-              size={14}
-              color={activeFilter === "distance" ? "#FF6B00" : "#64748B"}
-            />
-            <Text
-              style={[
-                styles.filterButtonText,
-                activeFilter === "distance" && styles.activeFilterText,
-              ]}
-            >
-              Nearest
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.filterButton,
-              activeFilter === "specialty" && styles.activeFilterButton,
-            ]}
-            onPress={() => handleFilterSelect("specialty")}
-          >
-            <Ionicons
-              name="restaurant-outline"
-              size={14}
-              color={activeFilter === "specialty" ? "#FF6B00" : "#64748B"}
-            />
-            <Text
-              style={[
-                styles.filterButtonText,
-                activeFilter === "specialty" && styles.activeFilterText,
-              ]}
-            >
-              Specialty
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </Animated.View>
-
-      {/* Makers List */}
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#FF6B00" />
-          <Text style={styles.loadingText}>Loading makers...</Text>
-        </View>
-      ) : filteredMakers.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Feather name="search" size={50} color="#E2E8F0" />
-          <Text style={styles.emptyText}>No makers found</Text>
-          <Text style={styles.emptySubtext}>
-            Try changing your search or filters
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={filteredMakers}
-          renderItem={renderMakerItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.makersList}
-          showsVerticalScrollIndicator={false}
-        />
-      )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -501,10 +520,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
-  header: {
+  headerContainer: {
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 15,
+  },
+  contentContainer: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
   },
   title: {
     fontSize: 24,
@@ -576,28 +599,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: "#64748B",
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: "center",
+  emptyStateContainer: {
     alignItems: "center",
-    paddingHorizontal: 40,
+    justifyContent: "center",
+    paddingVertical: 40,
+    paddingHorizontal: 20,
   },
-  emptyText: {
-    marginTop: 16,
+  emptyStateTitle: {
     fontSize: 18,
-    fontWeight: "600",
-    color: "#1E293B",
+    fontWeight: "bold",
+    color: "#333",
+    marginTop: 15,
   },
-  emptySubtext: {
-    marginTop: 8,
+  emptyStateSubtitle: {
     fontSize: 14,
-    color: "#64748B",
+    color: "#666",
     textAlign: "center",
+    marginTop: 8,
   },
   makersList: {
     paddingHorizontal: 20,

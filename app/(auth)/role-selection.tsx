@@ -59,13 +59,13 @@ export default function RoleSelectionScreen() {
       }
 
       const userId = userData.user.id;
-      console.log("Updating role for user:", userId);
+      // console.log("Updating role for user:", userId);
 
       // Map UI role to database role
       const dbRole = mapUIRoleToDBRole(selectedRole);
-      console.log(
-        `Selected UI role: ${selectedRole}, mapped to DB role: ${dbRole}`
-      );
+      // console.log(
+      //   `Selected UI role: ${selectedRole}, mapped to DB role: ${dbRole}`
+      // );
 
       // Start a transaction to update user role and create role-specific entries
       // Update user role in the users table
@@ -77,7 +77,7 @@ export default function RoleSelectionScreen() {
         .eq("id", userId);
 
       if (userUpdateError) {
-        console.error("Error updating user role:", userUpdateError);
+        // console.error("Error updating user role:", userUpdateError);
         setError("Error updating user role. Please try again.");
         setLoading(false);
         return;
@@ -106,12 +106,12 @@ export default function RoleSelectionScreen() {
             });
 
             if (makerError) {
-              console.error("Error creating maker record:", makerError);
+              // console.error("Error creating maker record:", makerError);
               // Continue despite error
             }
           }
         } catch (makerError) {
-          console.error("Exception creating maker record:", makerError);
+          // console.error("Exception creating maker record:", makerError);
           // Continue despite error
         }
 
@@ -135,12 +135,12 @@ export default function RoleSelectionScreen() {
               });
 
             if (walletError) {
-              console.error("Error creating wallet record:", walletError);
+              // console.error("Error creating wallet record:", walletError);
               // Continue despite error
             }
           }
         } catch (walletError) {
-          console.error("Exception creating wallet record:", walletError);
+          // console.error("Exception creating wallet record:", walletError);
           // Continue despite error
         }
       } else if (selectedRole === "delivery_boy") {
@@ -167,18 +167,18 @@ export default function RoleSelectionScreen() {
               });
 
             if (deliveryBoyError) {
-              console.error(
-                "Error creating delivery boy record:",
-                deliveryBoyError
-              );
+              // console.error(
+              //   "Error creating delivery boy record:",
+              //   deliveryBoyError
+              // );
               // Continue despite error
             }
           }
         } catch (deliveryBoyError) {
-          console.error(
-            "Exception creating delivery boy record:",
-            deliveryBoyError
-          );
+          // console.error(
+          //   "Exception creating delivery boy record:",
+          //   deliveryBoyError
+          // );
           // Continue despite error
         }
 
@@ -202,12 +202,12 @@ export default function RoleSelectionScreen() {
               });
 
             if (walletError) {
-              console.error("Error creating wallet record:", walletError);
+              // console.error("Error creating wallet record:", walletError);
               // Continue despite error
             }
           }
         } catch (walletError) {
-          console.error("Exception creating wallet record:", walletError);
+          // console.error("Exception creating wallet record:", walletError);
           // Continue despite error
         }
       } else if (selectedRole === "customer") {
@@ -231,26 +231,23 @@ export default function RoleSelectionScreen() {
               });
 
             if (walletError) {
-              console.error("Error creating wallet record:", walletError);
+              // console.error("Error creating wallet record:", walletError);
               // Continue despite error
             }
           }
         } catch (walletError) {
-          console.error("Exception creating wallet record:", walletError);
+          // console.error("Exception creating wallet record:", walletError);
           // Continue despite error
         }
       }
 
       // Navigate to the location setup screen - regardless of errors
-      console.log("Navigating to location setup screen");
+      // console.log("Role selected, navigating to location setup screen");
       router.replace(ROUTES.LOCATION_SETUP);
     } catch (error: any) {
       console.error("Error in role selection:", error);
-      Alert.alert(
-        "Error",
-        "There was an issue saving your selection. We'll still proceed to the next step."
-      );
-      // Try to navigate anyway
+      // Try to navigate anyway regardless of errors
+      // console.log("Error occurred but still navigating to location setup");
       router.replace(ROUTES.LOCATION_SETUP);
     } finally {
       setLoading(false);

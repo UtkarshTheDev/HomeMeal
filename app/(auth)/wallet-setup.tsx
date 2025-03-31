@@ -26,6 +26,7 @@ import {
   Ionicons,
   FontAwesome,
   MaterialCommunityIcons,
+  FontAwesome5,
 } from "@expo/vector-icons";
 import { supabase } from "@/src/utils/supabaseClient";
 import { router } from "expo-router";
@@ -110,6 +111,7 @@ export default function WalletSetupScreen() {
         throw error;
       }
 
+      // Keep this log as it's important for wallet creation verification
       console.log("Wallet created successfully:", data);
       setWallet(data);
     } catch (error) {
@@ -233,7 +235,7 @@ export default function WalletSetupScreen() {
     }
   };
 
-  // Skip adding funds and complete setup
+  // Skip adding funds and directly navigate to dashboard
   const skipAddingFunds = async () => {
     // Animate button press
     skipButtonScale.value = withSequence(
@@ -249,7 +251,7 @@ export default function WalletSetupScreen() {
         await supabase.auth.getUser();
       if (userError) throw userError;
 
-      // Update user's onboarding status
+      // Mark wallet setup as complete without going through the actual process
       const { error: updateError } = await supabase
         .from("users")
         .update({
@@ -259,19 +261,16 @@ export default function WalletSetupScreen() {
 
       if (updateError) {
         console.error("Error updating user status:", updateError);
-        Alert.alert(
-          "Warning",
-          "We encountered an issue updating your profile. Please try again."
-        );
-        setIsSaving(false);
-        return;
       }
 
-      // Navigate to tabs
+      // Immediately navigate to dashboard regardless of errors
+      console.log("Redirecting to dashboard...");
       router.replace(ROUTES.TABS as any);
     } catch (error) {
       console.error("Error skipping wallet setup:", error);
-      Alert.alert("Error", "Failed to proceed. Please try again.");
+      // Still try to navigate to dashboard even if there's an error
+      router.replace(ROUTES.TABS as any);
+    } finally {
       setIsSaving(false);
     }
   };
@@ -337,7 +336,7 @@ export default function WalletSetupScreen() {
                   <Text className="text-white font-bold text-lg">
                     HomeMeal Wallet
                   </Text>
-                  <FontAwesome name="wallet" size={24} color="white" />
+                  <FontAwesome5 name="wallet" size={24} color="white" />
                 </View>
 
                 <Text className="text-white opacity-80 text-sm mb-1">

@@ -18,10 +18,10 @@ export default function SplashScreen() {
       setIsAuthChecking(true);
       // Try to refresh the token on app start
       const session = await refreshSupabaseToken();
-      console.log(
-        "Token refresh attempt on app start:",
-        session ? "successful" : "failed"
-      );
+      // console.log(
+      //   "Token refresh attempt on app start:",
+      //   session ? "successful" : "failed"
+      // );
     } catch (error) {
       console.error("Error refreshing token on app start:", error);
     } finally {

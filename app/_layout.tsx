@@ -20,6 +20,7 @@ import { useColorScheme } from "@/components/useColorScheme";
 import AuthProvider from "@/src/providers/AuthProvider";
 import { Session } from "@supabase/supabase-js";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import LoadingScreen from "@/src/components/LoadingScreen";
 
 // Create SupabaseContext for the useSupabase hook
 export const SupabaseContext = createContext<{
@@ -120,9 +121,11 @@ export default function RootLayout() {
         const hasSession = await checkExistingSession();
 
         if (hasSession) {
-          console.log("Found existing session in storage, retrieving...");
+          // Remove verbose session logs
+          // console.log("Found existing session in storage, retrieving...");
         } else {
-          console.log("No session found in storage");
+          // Remove verbose session logs
+          // console.log("No session found in storage");
         }
 
         // Now get the full session data
@@ -131,7 +134,8 @@ export default function RootLayout() {
         if (error) {
           console.error("Error retrieving session:", error.message);
         } else if (data.session) {
-          console.log("Session successfully restored");
+          // Remove verbose session logs
+          // console.log("Session successfully restored");
           setSession(data.session);
         }
       } catch (e) {
@@ -147,7 +151,8 @@ export default function RootLayout() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      console.log("Auth state changed in _layout", _event);
+      // Remove verbose auth event logs
+      // console.log("Auth state changed in _layout", _event);
       setSession(newSession);
     });
 
@@ -170,9 +175,13 @@ export default function RootLayout() {
     }
   }, [fontsLoaded, fontError, hasCheckedSession]);
 
-  // Show a loading screen until everything is ready
+  // Show a proper loading screen until everything is ready
   if ((!fontsLoaded && !fontError) || !hasCheckedSession) {
-    return null;
+    return (
+      <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
+        <LoadingScreen message="Getting ready..." showLogo={true} />
+      </View>
+    );
   }
 
   return (

@@ -244,17 +244,15 @@ export default function MakerSelectionSetupScreen() {
 
       if (updateError) {
         console.error("Error updating user status:", updateError);
-        Alert.alert(
-          "Warning",
-          "There was an issue saving your selection, but we'll continue."
-        );
+        // Log error but continue with navigation
       }
 
-      // Navigate to wallet setup
+      // Navigate to wallet setup regardless of errors
       router.replace(ROUTES.WALLET_SETUP as any);
     } catch (error) {
       console.error("Error saving maker selection:", error);
-      Alert.alert("Error", "Failed to save your selection. Please try again.");
+      // Still try to navigate even if there's an error
+      router.replace(ROUTES.WALLET_SETUP as any);
     } finally {
       setIsSaving(false);
     }
@@ -286,19 +284,16 @@ export default function MakerSelectionSetupScreen() {
 
       if (updateError) {
         console.error("Error updating user status:", updateError);
-        Alert.alert(
-          "Warning",
-          "We encountered an issue updating your profile. Please try again."
-        );
-        setIsSaving(false);
-        return;
+        // Log error but continue with navigation
       }
 
-      // Navigate to wallet setup
+      // Navigate to wallet setup regardless of errors
       router.replace(ROUTES.WALLET_SETUP as any);
     } catch (error) {
       console.error("Error skipping maker selection:", error);
-      Alert.alert("Error", "Failed to proceed. Please try again.");
+      // Still try to navigate even if there's an error
+      router.replace(ROUTES.WALLET_SETUP as any);
+    } finally {
       setIsSaving(false);
     }
   };

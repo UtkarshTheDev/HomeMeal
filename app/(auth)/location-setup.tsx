@@ -230,7 +230,6 @@ export default function LocationSetupScreen() {
       }
 
       const userId = userData.user.id;
-      console.log("Updating location for user:", userId);
 
       // Create location object for database
       const locationData = {
@@ -256,8 +255,6 @@ export default function LocationSetupScreen() {
         if (userUpdateError) {
           console.error("Error updating user location:", userUpdateError);
           // Continue despite errors
-        } else {
-          console.log("Successfully updated user location");
         }
       } catch (updateError) {
         console.error("Exception updating user location:", updateError);
@@ -330,7 +327,6 @@ export default function LocationSetupScreen() {
       }
 
       // Navigate to the profile setup screen - regardless of errors
-      console.log("Navigating to profile setup screen");
       router.replace(ROUTES.AUTH_PROFILE_SETUP);
     } catch (error: any) {
       console.error("Error in location setup:", error);

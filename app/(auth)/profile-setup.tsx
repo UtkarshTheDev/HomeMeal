@@ -645,17 +645,20 @@ const ProfileSetupScreen = () => {
     );
 
     try {
-      console.log("Starting Google Sign-In with redirectUri:", redirectUri);
-
-      // Use type assertion to handle the useProxy property
-      const result = await promptAsync({
-        // @ts-ignore - useProxy is needed for Expo Go but not recognized in types
-        useProxy: true,
-      });
+      // For Expo Go, we must use the proxy service
+      const result = await promptAsync(
+        // Cast to any to bypass type checking for the useProxy property
+        {
+          redirectUri: redirectUri,
+          projectNameForProxy: "@UtkarshTheDev/HomeMeal",
+          useProxy: true,
+        } as any
+      );
 
       console.log("Google Sign-In result:", result);
 
       if (result.type === "error") {
+        console.error("Google Sign-In error details:", result.error);
         Alert.alert(
           "Authentication Error",
           `Error: ${result.error?.message || "Unknown error occurred"}`
@@ -729,7 +732,6 @@ const ProfileSetupScreen = () => {
       }
 
       const userId = userData.user.id;
-      console.log("Saving profile for user:", userId);
 
       // Upload profile image if selected
       let imageUrl = null;
@@ -755,7 +757,7 @@ const ProfileSetupScreen = () => {
           name: name,
           email: email,
           image_url: imageUrl || null,
-          profile_setup_stage: "complete", // Mark profile setup as complete
+          // Name field presence will be used to determine profile completion
         })
         .eq("id", userId);
 
@@ -774,9 +776,59 @@ const ProfileSetupScreen = () => {
 
       // Delay navigation to show success animation
       setTimeout(() => {
-        // Redirect to the meal creation setup page
-        console.log("Navigating to meal creation setup");
-        router.replace(ROUTES.MEAL_CREATION_SETUP as any);
+        // Get the user role to determine next step
+        const checkUserRole = async () => {
+          try {
+            const { data: userData } = await supabase.auth.getUser();
+            if (!userData?.user?.id) {
+              console.error("No user ID found when trying to check role");
+              return null;
+            }
+
+            const { data: userDetails, error } = await supabase
+              .from("users")
+              .select("role")
+              .eq("id", userData.user.id)
+              .single();
+
+            if (error) {
+              console.error("Error fetching user role:", error);
+              return null;
+            }
+
+            return userDetails?.role;
+          } catch (err) {
+            console.error("Error in checkUserRole:", err);
+            return null;
+          }
+        };
+
+        checkUserRole()
+          .then((role) => {
+            // Only go to meal creation if user is a customer
+            if (role === "customer") {
+              console.log(
+                "Customer detected. Navigating to meal creation setup..."
+              );
+              router.replace(ROUTES.MEAL_CREATION_SETUP as any);
+            } else if (role === "maker") {
+              console.log("Maker detected. Skipping to wallet setup...");
+              router.replace(ROUTES.WALLET_SETUP as any);
+            } else if (role === "delivery_boy") {
+              console.log("Delivery boy detected. Skipping to wallet setup...");
+              router.replace(ROUTES.WALLET_SETUP as any);
+            } else {
+              console.error(
+                "Unknown role or error checking role. Safely navigating to wallet setup."
+              );
+              router.replace(ROUTES.WALLET_SETUP as any);
+            }
+          })
+          .catch((err) => {
+            console.error("Navigation error:", err);
+            // Fallback route in case of any issues
+            router.replace(ROUTES.WALLET_SETUP as any);
+          });
       }, 1200);
     } catch (error) {
       console.error("Error in saveProfile:", error);

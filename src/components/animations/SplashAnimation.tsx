@@ -24,75 +24,37 @@ const APP_NAME = "HomeMeal";
 export const SplashAnimation: React.FC<SplashAnimationProps> = ({
   onAnimationComplete,
 }) => {
-  // Animation values
-  const logoOpacity = useSharedValue(0);
-  const logoTranslateY = useSharedValue(20);
-  const taglineOpacity = useSharedValue(0);
+  // Use a single shared value for logo animation for better performance
+  const logoAnimation = useSharedValue(0);
 
-  // Create animation values for each letter
-  const letterAnimations = APP_NAME.split("").map(() => ({
-    opacity: useSharedValue(0),
-    y: useSharedValue(10),
-  }));
-
+  // Use a single animation to drive the entire sequence for better performance
   useEffect(() => {
-    // Animate logo with fade and subtle slide up
-    logoOpacity.value = withTiming(1, {
-      duration: 800,
+    // Start the animation immediately
+    logoAnimation.value = withTiming(1, {
+      duration: 1500,
       easing: Easing.bezier(0.16, 1, 0.3, 1),
     });
 
-    logoTranslateY.value = withTiming(0, {
-      duration: 1000,
-      easing: Easing.bezier(0.16, 1, 0.3, 1),
-    });
-
-    // Animate letters with staggered effect
-    letterAnimations.forEach((letter, index) => {
-      letter.opacity.value = withDelay(
-        800 + index * 80,
-        withTiming(1, { duration: 300 })
-      );
-
-      letter.y.value = withDelay(
-        800 + index * 80,
-        withTiming(0, {
-          duration: 400,
-          easing: Easing.bezier(0.16, 1, 0.3, 1),
-        })
-      );
-    });
-
-    // Animate tagline
-    taglineOpacity.value = withDelay(1600, withTiming(1, { duration: 600 }));
-
-    // Call onAnimationComplete callback after animation finishes if provided
+    // Call onAnimationComplete callback after animation finishes
     if (onAnimationComplete) {
       const timer = setTimeout(() => {
         onAnimationComplete();
-      }, 3000);
+      }, 2500); // Slightly shorter for better UX
 
       return () => clearTimeout(timer);
     }
   }, [onAnimationComplete]);
 
-  // Animated styles
+  // Animated styles derived from the single animation driver
   const logoStyle = useAnimatedStyle(() => ({
-    opacity: logoOpacity.value,
-    transform: [{ translateY: logoTranslateY.value }],
+    opacity: logoAnimation.value,
+    transform: [{ translateY: (1 - logoAnimation.value) * 20 }],
   }));
 
-  const taglineStyle = useAnimatedStyle(() => ({
-    opacity: taglineOpacity.value,
+  // For text, use built-in animations that are more optimized
+  const textContainerStyle = useAnimatedStyle(() => ({
+    opacity: logoAnimation.value,
   }));
-
-  // Create animated styles for letters
-  const letterStyles = letterAnimations.map((letter) =>
-    useAnimatedStyle(() => ({
-      opacity: letter.opacity.value,
-      transform: [{ translateY: letter.y.value }],
-    }))
-  );
 
   return (
     <View style={styles.container}>
@@ -106,22 +68,13 @@ export const SplashAnimation: React.FC<SplashAnimationProps> = ({
           />
         </Animated.View>
 
-        {/* App name with animated letters */}
-        <View style={styles.nameContainer}>
-          {APP_NAME.split("").map((letter, index) => (
-            <Animated.Text
-              key={`letter-${index}`}
-              style={[styles.nameLetter, letterStyles[index]]}
-            >
-              {letter}
-            </Animated.Text>
-          ))}
-        </View>
-
-        {/* Tagline */}
-        <Animated.Text style={[styles.tagline, taglineStyle]}>
-          Home-cooked meals, delivered.
-        </Animated.Text>
+        {/* App name - using built-in FadeIn animation for better performance */}
+        <Animated.View
+          style={styles.nameContainer}
+          entering={FadeIn.delay(800).duration(600)}
+        >
+          <Text style={styles.nameText}>{APP_NAME}</Text>
+        </Animated.View>
       </LinearGradient>
     </View>
   );
@@ -137,7 +90,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   logoContainer: {
-    marginBottom: 30,
+    marginBottom: 24,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -147,19 +100,15 @@ const styles = StyleSheet.create({
     resizeMode: "contain",
   },
   nameContainer: {
-    flexDirection: "row",
     marginBottom: 10,
   },
-  nameLetter: {
+  nameText: {
     fontSize: 32,
     fontWeight: "bold",
     color: "#FFFFFF",
-    marginHorizontal: 1,
-  },
-  tagline: {
-    fontSize: 16,
-    color: "#FFFFFF",
-    fontWeight: "400",
-    opacity: 0.9,
+    letterSpacing: 1,
   },
 });
+
+// Add default export to ensure the component can be imported either way
+export default SplashAnimation;

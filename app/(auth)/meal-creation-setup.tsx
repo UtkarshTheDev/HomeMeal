@@ -7,11 +7,17 @@ import {
   Alert,
   Image,
   ActivityIndicator,
+  StyleSheet,
+  Dimensions,
+  Platform,
   FlatList,
+  ViewStyle,
+  TextStyle,
+  ImageStyle,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   FadeIn,
@@ -21,10 +27,26 @@ import Animated, {
   withSequence,
   withTiming,
   SlideInUp,
+  FadeInRight,
+  withSpring,
+  withDelay,
+  interpolate,
+  Extrapolation,
+  withRepeat,
+  useAnimatedScrollHandler,
+  Easing,
 } from "react-native-reanimated";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import {
+  Ionicons,
+  MaterialCommunityIcons,
+  FontAwesome5,
+  AntDesign,
+} from "@expo/vector-icons";
 import { supabase } from "@/src/utils/supabaseClient";
 import { ROUTES } from "@/src/utils/routes";
+import { useAuth } from "@/src/providers/AuthProvider";
+
+const { width, height } = Dimensions.get("window");
 
 // Constants for days of the week and meal types
 const DAYS_OF_WEEK = [
@@ -39,6 +61,21 @@ const DAYS_OF_WEEK = [
 
 const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner"];
 
+// Define color constants directly instead of importing them
+const COLORS = {
+  white: "#FFFFFF",
+  black: "#000000",
+  primary: "#FF6B00",
+  secondary: "#FF9E45",
+  background: {
+    main: "#F8F9FA",
+  },
+  text: "#333333",
+  textLight: "#777777",
+  lightGray: "#EEEEEE",
+  danger: "#FF3B30",
+};
+
 // Interface for food items
 interface FoodItem {
   id: string;
@@ -48,6 +85,7 @@ interface FoodItem {
   image_url?: string;
   is_available: boolean;
   quantity?: number;
+  category: string;
 }
 
 // Interface for meal plan structure
@@ -57,546 +95,1246 @@ interface MealPlanType {
   };
 }
 
+// Define a type for our styles to fix TypeScript errors
+type Style = any;
+
 export default function MealCreationSetupScreen() {
-  // State for storing food items, loading status, and selected options
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
+  const router = useRouter();
+  const { user } = useAuth();
+
+  // State management
   const [foodItems, setFoodItems] = useState<FoodItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState(DAYS_OF_WEEK[0]);
   const [selectedMealType, setSelectedMealType] = useState(MEAL_TYPES[0]);
   const [mealPlan, setMealPlan] = useState<MealPlanType>({});
 
-  // Animated values for button effect
+  // Animated values
+  const scrollY = useSharedValue(0);
+  const headerScale = useSharedValue(1);
   const buttonScale = useSharedValue(1);
   const skipButtonScale = useSharedValue(1);
+  const addBtnPulse = useSharedValue(1);
 
-  // Load food items from Supabase
+  // Create pulsing animation for the add button
   useEffect(() => {
+    addBtnPulse.value = withRepeat(
+      withSequence(
+        withTiming(1.05, { duration: 1000 }),
+        withTiming(1, { duration: 1000 })
+      ),
+      -1,
+      true
+    );
+  }, []);
+
+  // Animation handler for scroll to create parallax header
+  const scrollHandler = useAnimatedScrollHandler((event) => {
+    scrollY.value = event.contentOffset.y;
+    headerScale.value = interpolate(
+      event.contentOffset.y,
+      [-100, 0],
+      [1.2, 1],
+      Extrapolation.CLAMP
+    );
+  });
+
+  // Animation styles
+  const headerAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: headerScale.value }],
+  }));
+
+  const saveButtonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: buttonScale.value }],
+  }));
+
+  const skipButtonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: skipButtonScale.value }],
+  }));
+
+  // Initialize empty meal plan structure
+  useEffect(() => {
+    const initMealPlan = () => {
+      const initialMealPlan: MealPlanType = {};
+      DAYS_OF_WEEK.forEach((day) => {
+        initialMealPlan[day] = {};
+        MEAL_TYPES.forEach((mealType) => {
+          initialMealPlan[day][mealType] = [];
+        });
+      });
+      setMealPlan(initialMealPlan);
+    };
+
+    initMealPlan();
     fetchFoodItems();
   }, []);
 
-  // Fetch food items from the database
+  // Fetch food items from Supabase
   const fetchFoodItems = async () => {
     setIsLoading(true);
     try {
-      // Query foods from Supabase
       const { data, error } = await supabase
         .from("food")
-        .select("*")
+        .select(
+          "id, name, price, description, image_url, category, is_available"
+        )
         .eq("is_available", true);
 
-      if (error) throw error;
-
-      setFoodItems(data || []);
+      if (error) {
+        console.error("Error fetching food items:", error.message);
+        const demoItems = createDemoFoodItems();
+        setFoodItems(demoItems);
+      } else if (data && data.length > 0) {
+        console.log(`Fetched ${data.length} food items`);
+        setFoodItems(data);
+      } else {
+        console.log("No food items found, creating demo items");
+        const demoItems = createDemoFoodItems();
+        setFoodItems(demoItems);
+      }
     } catch (error) {
-      console.error("Error fetching food items:", error);
-      Alert.alert("Error", "Failed to load food items. Please try again.");
+      console.error("Error in fetchFoodItems:", error);
+      const demoItems = createDemoFoodItems();
+      setFoodItems(demoItems);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Add a food item to the meal plan
-  const addFoodToMealPlan = (food: FoodItem) => {
-    setMealPlan((prevPlan) => {
-      const newPlan = { ...prevPlan };
+  // Create demo food items for testing or when no items are found
+  const createDemoFoodItems = (): FoodItem[] => {
+    return [
+      {
+        id: "1",
+        name: "Butter Chicken",
+        price: 180,
+        description:
+          "Tender chicken cooked in a creamy tomato sauce with aromatic spices.",
+        image_url: "https://source.unsplash.com/featured/?butter-chicken",
+        category: "Main Course",
+        is_available: true,
+      },
+      {
+        id: "2",
+        name: "Paneer Tikka",
+        price: 150,
+        description:
+          "Marinated cottage cheese grilled to perfection with vegetables and spices.",
+        image_url: "https://source.unsplash.com/featured/?paneer-tikka",
+        category: "Appetizer",
+        is_available: true,
+      },
+      {
+        id: "3",
+        name: "Veg Biryani",
+        price: 140,
+        description:
+          "Aromatic basmati rice cooked with mixed vegetables and biryani spices.",
+        image_url: "https://source.unsplash.com/featured/?veg-biryani",
+        category: "Rice",
+        is_available: true,
+      },
+      {
+        id: "4",
+        name: "Chicken Fried Rice",
+        price: 130,
+        description:
+          "Delicious fried rice with chicken pieces, vegetables, and seasoning.",
+        image_url: "https://source.unsplash.com/featured/?fried-rice",
+        category: "Rice",
+        is_available: true,
+      },
+      {
+        id: "5",
+        name: "Masala Dosa",
+        price: 95,
+        description:
+          "Crispy rice crepe filled with spiced potato masala and served with chutney.",
+        image_url: "https://source.unsplash.com/featured/?masala-dosa",
+        category: "Breakfast",
+        is_available: true,
+      },
+    ];
+  };
 
-      // Initialize day if not exists
-      if (!newPlan[selectedDay]) {
-        newPlan[selectedDay] = {};
+  // Add food to meal plan
+  const addFoodToMealPlan = (foodItem: FoodItem) => {
+    setMealPlan((prevMealPlan) => {
+      const newMealPlan = { ...prevMealPlan };
+
+      // Create nested objects if they don't exist
+      if (!newMealPlan[selectedDay]) {
+        newMealPlan[selectedDay] = {};
       }
 
-      // Initialize meal type if not exists
-      if (!newPlan[selectedDay][selectedMealType]) {
-        newPlan[selectedDay][selectedMealType] = [];
+      if (!newMealPlan[selectedDay][selectedMealType]) {
+        newMealPlan[selectedDay][selectedMealType] = [];
       }
 
       // Check if item already exists
-      const foodIndex = newPlan[selectedDay][selectedMealType].findIndex(
-        (item) => item.id === food.id
-      );
+      const existingItemIndex = newMealPlan[selectedDay][
+        selectedMealType
+      ].findIndex((item) => item.id === foodItem.id);
 
-      if (foodIndex !== -1) {
-        // If exists, increment quantity
-        newPlan[selectedDay][selectedMealType][foodIndex] = {
-          ...newPlan[selectedDay][selectedMealType][foodIndex],
-          quantity:
-            (newPlan[selectedDay][selectedMealType][foodIndex].quantity || 0) +
-            1,
+      if (existingItemIndex !== -1) {
+        // Increment quantity if already in the meal plan
+        const existingItem =
+          newMealPlan[selectedDay][selectedMealType][existingItemIndex];
+        newMealPlan[selectedDay][selectedMealType][existingItemIndex] = {
+          ...existingItem,
+          quantity: (existingItem.quantity || 1) + 1,
         };
       } else {
-        // If not exists, add with quantity 1
-        newPlan[selectedDay][selectedMealType].push({
-          ...food,
+        // Add new item with quantity 1
+        newMealPlan[selectedDay][selectedMealType].push({
+          ...foodItem,
           quantity: 1,
         });
       }
 
-      return newPlan;
+      return newMealPlan;
     });
   };
 
-  // Remove a food item from the meal plan
+  // Remove food from meal plan
   const removeFoodFromMealPlan = (foodId: string) => {
-    setMealPlan((prevPlan) => {
-      const newPlan = { ...prevPlan };
+    setMealPlan((prevMealPlan) => {
+      const newMealPlan = { ...prevMealPlan };
 
-      // Check if day and meal type exist
       if (
-        !newPlan[selectedDay] ||
-        !newPlan[selectedDay][selectedMealType] ||
-        newPlan[selectedDay][selectedMealType].length === 0
+        newMealPlan[selectedDay] &&
+        newMealPlan[selectedDay][selectedMealType]
       ) {
-        return prevPlan;
-      }
-
-      // Find the food item
-      const foodIndex = newPlan[selectedDay][selectedMealType].findIndex(
-        (item) => item.id === foodId
-      );
-
-      if (foodIndex === -1) return prevPlan;
-
-      // Get current quantity
-      const currentQuantity =
-        newPlan[selectedDay][selectedMealType][foodIndex].quantity || 1;
-
-      if (currentQuantity > 1) {
-        // Reduce quantity if more than 1
-        newPlan[selectedDay][selectedMealType][foodIndex] = {
-          ...newPlan[selectedDay][selectedMealType][foodIndex],
-          quantity: currentQuantity - 1,
-        };
-      } else {
-        // Remove item if quantity is 1
-        newPlan[selectedDay][selectedMealType] = newPlan[selectedDay][
+        const existingItemIndex = newMealPlan[selectedDay][
           selectedMealType
-        ].filter((item) => item.id !== foodId);
+        ].findIndex((item) => item.id === foodId);
 
-        // Clean up empty arrays
-        if (newPlan[selectedDay][selectedMealType].length === 0) {
-          delete newPlan[selectedDay][selectedMealType];
-        }
+        if (existingItemIndex !== -1) {
+          const existingItem =
+            newMealPlan[selectedDay][selectedMealType][existingItemIndex];
 
-        if (Object.keys(newPlan[selectedDay]).length === 0) {
-          delete newPlan[selectedDay];
-        }
-      }
-
-      return newPlan;
-    });
-  };
-
-  // Save the meal plan to the database and update user's status
-  const saveMealPlan = async () => {
-    // Animate button press
-    buttonScale.value = withSequence(
-      withTiming(0.95, { duration: 100 }),
-      withTiming(1, { duration: 100 })
-    );
-
-    if (Object.keys(mealPlan).length === 0) {
-      Alert.alert(
-        "No Meals Selected",
-        "Please select at least one food item for your meal plan."
-      );
-      return;
-    }
-
-    setIsSaving(true);
-
-    try {
-      // Get current user
-      const { data: userData, error: userError } =
-        await supabase.auth.getUser();
-      if (userError) throw userError;
-
-      const userId = userData.user.id;
-
-      // Step 1: Create meal entries in database
-      for (const day in mealPlan) {
-        for (const mealType in mealPlan[day]) {
-          const foods = mealPlan[day][mealType];
-          const foodIds = foods.map((food) => ({
-            id: food.id,
-            quantity: food.quantity || 1,
-          }));
-
-          // Insert meal data
-          const { error: mealError } = await supabase.from("meals").insert({
-            user_id: userId,
-            name: `${day} ${mealType}`,
-            meal_type: mealType,
-            foods: foodIds,
-            applicable_days: [day],
-            created_at: new Date().toISOString(),
-          });
-
-          if (mealError) {
-            console.error("Error creating meal:", mealError);
-            // Continue to try to save other meals
+          if ((existingItem.quantity || 1) > 1) {
+            // Decrement quantity if more than 1
+            newMealPlan[selectedDay][selectedMealType][existingItemIndex] = {
+              ...existingItem,
+              quantity: (existingItem.quantity || 1) - 1,
+            };
+          } else {
+            // Remove item if quantity is 1
+            newMealPlan[selectedDay][selectedMealType].splice(
+              existingItemIndex,
+              1
+            );
           }
         }
       }
 
-      // Step 2: Update user's onboarding status
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          meal_creation_complete: true,
-        })
-        .eq("id", userId);
+      return newMealPlan;
+    });
+  };
 
-      if (updateError) {
-        console.error("Error updating user status:", updateError);
-        Alert.alert(
-          "Warning",
-          "Your meal plan was saved, but we encountered an issue updating your profile. Please continue."
-        );
+  // Save meal plan to database and navigate to next screen
+  const saveMealPlan = async () => {
+    try {
+      buttonScale.value = withSequence(
+        withTiming(0.9, { duration: 100 }),
+        withTiming(1, { duration: 100 })
+      );
+
+      // Update user profile
+      if (user && user.id) {
+        await supabase
+          .from("profiles")
+          .update({
+            meal_plan: mealPlan,
+            profile_setup_stage: "complete",
+          })
+          .eq("id", user.id);
+
+        // Navigate to home screen
+        router.replace(ROUTES.TABS);
       }
-
-      // Show success message and navigate
-      Alert.alert("Success!", "Your meal plan has been created successfully.", [
-        {
-          text: "Continue",
-          onPress: () => {
-            router.replace(ROUTES.MAKER_SELECTION_SETUP as any);
-          },
-        },
-      ]);
     } catch (error) {
       console.error("Error saving meal plan:", error);
-      Alert.alert("Error", "Failed to save your meal plan. Please try again.");
-    } finally {
-      setIsSaving(false);
     }
   };
 
-  // Skip meal creation and go to next step
-  const skipMealCreation = async () => {
-    // Animate button press
-    skipButtonScale.value = withSequence(
-      withTiming(0.95, { duration: 100 }),
-      withTiming(1, { duration: 100 })
-    );
-
-    setIsSaving(true);
-
+  // Skip meal setup
+  const skipMealSetup = async () => {
     try {
-      // Get current user
-      const { data: userData, error: userError } =
-        await supabase.auth.getUser();
-      if (userError) throw userError;
+      skipButtonScale.value = withSequence(
+        withTiming(0.9, { duration: 100 }),
+        withTiming(1, { duration: 100 })
+      );
 
-      // Update user's onboarding status
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          meal_creation_complete: true,
-        })
-        .eq("id", userData.user.id);
+      // Update user profile
+      if (user && user.id) {
+        await supabase
+          .from("profiles")
+          .update({
+            profile_setup_stage: "complete",
+          })
+          .eq("id", user.id);
 
-      if (updateError) {
-        console.error("Error updating user status:", updateError);
-        Alert.alert(
-          "Warning",
-          "We encountered an issue updating your profile. Please try again."
-        );
-        setIsSaving(false);
-        return;
+        // Navigate to home screen
+        router.replace(ROUTES.TABS);
       }
-
-      // Navigate to next step
-      router.replace(ROUTES.MAKER_SELECTION_SETUP as any);
     } catch (error) {
-      console.error("Error skipping meal creation:", error);
-      Alert.alert("Error", "Failed to proceed. Please try again.");
-      setIsSaving(false);
+      console.error("Error skipping meal setup:", error);
     }
   };
 
-  // Get selected foods for the current day and meal type
-  const getSelectedFoods = (): FoodItem[] => {
-    if (!mealPlan[selectedDay] || !mealPlan[selectedDay][selectedMealType]) {
-      return [];
-    }
-    return mealPlan[selectedDay][selectedMealType];
-  };
-
-  // Calculate total price for the current selection
-  const getTotalPrice = (): number => {
-    const selected = getSelectedFoods();
-    return selected.reduce(
-      (total, food) => total + food.price * (food.quantity || 1),
-      0
-    );
-  };
-
-  // Animated styles for buttons
-  const buttonStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: buttonScale.value }],
-    };
-  });
-
-  const skipButtonStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: skipButtonScale.value }],
-    };
-  });
-
-  return (
-    <SafeAreaView className="flex-1 bg-white">
-      <StatusBar style="dark" />
-
-      <View className="flex-1">
-        {/* Header */}
-        <Animated.View
-          entering={FadeInDown.delay(100).duration(700)}
-          className="px-5 py-4"
+  // Render Day Selector component
+  const renderDaySelector = () => (
+    <View style={styles.selectorOuterContainer}>
+      <Text style={styles.selectorTitle}>Select Day</Text>
+      <View style={styles.selectorContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.scrollableSelectorContainer}
         >
-          <Text className="text-3xl font-bold text-primary">
-            Create Your First Meal Plan
-          </Text>
-          <Text className="text-base text-text-secondary mt-2">
-            Select foods for each day and meal type to create your personalized
-            meal plan.
-          </Text>
-        </Animated.View>
-
-        {isLoading ? (
-          <View className="flex-1 justify-center items-center">
-            <ActivityIndicator size="large" color="#FF6B00" />
-            <Text className="mt-4 text-text-secondary">
-              Loading food options...
-            </Text>
-          </View>
-        ) : (
-          <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-            {/* Day Selection */}
-            <Animated.View
-              entering={FadeInDown.delay(200).duration(700)}
-              className="px-5 mb-4"
-            >
-              <Text className="text-lg font-semibold text-text-primary mb-2">
-                Select Day
-              </Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                className="py-2"
+          {DAYS_OF_WEEK.map((day, index) => {
+            const isSelected = selectedDay === day;
+            return (
+              <Animated.View
+                key={day}
+                entering={FadeInDown.delay(index * 100).springify()}
+                style={styles.selectorButton}
               >
-                {DAYS_OF_WEEK.map((day) => (
-                  <TouchableOpacity
-                    key={day}
-                    onPress={() => setSelectedDay(day)}
-                    className={`px-5 py-3 rounded-xl mr-3 ${
-                      selectedDay === day ? "bg-primary" : "bg-gray-100"
-                    }`}
+                <TouchableOpacity
+                  onPress={() => setSelectedDay(day)}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={
+                      isSelected
+                        ? ["#FF6B00", "#FF9E45"]
+                        : ["#F8F8F8", "#F8F8F8"]
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.selectorButtonGradient}
                   >
                     <Text
-                      className={`font-medium ${
-                        selectedDay === day ? "text-white" : "text-text-primary"
-                      }`}
+                      style={[
+                        styles.selectorButtonText,
+                        isSelected && styles.selectorButtonTextSelected,
+                      ]}
                     >
-                      {day}
+                      {day.substring(0, 3)}
                     </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </Animated.View>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </Animated.View>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </View>
+  );
 
-            {/* Meal Type Selection */}
-            <Animated.View
-              entering={FadeInDown.delay(300).duration(700)}
-              className="px-5 mb-4"
-            >
-              <Text className="text-lg font-semibold text-text-primary mb-2">
-                Select Meal Type
-              </Text>
-              <View className="flex-row">
-                {MEAL_TYPES.map((type) => (
-                  <TouchableOpacity
-                    key={type}
-                    onPress={() => setSelectedMealType(type)}
-                    className={`px-5 py-3 rounded-xl mr-3 ${
-                      selectedMealType === type ? "bg-primary" : "bg-gray-100"
-                    }`}
+  // Render Meal Type Selector component
+  const renderMealTypeSelector = () => (
+    <View style={styles.selectorOuterContainer}>
+      <Text style={styles.selectorTitle}>Select Meal Type</Text>
+      <View style={styles.selectorContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.scrollableSelectorContainer}
+        >
+          {MEAL_TYPES.map((mealType, index) => {
+            const isSelected = selectedMealType === mealType;
+            let iconName: keyof typeof MaterialCommunityIcons.glyphMap =
+              "coffee";
+
+            if (mealType === "Lunch") iconName = "food-fork-drink";
+            if (mealType === "Dinner") iconName = "food-variant";
+
+            return (
+              <Animated.View
+                key={mealType}
+                entering={FadeInDown.delay(index * 100 + 300).springify()}
+                style={styles.selectorButton}
+              >
+                <TouchableOpacity
+                  onPress={() => setSelectedMealType(mealType)}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={
+                      isSelected
+                        ? ["#FF6B00", "#FF9E45"]
+                        : ["#F8F8F8", "#F8F8F8"]
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.selectorButtonGradient}
                   >
-                    <Text
-                      className={`font-medium ${
-                        selectedMealType === type
-                          ? "text-white"
-                          : "text-text-primary"
-                      }`}
-                    >
-                      {type}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </Animated.View>
-
-            {/* Current Selection */}
-            <Animated.View
-              entering={FadeInDown.delay(400).duration(700)}
-              className="px-5 mb-4"
-            >
-              <Text className="text-lg font-semibold text-text-primary mb-2">
-                Selected Foods
-              </Text>
-              <View className="bg-gray-50 rounded-xl p-4">
-                {getSelectedFoods().length > 0 ? (
-                  <>
-                    {getSelectedFoods().map((food) => (
-                      <View
-                        key={food.id}
-                        className="flex-row justify-between items-center mb-3 pb-3 border-b border-gray-100"
-                      >
-                        <View className="flex-row items-center flex-1">
-                          <View className="w-10 h-10 bg-orange-100 rounded-full items-center justify-center mr-3">
-                            <Ionicons
-                              name="restaurant"
-                              size={20}
-                              color="#FF6B00"
-                            />
-                          </View>
-                          <View className="flex-1">
-                            <Text className="text-text-primary font-medium">
-                              {food.name}
-                            </Text>
-                            <Text className="text-text-secondary text-sm">
-                              ₹{food.price} × {food.quantity || 1}
-                            </Text>
-                          </View>
-                        </View>
-                        <View className="flex-row items-center">
-                          <Text className="font-bold text-text-primary mr-3">
-                            ₹{food.price * (food.quantity || 1)}
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => removeFoodFromMealPlan(food.id)}
-                            className="bg-red-50 w-8 h-8 rounded-full items-center justify-center"
-                          >
-                            <Ionicons name="remove" size={18} color="#FF4D4F" />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    ))}
-                    <View className="flex-row justify-between mt-2">
-                      <Text className="font-semibold text-text-primary">
-                        Total
-                      </Text>
-                      <Text className="font-bold text-primary text-lg">
-                        ₹{getTotalPrice()}
-                      </Text>
-                    </View>
-                  </>
-                ) : (
-                  <View className="py-4 items-center">
                     <MaterialCommunityIcons
-                      name="food-outline"
-                      size={32}
-                      color="#9CA3AF"
+                      name={iconName}
+                      size={20}
+                      color={isSelected ? "#FFFFFF" : "#666666"}
+                      style={{ marginRight: 6 }}
                     />
-                    <Text className="text-text-tertiary mt-2">
-                      No foods selected for {selectedDay} {selectedMealType}
+                    <Text
+                      style={[
+                        styles.selectorButtonText,
+                        isSelected && styles.selectorButtonTextSelected,
+                      ]}
+                    >
+                      {mealType}
                     </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </Animated.View>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </View>
+  );
+
+  // Render selected food items for the current day and meal type
+  const renderSelectedFoodItems = () => {
+    const currentSelection = mealPlan[selectedDay]?.[selectedMealType] || [];
+
+    if (currentSelection.length === 0) {
+      return (
+        <View style={styles.emptySelectionContainer}>
+          <MaterialCommunityIcons
+            name="food-off"
+            size={50}
+            color={COLORS.textLight}
+          />
+          <Text style={styles.emptySelectionText}>
+            No items selected for {selectedMealType} on {selectedDay}
+          </Text>
+          <Text style={styles.emptySelectionSubtext}>
+            Select items from the list below
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.selectedItemsContainer}>
+        <View style={styles.selectedItemsHeader}>
+          <Text style={styles.selectedItemsTitle}>Selected Items</Text>
+          <TouchableOpacity
+            onPress={() => {
+              const updatedMealPlan = { ...mealPlan };
+              updatedMealPlan[selectedDay] = {
+                ...updatedMealPlan[selectedDay],
+                [selectedMealType]: [],
+              };
+              setMealPlan(updatedMealPlan);
+            }}
+            style={styles.clearButton}
+          >
+            <Text style={styles.clearButtonText}>Clear All</Text>
+          </TouchableOpacity>
+        </View>
+
+        <FlatList
+          data={currentSelection}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.selectedItemsList}
+          keyExtractor={(item) => `selected-${item.id}`}
+          renderItem={({ item, index }) => (
+            <Animated.View
+              entering={FadeInRight.delay(index * 50).springify()}
+              style={styles.selectedFoodItem}
+            >
+              <View style={styles.selectedItemImageContainer}>
+                {item.image_url ? (
+                  <Image
+                    source={{ uri: item.image_url }}
+                    style={styles.selectedItemImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.selectedItemImagePlaceholder}>
+                    <MaterialCommunityIcons
+                      name="food"
+                      size={24}
+                      color="#CCCCCC"
+                    />
                   </View>
                 )}
               </View>
-            </Animated.View>
-
-            {/* Available Foods */}
-            <Animated.View
-              entering={FadeInDown.delay(500).duration(700)}
-              className="px-5 mb-6"
-            >
-              <Text className="text-lg font-semibold text-text-primary mb-2">
-                Available Foods
+              <Text style={styles.selectedItemName} numberOfLines={1}>
+                {item.name}
               </Text>
-              <View>
-                {foodItems.map((food) => (
-                  <TouchableOpacity
-                    key={food.id}
-                    onPress={() => addFoodToMealPlan(food)}
-                    className="bg-white border border-gray-100 rounded-xl p-3 mb-3 flex-row items-center shadow-sm"
-                  >
-                    <View className="w-14 h-14 bg-orange-50 rounded-lg items-center justify-center mr-3">
-                      <Ionicons
-                        name="restaurant-outline"
-                        size={24}
-                        color="#FF6B00"
-                      />
-                    </View>
-                    <View className="flex-1">
-                      <Text className="font-medium text-text-primary">
-                        {food.name}
-                      </Text>
-                      {food.description && (
-                        <Text
-                          numberOfLines={1}
-                          className="text-sm text-text-tertiary"
-                        >
-                          {food.description}
-                        </Text>
-                      )}
-                      <Text className="text-primary font-bold mt-1">
-                        ₹{food.price}
-                      </Text>
-                    </View>
-                    <View className="w-8 h-8 bg-orange-50 rounded-full items-center justify-center">
-                      <Ionicons name="add" size={20} color="#FF6B00" />
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </Animated.View>
-
-            {/* Spacing for bottom buttons */}
-            <View className="h-24" />
-          </ScrollView>
-        )}
-
-        {/* Bottom Action Buttons */}
-        <Animated.View
-          entering={SlideInUp.delay(600).duration(700)}
-          className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-5 py-4"
-        >
-          <View className="flex-row justify-between">
-            <Animated.View style={skipButtonStyle} className="flex-1 mr-3">
+              <Text style={styles.selectedItemPrice}>₹{item.price}</Text>
               <TouchableOpacity
-                onPress={skipMealCreation}
-                disabled={isSaving}
-                className="h-[54px] border border-gray-300 rounded-xl items-center justify-center"
+                onPress={() => removeFoodFromMealPlan(item.id)}
+                style={styles.removeButton}
               >
-                <Text className="text-text-primary font-semibold">Skip</Text>
+                <AntDesign name="close" size={16} color={COLORS.white} />
               </TouchableOpacity>
             </Animated.View>
-
-            <Animated.View style={buttonStyle} className="flex-1">
-              <TouchableOpacity
-                onPress={saveMealPlan}
-                disabled={isSaving}
-                className="h-[54px] overflow-hidden rounded-xl"
-              >
-                <LinearGradient
-                  colors={["#FFAD00", "#FF6B00"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  className="h-full items-center justify-center"
-                >
-                  {isSaving ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text className="text-white font-bold">Continue</Text>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
-            </Animated.View>
-          </View>
-        </Animated.View>
+          )}
+        />
       </View>
-    </SafeAreaView>
+    );
+  };
+
+  // Render Food List
+  const renderFoodList = () => (
+    <View style={styles.foodListContainer}>
+      {foodItems.map((item, index) => (
+        <FoodItemCard
+          key={item.id}
+          item={item}
+          index={index}
+          onAdd={addFoodToMealPlan}
+        />
+      ))}
+    </View>
+  );
+
+  // Render Loading State
+  const renderLoading = () => (
+    <View style={styles.loadingContainer}>
+      <ActivityIndicator size="large" color={COLORS.primary} />
+    </View>
+  );
+
+  // Render Empty State
+  const renderEmpty = () => (
+    <View style={styles.emptyContainer}>
+      <FontAwesome5
+        name="utensils"
+        size={50}
+        color={COLORS.textLight}
+        style={styles.emptyIcon}
+      />
+      <Text style={styles.emptyTitle}>No Food Items Available</Text>
+      <Text style={styles.emptyDescription}>
+        We couldn't find any food items right now. Please try again later or
+        contact support if the issue persists.
+      </Text>
+    </View>
+  );
+
+  // Main render function
+  return (
+    <View style={styles.container}>
+      <StatusBar style="light" />
+      <SafeAreaView style={styles.safeAreaView}>
+        <Animated.ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.contentContainer}
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Animated Header */}
+          <Animated.View style={[styles.header, headerAnimatedStyle]}>
+            <LinearGradient
+              colors={["#FF6B00", "#FF9E45"]}
+              style={styles.headerGradient}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
+              <View style={styles.headerContent}>
+                <View style={styles.headerTitleContainer}>
+                  <Text style={styles.headerTitle}>Create Your Meal Plan</Text>
+                  <Text style={styles.headerSubtitle}>
+                    Select foods for different days and meals
+                  </Text>
+                </View>
+                <View style={styles.headerIconsContainer}>
+                  <MaterialCommunityIcons
+                    name="silverware-fork-knife"
+                    size={28}
+                    color="white"
+                  />
+                  <MaterialCommunityIcons
+                    name="calendar-check"
+                    size={28}
+                    color="white"
+                    style={{ marginLeft: 12 }}
+                  />
+                </View>
+              </View>
+            </LinearGradient>
+          </Animated.View>
+
+          <View style={styles.mainContent}>
+            {/* Day Selector */}
+            {renderDaySelector()}
+
+            {/* Meal Type Selector */}
+            {renderMealTypeSelector()}
+
+            {/* Selected Foods */}
+            {renderSelectedFoodItems()}
+
+            {/* Food Items List */}
+            <View style={styles.foodListContainer}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Available Food Items</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Tap on items to add them to your meal
+                </Text>
+              </View>
+
+              {/* Render food items depending on state */}
+              {isLoading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#FF6B00" />
+                  <Text style={styles.loadingText}>Loading food items...</Text>
+                </View>
+              ) : foodItems.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                  <MaterialCommunityIcons
+                    name="food-off"
+                    size={60}
+                    color={COLORS.textLight}
+                  />
+                  <Text style={styles.emptyTitle}>No Food Items Found</Text>
+                  <Text style={styles.emptyDescription}>
+                    There are no food items available at the moment. Please try
+                    again later.
+                  </Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={foodItems}
+                  keyExtractor={(item) => item.id.toString()}
+                  contentContainerStyle={styles.foodItemsContainer}
+                  renderItem={({ item, index }) => (
+                    <FoodItemCard
+                      item={item}
+                      index={index}
+                      onAdd={addFoodToMealPlan}
+                    />
+                  )}
+                />
+              )}
+            </View>
+          </View>
+        </Animated.ScrollView>
+
+        {/* Bottom Controls */}
+        <View style={styles.bottomControls}>
+          <Animated.View
+            style={[styles.saveButtonContainer, saveButtonAnimatedStyle]}
+          >
+            <TouchableOpacity
+              style={styles.saveButton}
+              onPress={saveMealPlan}
+              activeOpacity={0.9}
+            >
+              <LinearGradient
+                colors={["#FF6B00", "#FF9E45"]}
+                style={styles.saveButtonGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                <MaterialCommunityIcons
+                  name="content-save"
+                  size={20}
+                  color="white"
+                />
+                <Text style={styles.saveButtonText}>Save Meal Plan</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </Animated.View>
+
+          <Animated.View
+            style={[styles.skipButtonContainer, skipButtonAnimatedStyle as any]}
+          >
+            <TouchableOpacity
+              style={styles.skipButton as any}
+              onPress={skipMealSetup}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.skipButtonText as any}>Skip</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </SafeAreaView>
+    </View>
   );
 }
+
+// StyleSheet for all the components
+const styles = StyleSheet.create<Style>({
+  // Container styles
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.background.main,
+  },
+  safeAreaView: {
+    flex: 1,
+    backgroundColor: COLORS.background.main,
+  },
+  contentContainer: {
+    paddingBottom: 120, // Space for bottom button
+  },
+
+  // Header styles
+  header: {
+    backgroundColor: COLORS.background.main,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    shadowColor: COLORS.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 5,
+    overflow: "hidden",
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: COLORS.white,
+    marginBottom: 8,
+  },
+  headerSubtitle: {
+    fontSize: 16,
+    color: COLORS.white,
+    opacity: 0.9,
+    marginBottom: 15,
+  },
+  headerGradient: {
+    padding: 20,
+    paddingTop: Platform.OS === "android" ? 60 : 50,
+    paddingBottom: 25,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+  },
+  headerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  headerTitleContainer: {
+    flexDirection: "column",
+  },
+  headerIconsContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  // Selector styles
+  selectorOuterContainer: {
+    marginVertical: 10,
+    paddingHorizontal: 20,
+  },
+  selectorTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: COLORS.text,
+    marginBottom: 10,
+  },
+  selectorContainer: {
+    marginBottom: 10,
+  },
+  scrollableSelectorContainer: {
+    paddingVertical: 5,
+  },
+  selectorButton: {
+    marginRight: 10,
+    borderRadius: 25,
+    overflow: "hidden",
+    elevation: 2,
+    shadowColor: COLORS.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+  },
+  selectorButtonGradient: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 80,
+  },
+  selectorButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: COLORS.textLight,
+  },
+  selectorButtonTextSelected: {
+    color: COLORS.white,
+    fontWeight: "700",
+  },
+
+  // Main content styles
+  mainContent: {
+    padding: 16,
+    paddingTop: 0,
+  },
+  sectionHeader: {
+    marginVertical: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    color: COLORS.textLight,
+    marginTop: 4,
+  },
+  foodListContainer: {
+    flex: 1,
+  },
+
+  // Loading and empty states
+  loadingContainer: {
+    padding: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: COLORS.textLight,
+  },
+  emptyContainer: {
+    padding: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.text,
+    marginTop: 16,
+  },
+  emptyDescription: {
+    fontSize: 14,
+    color: COLORS.textLight,
+    marginTop: 8,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  foodItemsContainer: {
+    paddingBottom: 100, // Extra padding at the bottom for the save button
+  },
+
+  // Bottom control styles
+  bottomControls: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: COLORS.background.main,
+    paddingTop: 10,
+    paddingBottom: Platform.OS === "ios" ? 30 : 20,
+    paddingHorizontal: 20,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    shadowColor: COLORS.black,
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 5,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  saveButtonContainer: {
+    flex: 1,
+    height: 54,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  saveButtonGradient: {
+    height: "100%",
+    width: "100%",
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+  },
+  saveButton: {
+    flex: 1,
+    height: 54,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  saveButtonText: {
+    color: COLORS.white,
+    fontWeight: "bold",
+    fontSize: 16,
+    marginLeft: 8,
+  },
+  skipButtonContainer: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: COLORS.lightGray,
+    height: 54,
+  },
+  skipButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: COLORS.lightGray,
+    height: 54,
+  },
+  skipButtonText: {
+    color: COLORS.textLight,
+    fontWeight: "600",
+    fontSize: 16,
+  },
+
+  // Food card styles
+  foodCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+    overflow: "hidden",
+  },
+  foodCardTouchable: {
+    width: "100%",
+  },
+  foodImagePlaceholder: {
+    height: 180,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  foodImage: {
+    height: 180,
+    width: "100%",
+    backgroundColor: "#f5f5f5",
+  },
+  imageOverlay: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 100,
+    zIndex: 1,
+  },
+  foodCardContent: {
+    padding: 12,
+  },
+  foodTitleContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  foodTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.text,
+    flex: 1,
+  },
+  priceTag: {
+    backgroundColor: COLORS.lightGray,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 8,
+  },
+  foodPrice: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+  foodDescription: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    marginBottom: 12,
+  },
+  addButton: {
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  addButtonGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  addButtonText: {
+    color: COLORS.white,
+    fontSize: 14,
+    fontWeight: "600",
+    marginLeft: 4,
+  },
+  categoryTag: {
+    position: "absolute",
+    top: 12,
+    left: 12,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    zIndex: 2,
+  },
+  categoryText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  // Selected items styles
+  selectedItemsContainer: {
+    marginBottom: 16,
+    padding: 16,
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  selectedItemsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  selectedItemsTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+  clearButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: COLORS.lightGray,
+    borderRadius: 8,
+  },
+  clearButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.text,
+  },
+  selectedItemsList: {
+    paddingVertical: 8,
+  },
+  selectedFoodItem: {
+    width: 100,
+    marginRight: 12,
+    padding: 8,
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+    position: "relative",
+  },
+  selectedItemImageContainer: {
+    width: "100%",
+    height: 70,
+    borderRadius: 8,
+    overflow: "hidden",
+    marginBottom: 8,
+  },
+  selectedItemImage: {
+    width: "100%",
+    height: "100%",
+  },
+  selectedItemImagePlaceholder: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: COLORS.lightGray,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  selectedItemName: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  selectedItemPrice: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: COLORS.textLight,
+  },
+  removeButton: {
+    position: "absolute",
+    top: -5,
+    right: -5,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: COLORS.danger,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+    elevation: 2,
+    zIndex: 2,
+  },
+  emptySelectionContainer: {
+    padding: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    marginBottom: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  emptySelectionText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.text,
+    marginTop: 12,
+    textAlign: "center",
+  },
+  emptySelectionSubtext: {
+    fontSize: 14,
+    color: COLORS.textLight,
+    marginTop: 8,
+    textAlign: "center",
+  },
+
+  // Add scrollView style
+  scrollView: {
+    flex: 1,
+    backgroundColor: COLORS.background.main,
+  },
+} as const);
+
+// Food Item component with modern styling and animations
+const FoodItemCard = ({
+  item,
+  index,
+  onAdd,
+}: {
+  item: FoodItem;
+  index: number;
+  onAdd: (item: FoodItem) => void;
+}) => {
+  const itemScale = useSharedValue(1);
+  const addButtonScale = useSharedValue(1);
+
+  // Animation for item press
+  const onPressIn = () => {
+    itemScale.value = withTiming(0.98, { duration: 150 });
+  };
+
+  const onPressOut = () => {
+    itemScale.value = withSpring(1, { damping: 15, stiffness: 150 });
+  };
+
+  // Animation for add button press
+  const onAddPressIn = () => {
+    addButtonScale.value = withTiming(0.9, { duration: 100 });
+  };
+
+  const onAddPressOut = () => {
+    addButtonScale.value = withSequence(
+      withTiming(1.1, { duration: 150 }),
+      withTiming(1, { duration: 100 })
+    );
+  };
+
+  // Animated styles
+  const animatedCardStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: itemScale.value }],
+  }));
+
+  const animatedAddBtnStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: addButtonScale.value }],
+  }));
+
+  return (
+    <Animated.View
+      entering={FadeInRight.delay(index * 100).springify()}
+      style={[styles.foodCard, animatedCardStyle]}
+    >
+      <TouchableOpacity
+        onPress={() => onAdd(item)}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        activeOpacity={0.9}
+        style={styles.foodCardTouchable}
+      >
+        <View style={styles.categoryTag}>
+          <Text style={styles.categoryText}>{item.category}</Text>
+        </View>
+
+        {item.image_url ? (
+          <Image
+            source={{ uri: item.image_url }}
+            style={styles.foodImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={styles.foodImagePlaceholder}>
+            <MaterialCommunityIcons name="food" size={40} color="#CCCCCC" />
+          </View>
+        )}
+
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.7)"]}
+          style={styles.imageOverlay}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+        />
+
+        <View style={styles.foodCardContent}>
+          <View style={styles.foodTitleContainer}>
+            <Text style={styles.foodTitle}>{item.name}</Text>
+            <View style={styles.priceTag}>
+              <Text style={styles.foodPrice}>₹{item.price}</Text>
+            </View>
+          </View>
+          <Text style={styles.foodDescription} numberOfLines={2}>
+            {item.description || "No description available"}
+          </Text>
+          <Animated.View style={animatedAddBtnStyle}>
+            <TouchableOpacity
+              onPress={() => onAdd(item)}
+              onPressIn={onAddPressIn}
+              onPressOut={onAddPressOut}
+              style={styles.addButton}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={["#FF6B00", "#FF9E45"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.addButtonGradient}
+              >
+                <AntDesign name="plus" size={18} color="white" />
+                <Text style={styles.addButtonText}>Add to Meal</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};

@@ -5,7 +5,12 @@ import { supabase } from "@/src/utils/supabaseClient";
 import { router } from "expo-router";
 import { ROUTES } from "@/src/utils/routes";
 import LoadingScreen from "@/src/components/LoadingScreen";
-import { SplashAnimation } from "@/src/components/animations/SplashAnimation";
+import SplashAnimation from "@/src/components/animations/SplashAnimation";
+
+// Disable Supabase GoTrueClient verbose logs
+if (process.env.NODE_ENV !== "development") {
+  console.debug = () => {};
+}
 
 // Define the types of users we have in our app
 export type UserRole = "customer" | "maker" | "delivery_boy" | null;
@@ -54,6 +59,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // Function to refresh the session token
   const refreshSession = async (): Promise<Session | null> => {
     try {
+      // Keep this log for debugging auth issues
       console.log("Attempting to refresh Supabase token...");
 
       // Get current session
@@ -62,6 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       } = await supabase.auth.getSession();
 
       if (!currentSession) {
+        // Keep this log for debugging auth issues
         console.log("No active session to refresh");
         return null;
       }
@@ -75,11 +82,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       if (data?.session) {
+        // Keep this log for debugging auth issues
         console.log("Token refreshed successfully");
         setSession(data.session);
         setUser(data.session.user);
         return data.session;
       } else {
+        // Keep this log for debugging auth issues
         console.log("Token refresh returned no session");
         return null;
       }
@@ -127,7 +136,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // If wallet exists, no need to create one
       if (existingWallet) {
-        console.log("Wallet already exists for user:", userId);
+        // Remove this verbose log
+        // console.log("Wallet already exists for user:", userId);
         return true;
       }
 
@@ -141,6 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         return false;
       }
 
+      // Keep this important log about wallet creation
       console.log("Wallet created successfully for user:", userId);
       return true;
     } catch (error) {
@@ -149,43 +160,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  // Check the user's onboarding status
+  // Check the user's onboarding status - follows a strict sequential flow
   const checkOnboardingStatus = async (): Promise<{
     isComplete: boolean;
     route?: string;
   }> => {
-    if (!user) return { isComplete: false };
+    if (!user) return { isComplete: false, route: ROUTES.AUTH_INTRO };
 
     try {
       // Fetch user details
       const details = await fetchUserDetails(user.id);
-      if (!details) return { isComplete: false, route: ROUTES.AUTH_INTRO };
+
+      // Handle case where user exists in auth but not in users table yet
+      if (!details) {
+        // Keep this log for debugging auth flow issues
+        console.log("User exists in auth but not in users table yet");
+        return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
+      }
 
       setUserDetails(details);
       setUserRole(details.role);
 
-      // Check what stage of onboarding the user is in
+      // Sequential check for completion of each onboarding step
+      // Step 1: Check if role is selected
       if (!details.role) {
-        // No role selected - needs to select role
         return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
-      } else if (!details.location || !details.address) {
-        // No location set - needs to set location
+      }
+
+      // Step 2: Check if location is set
+      if (!details.location || !details.address) {
         return { isComplete: false, route: ROUTES.LOCATION_SETUP };
-      } else if (
-        !details.name ||
-        !details.profile_setup_stage ||
-        details.profile_setup_stage !== "complete"
-      ) {
-        // Profile incomplete - needs to complete profile
+      }
+
+      // Step 3: Check if profile is complete (name as indicator)
+      if (!details.name) {
         return { isComplete: false, route: ROUTES.AUTH_PROFILE_SETUP };
-      } else if (!details.meal_creation_complete) {
-        // Meal creation not done - direct to meal creation setup
-        return { isComplete: false, route: ROUTES.MEAL_CREATION_SETUP };
-      } else if (!details.maker_selection_complete) {
-        // Maker selection not done - direct to maker selection
-        return { isComplete: false, route: ROUTES.MAKER_SELECTION_SETUP };
-      } else if (!details.wallet_setup_complete) {
-        // Wallet setup not done - direct to wallet setup
+      }
+
+      // Role-specific steps
+      if (details.role === "customer") {
+        // Step 4: For customers - meal creation
+        if (!details.meal_creation_complete) {
+          return { isComplete: false, route: ROUTES.MEAL_CREATION_SETUP };
+        }
+
+        // Step 5: For customers - maker selection
+        if (!details.maker_selection_complete) {
+          return { isComplete: false, route: ROUTES.MAKER_SELECTION_SETUP };
+        }
+      }
+
+      // Step 6: Wallet setup (last step for all roles)
+      if (!details.wallet_setup_complete) {
         return { isComplete: false, route: ROUTES.WALLET_SETUP };
       }
 
@@ -197,11 +223,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         }
       }
 
-      // User has completed onboarding
+      // User has completed all onboarding steps - keep this for tracking auth flow
+      console.log("User has completed all onboarding steps");
       return { isComplete: true, route: ROUTES.TABS };
     } catch (error) {
       console.error("Error checking onboarding status:", error);
-      return { isComplete: false, route: ROUTES.AUTH_INTRO };
+      // In case of error, direct to role selection instead of the intro screen
+      // This ensures new users will start the onboarding process correctly
+      return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
     }
   };
 
@@ -256,24 +285,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
         // If we have a session, set it and fetch user details
         if (initialSession) {
+          // Keep this log for debugging auth flow
           console.log("Session found, using existing session");
           setSession(initialSession);
           setUser(initialSession.user);
 
           // Try to refresh the token
           const refreshed = await refreshSession();
-          if (refreshed) {
-            console.log("Token refreshed after init");
-          } else {
-            console.log("Using existing token");
-          }
+          // Remove these verbose token logs
+          // if (refreshed) {
+          //   console.log("Token refreshed after init");
+          // } else {
+          //   console.log("Using existing token");
+          // }
         }
       } catch (error) {
         console.error("Error initializing auth:", error);
       }
-
-      // We'll let the splash animation determine when to finish initializing
-      // instead of using a timeout
     };
 
     // Initialize auth
@@ -283,6 +311,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      // Keep this log for tracking auth state
       console.log("Auth state changed:", event);
 
       // Update session state based on the event

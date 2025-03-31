@@ -3,7 +3,7 @@
 ## 1. Introduction
 
 This App Flow Document provides a detailed breakdown of the navigation paths, user interactions, and state transitions for the HomeMeal App, a platform connecting Users (Customers), Makers (Home Chefs/Cloud Kitchens), and Delivery Boys (Delivery Partners). The app facilitates meal planning, order fulfillment, and delivery logistics, with distinct functionalities for each role. This document outlines the user journeys step-by-step, using technical terminology to describe page changes, available functionalities, and state transitions.
-Since diagrams and flowcharts cannot be directly embedded in this text-based format, I’ll provide verbose descriptions that can be easily visualized or converted into visual representations (e.g., flowcharts or wireframes) by developers. Each section focuses on a specific role, detailing their interactions from onboarding to core workflows, ensuring clarity for implementation.
+Since diagrams and flowcharts cannot be directly embedded in this text-based format, I'll provide verbose descriptions that can be easily visualized or converted into visual representations (e.g., flowcharts or wireframes) by developers. Each section focuses on a specific role, detailing their interactions from onboarding to core workflows, ensuring clarity for implementation.
 
 ## 2. Common Flows for All Roles
 
@@ -11,38 +11,76 @@ Certain flows, such as authentication and profile management, are shared across 
 
 ### 2.1 Authentication Flow
 
-- Initial State: App launches on the Splash Screen.
+- Initial State: App launches displaying the Splash Animation, followed by the Intro Screen.
 
-- Page: Authentication Screen
+- Sequential User Onboarding Flow for New Users:
 
-- UI Elements: "Sign Up" button, "Log In" button, role selection dropdown (User, Maker, Delivery Boy).
+  1. **Splash Animation**:
 
-- User Choices:
+     - The HomeMeal logo and name animate on screen.
+     - State Transition: Animation completes after ~2.5 seconds, app checks for existing session.
+     - If loading resources takes longer, a "Getting ready..." loading screen is shown.
 
-  - Sign Up:
+  2. **Intro Screen** (`intro.tsx`):
 
-    - Action: User selects role, inputs name, email, phone number, and password.
+     - UI Elements: Instructional slides with "Next" button, "Get Started" on final slide.
+     - Action: User swipes through slides or clicks "Next"/"Get Started".
+     - State Transition: Redirects to Login Screen.
 
-    - State Transition: Data is submitted to the backend (e.g., Supabase Auth). An OTP is generated and sent to the phone.
+  3. **Login Screen** (`login.tsx`):
 
-    - Page Change: Redirects to OTP Verification Screen.
-    - UI Elements: OTP input field, "Verify" button.
+     - UI Elements: Phone number input field, "Send OTP" button.
+     - Action: User enters phone number and clicks "Send OTP".
+     - State Transition: OTP sent to phone, redirects to Verification Screen.
 
-    - Action: User enters OTP and clicks "Verify."
+  4. **Verification Screen** (`verify.tsx`):
 
-    - State Transition: On success, the user is marked as authenticated, and their role is stored in the users table. Redirects to role-specific onboarding.
+     - UI Elements: OTP input fields, "Verify" button, "Resend" option.
+     - Action: User enters OTP.
+     - State Transition: On successful verification, account created in the users table.
+     - Technical Note: Always redirects to Role Selection as the first step.
 
-    - Technical Note: Role-based access control is enforced via JWT claims.
+  5. **Role Selection Screen** (`role-selection.tsx`):
 
-  - Log In:
+     - UI Elements: Role cards (Customer, Chef, Delivery Boy), "Continue" button.
+     - Action: User selects role and clicks "Continue".
+     - State Transition: Role saved to users table, redirected to Location Setup.
 
-    - Action: User enters email and password.
+  6. **Location Setup Screen** (`location-setup.tsx`):
 
-    - State Transition: Credentials are validated against the users table. On success, the user is redirected to their role-specific Dashboard Screen.
+     - UI Elements: "Use Current Location" button, manual address inputs, "Save" button.
+     - Action: User allows location access or manually inputs address details.
+     - State Transition: Location saved to users table, redirected to Profile Setup.
 
-    - Technical Note: Session tokens are issued and stored locally for subsequent API calls.
+  7. **Profile Setup Screen** (`profile-setup.tsx`):
 
-Error Handling: Invalid credentials or OTP failures display error messages with retry options.
+     - UI Elements: Profile form (name, email, profile picture), "Save" button.
+     - Action: User enters profile details and clicks "Save".
+     - State Transition: Profile details saved, redirected to next step based on role.
+
+  8. **Role-Specific Onboarding**:
+
+     - **For Customer Role**:
+       - A. **Meal Creation Setup** (`meal-creation-setup.tsx`)
+       - B. **Maker Selection Setup** (`maker-selection-setup.tsx`)
+     - **For All Roles** (Final Step):
+       - **Wallet Setup** (`wallet-setup.tsx`):
+         - Quick access to skip directly to Dashboard.
+
+  9. **Dashboard** (`/(tabs)/`):
+     - Initial state for authenticated users with completed onboarding.
+
+- Returning User Flow:
+  - App checks for existing authentication session.
+  - If authenticated, user is redirected to the Dashboard or the appropriate next setup screen if onboarding was incomplete.
+  - If not authenticated, user is redirected to the Intro Screen.
+
+Technical Notes:
+
+- Authentication is handled by Supabase Auth with phone number verification.
+- Session tokens are stored locally for persistent authentication.
+- The flow follows a strict sequence, ensuring users complete all required steps.
+- Each screen includes appropriate validation and error handling.
 
 ### 2.2 Profile Management Flow
 
@@ -370,4 +408,4 @@ Error Handling: Invalid credentials or OTP failures display error messages with 
 
 - Delivery Boys: Sign up → Accept deliveries → Update status → Confirm with OTP → Withdraw earnings.
 
-This document provides a comprehensive guide for developers to implement the HomeMeal App’s flows, ensuring seamless navigation and functionality for all roles.
+This document provides a comprehensive guide for developers to implement the HomeMeal App's flows, ensuring seamless navigation and functionality for all roles.

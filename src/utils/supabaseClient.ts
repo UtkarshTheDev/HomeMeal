@@ -2,6 +2,30 @@ import { createClient } from "@supabase/supabase-js";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
+import { Platform } from "react-native";
+
+// Disable verbose GoTrueClient logs
+const disableSupabaseVerboseLogs = () => {
+  // Only show error and warn logs in production
+  if (process.env.NODE_ENV !== "development") {
+    // This prevents GoTrueClient logs from appearing in the console
+    const originalConsoleLog = console.log;
+    console.log = (...args) => {
+      // Filter out GoTrueClient logs
+      if (
+        args.length > 0 &&
+        typeof args[0] === "string" &&
+        args[0].includes("GoTrueClient")
+      ) {
+        return;
+      }
+      originalConsoleLog(...args);
+    };
+  }
+};
+
+// Call the function to disable verbose logs
+disableSupabaseVerboseLogs();
 
 // Get the Supabase URL and anon key from environment variables
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -16,41 +40,39 @@ export const isSupabaseConfigured = () => {
 const customStorage = {
   async getItem(key: string): Promise<string | null> {
     try {
-      // Use SecureStore for sensitive auth data
-      const value = await SecureStore.getItemAsync(key);
-      if (value) {
-        console.log(`Retrieved secure key: ${key.substring(0, 4)}...`);
-        return value;
+      if (Platform.OS === "web") {
+        return localStorage.getItem(key);
+      } else {
+        const result = await SecureStore.getItemAsync(key);
+        return result;
       }
-      return null;
     } catch (error) {
-      // Fall back to AsyncStorage if SecureStore fails
-      console.warn("SecureStore error, falling back to AsyncStorage", error);
-      return await AsyncStorage.getItem(key);
+      console.error(`Error retrieving secure key: ${error}`);
+      return null;
     }
   },
 
   async setItem(key: string, value: string): Promise<void> {
     try {
-      // Use SecureStore for sensitive auth data
-      await SecureStore.setItemAsync(key, value);
-      console.log(`Stored secure key: ${key.substring(0, 4)}...`);
+      if (Platform.OS === "web") {
+        localStorage.setItem(key, value);
+      } else {
+        await SecureStore.setItemAsync(key, value);
+      }
     } catch (error) {
-      // Fall back to AsyncStorage if SecureStore fails
-      console.warn("SecureStore error, falling back to AsyncStorage", error);
-      await AsyncStorage.setItem(key, value);
+      console.error(`Error storing secure key: ${error}`);
     }
   },
 
   async removeItem(key: string): Promise<void> {
     try {
-      // Remove from SecureStore
-      await SecureStore.deleteItemAsync(key);
-      console.log(`Removed secure key: ${key.substring(0, 4)}...`);
+      if (Platform.OS === "web") {
+        localStorage.removeItem(key);
+      } else {
+        await SecureStore.deleteItemAsync(key);
+      }
     } catch (error) {
-      // Fall back to AsyncStorage if SecureStore fails
-      console.warn("SecureStore error, falling back to AsyncStorage", error);
-      await AsyncStorage.removeItem(key);
+      console.error(`Error removing secure key: ${error}`);
     }
   },
 };

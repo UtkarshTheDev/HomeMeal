@@ -100,6 +100,7 @@ export default function VerifyScreen() {
     }
 
     setLoading(true);
+    setVerifying(true);
     setError("");
 
     try {
@@ -121,6 +122,7 @@ export default function VerifyScreen() {
         ) {
           setError("Verification code has expired. Please request a new code.");
           setLoading(false);
+          setVerifying(false);
 
           // Automatically trigger resend after a short delay
           setTimeout(() => {
@@ -149,6 +151,7 @@ export default function VerifyScreen() {
       const { isNewUser, hasRole, hasLocation, hasCompletedProfile, userData } =
         await checkUserStatus();
 
+      // Keep this log for debugging auth issues
       console.log("User status:", {
         isNewUser,
         hasRole,
@@ -156,8 +159,9 @@ export default function VerifyScreen() {
         hasCompletedProfile,
       });
 
-      // If user is new, create a record in the users table
+      // For new users, create a record in the users table
       if (isNewUser) {
+        // Keep this log for tracking user creation
         console.log("Creating new user with ID:", userId);
         try {
           // Insert a new user record with basic information
@@ -168,54 +172,32 @@ export default function VerifyScreen() {
           });
 
           if (insertError) {
-            console.error("Error creating user record:", insertError);
-            // Check if it's a duplicate key error (user already exists)
-            if (insertError.code === "23505") {
-              console.log("User already exists, continuing with flow...");
-              // We'll handle navigation below based on user status
+            // Don't treat duplicate key errors as critical - the user already exists
+            if (insertError.code !== "23505") {
+              console.error("Error creating user record:", insertError);
             } else {
-              // For other errors, show a message but continue (auth is successful)
-              Alert.alert(
-                "Warning",
-                "Your account was created but we couldn't save all your information. Some features may be limited."
-              );
+              // Keep this log for debugging auth flow
+              console.log("User already exists, continuing with flow...");
             }
-          } else {
-            console.log(
-              "Successfully created new user in database with ID:",
-              userId
-            );
           }
         } catch (insertErr) {
           console.error("Exception creating user record:", insertErr);
           // Continue execution - auth is successful
         }
-
-        // For new users, always go to role selection first
-        router.replace(ROUTES.AUTH_ROLE_SELECTION);
-        setLoading(false);
-        return;
       }
 
-      // For existing users, navigate based on their profile completion status
-      if (!hasRole) {
-        // No role selected yet
-        router.replace(ROUTES.AUTH_ROLE_SELECTION);
-      } else if (!hasLocation) {
-        // No location set yet
-        router.replace(ROUTES.LOCATION_SETUP);
-      } else if (!hasCompletedProfile) {
-        // Profile incomplete
-        router.replace(ROUTES.AUTH_PROFILE_SETUP);
-      } else {
-        // Complete profile - redirect to home
-        router.replace(ROUTES.TABS);
-      }
+      // Always send new users to role selection first
+      // If the user is returning and has a role, AuthProvider will redirect appropriately
+      console.log(
+        "Navigating to role selection screen as first step in onboarding flow"
+      );
+      router.replace(ROUTES.AUTH_ROLE_SELECTION);
     } catch (error: any) {
       console.error("Verification error:", error);
       setError(error.message || "Failed to verify code. Please try again.");
     } finally {
       setLoading(false);
+      setVerifying(false);
     }
   };
 

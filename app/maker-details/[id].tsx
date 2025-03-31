@@ -30,6 +30,19 @@ import {
 import { useSupabase } from "@/src/utils/useSupabase";
 import { useAuth } from "@/src/providers/AuthProvider";
 
+// Interface for user data in joined query
+interface UserData {
+  name?: string;
+  email?: string;
+  image_url?: string;
+  phone_number?: string;
+}
+
+// Interface for food item in maker's food list
+interface MakerFoodItem {
+  category?: string;
+}
+
 // Interface for maker profile
 interface Maker {
   id: string;
@@ -46,6 +59,8 @@ interface Maker {
     longitude: number;
   };
   created_at: string;
+  users?: UserData;
+  foods?: MakerFoodItem[];
 }
 
 // Interface for food item
@@ -74,6 +89,7 @@ export default function MakerDetailsScreen() {
   );
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   // Animation values
   const headerOpacity = useSharedValue(0);
@@ -88,19 +104,62 @@ export default function MakerDetailsScreen() {
   const fetchMakerDetails = async () => {
     if (!id) return;
 
+    setIsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from("maker_profiles")
-        .select("*")
+      // Get maker details with joined user data
+      const { data: makerData, error: makerError } = await supabase
+        .from("makers")
+        .select(
+          `
+          *,
+          users:user_id (name, image_url, phone_number, email)
+        `
+        )
         .eq("id", id)
         .single();
 
-      if (error) throw error;
+      if (makerError) {
+        console.error("Error fetching maker details:", makerError);
+        setError("Failed to load maker details. Please try again later.");
+        setIsLoading(false);
+        return;
+      }
 
-      setMaker(data);
+      if (!makerData) {
+        setError("Maker not found");
+        setIsLoading(false);
+        return;
+      }
+
+      // Map combined data to expected format
+      const combinedData = {
+        ...makerData,
+        business_name:
+          makerData.business_name || makerData.users?.name || "Unknown Chef",
+        profile_image_url:
+          makerData.profile_image_url || makerData.users?.image_url,
+      };
+
+      setMaker(combinedData);
+
+      // Extract unique categories
+      const uniqueCategories = Array.from(
+        new Set(
+          makerData.foods
+            ?.map((item: MakerFoodItem) => item.category)
+            .filter(Boolean) || []
+        )
+      ) as string[];
+
+      setCategories(uniqueCategories);
+      if (uniqueCategories.length > 0) {
+        setSelectedCategory(uniqueCategories[0]);
+      }
     } catch (error) {
       console.error("Error fetching maker details:", error);
-      Alert.alert("Error", "Failed to load maker details. Please try again.");
+      setError("Failed to load maker details. Please try again later.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -119,16 +178,6 @@ export default function MakerDetailsScreen() {
       if (error) throw error;
 
       setFoodItems(data || []);
-
-      // Extract unique categories
-      const uniqueCategories = Array.from(
-        new Set(data?.map((item) => item.category).filter(Boolean) || [])
-      ) as string[];
-
-      setCategories(uniqueCategories);
-      if (uniqueCategories.length > 0) {
-        setSelectedCategory(uniqueCategories[0]);
-      }
     } catch (error) {
       console.error("Error fetching food items:", error);
       Alert.alert("Error", "Failed to load menu items. Please try again.");
@@ -240,10 +289,10 @@ export default function MakerDetailsScreen() {
     };
   });
 
-  if (!maker && !isLoading) {
+  if (error) {
     return (
       <SafeAreaView style={styles.errorContainer}>
-        <Text style={styles.errorText}>Maker not found</Text>
+        <Text style={styles.errorText}>{error}</Text>
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => router.back()}
@@ -477,8 +526,7 @@ export default function MakerDetailsScreen() {
                 <View style={styles.contactItem}>
                   <Feather name="mail" size={16} color="#64748B" />
                   <Text style={styles.contactText}>
-                    {maker?.business_name.toLowerCase().replace(/\s+/g, "")}
-                    @email.com
+                    {maker?.users?.email || "chef@homemeal.com"}
                   </Text>
                 </View>
               </View>
