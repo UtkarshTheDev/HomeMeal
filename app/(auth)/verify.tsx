@@ -168,6 +168,7 @@ export default function VerifyScreen() {
           const { error: insertError } = await supabase.from("users").insert({
             id: userId,
             phone_number: phoneNumber,
+            setup_status: {}, // Initialize with empty setup_status
             created_at: new Date().toISOString(),
           });
 
@@ -178,6 +179,28 @@ export default function VerifyScreen() {
             } else {
               // Keep this log for debugging auth flow
               console.log("User already exists, continuing with flow...");
+
+              // Check if we need to update the setup_status field for existing users
+              const { data: existingUser, error: fetchError } = await supabase
+                .from("users")
+                .select("setup_status")
+                .eq("id", userId)
+                .single();
+
+              if (!fetchError && existingUser && !existingUser.setup_status) {
+                // If user exists but setup_status is null, initialize it
+                const { error: updateError } = await supabase
+                  .from("users")
+                  .update({ setup_status: {} })
+                  .eq("id", userId);
+
+                if (updateError) {
+                  console.error(
+                    "Failed to initialize setup_status:",
+                    updateError
+                  );
+                }
+              }
             }
           }
         } catch (insertErr) {

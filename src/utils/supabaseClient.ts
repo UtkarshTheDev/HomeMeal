@@ -6,22 +6,38 @@ import { Platform } from "react-native";
 
 // Disable verbose GoTrueClient logs
 const disableSupabaseVerboseLogs = () => {
-  // Only show error and warn logs in production
-  if (process.env.NODE_ENV !== "development") {
-    // This prevents GoTrueClient logs from appearing in the console
-    const originalConsoleLog = console.log;
-    console.log = (...args) => {
-      // Filter out GoTrueClient logs
-      if (
-        args.length > 0 &&
-        typeof args[0] === "string" &&
-        args[0].includes("GoTrueClient")
-      ) {
-        return;
-      }
-      originalConsoleLog(...args);
-    };
-  }
+  // Disable logs in all environments for better user experience
+  const originalConsoleLog = console.log;
+  console.log = (...args) => {
+    // Filter out GoTrueClient logs
+    if (
+      args.length > 0 &&
+      typeof args[0] === "string" &&
+      (args[0].includes("GoTrueClient") ||
+        args[0].includes("TokenRefreshed") ||
+        args[0].includes("PKCE flow detected") ||
+        args[0].includes("subscribing to auth state change"))
+    ) {
+      return;
+    }
+    originalConsoleLog(...args);
+  };
+
+  // Also filter debug logs for more quietness
+  const originalConsoleDebug = console.debug;
+  console.debug = (...args) => {
+    // Filter out auth-related debug logs
+    if (
+      args.length > 0 &&
+      typeof args[0] === "string" &&
+      (args[0].includes("Auth") ||
+        args[0].includes("token") ||
+        args[0].includes("session"))
+    ) {
+      return;
+    }
+    originalConsoleDebug(...args);
+  };
 };
 
 // Call the function to disable verbose logs
@@ -44,11 +60,20 @@ const customStorage = {
         return localStorage.getItem(key);
       } else {
         const result = await SecureStore.getItemAsync(key);
+        if (result === null) {
+          // Fall back to AsyncStorage if SecureStore fails
+          return await AsyncStorage.getItem(key);
+        }
         return result;
       }
     } catch (error) {
       console.error(`Error retrieving secure key: ${error}`);
-      return null;
+      try {
+        // Second fallback to AsyncStorage
+        return await AsyncStorage.getItem(key);
+      } catch {
+        return null;
+      }
     }
   },
 
@@ -57,10 +82,21 @@ const customStorage = {
       if (Platform.OS === "web") {
         localStorage.setItem(key, value);
       } else {
-        await SecureStore.setItemAsync(key, value);
+        try {
+          await SecureStore.setItemAsync(key, value);
+        } catch (error) {
+          // Fall back to AsyncStorage if SecureStore fails
+          await AsyncStorage.setItem(key, value);
+        }
       }
     } catch (error) {
       console.error(`Error storing secure key: ${error}`);
+      try {
+        // Second attempt with AsyncStorage
+        await AsyncStorage.setItem(key, value);
+      } catch {
+        // Failed both attempts
+      }
     }
   },
 
@@ -70,9 +106,17 @@ const customStorage = {
         localStorage.removeItem(key);
       } else {
         await SecureStore.deleteItemAsync(key);
+        // Also try to remove from AsyncStorage in case it was stored there
+        await AsyncStorage.removeItem(key);
       }
     } catch (error) {
       console.error(`Error removing secure key: ${error}`);
+      try {
+        // Try AsyncStorage if SecureStore fails
+        await AsyncStorage.removeItem(key);
+      } catch {
+        // Failed both attempts
+      }
     }
   },
 };
@@ -88,7 +132,7 @@ export const supabase = createClient(
       persistSession: true,
       detectSessionInUrl: false,
       flowType: "pkce",
-      debug: __DEV__, // Enable debug logs in development
+      debug: false, // Disable debug logs completely
     },
     db: {
       schema: "public",
@@ -101,15 +145,15 @@ export const supabase = createClient(
   }
 );
 
-// Set up auth state change listener if in development
-if (__DEV__) {
-  supabase.auth.onAuthStateChange((event, session) => {
-    console.log(
-      `Auth state changed: ${event}`,
-      session ? "Session exists" : "No session"
-    );
-  });
-}
+// Remove the DEV-only auth state change listener
+// if (__DEV__) {
+//   supabase.auth.onAuthStateChange((event, session) => {
+//     console.log(
+//       `Auth state changed: ${event}`,
+//       session ? "Session exists" : "No session"
+//     );
+//   });
+// }
 
 // Helper to check if a session exists (without triggering a refresh)
 export const checkExistingSession = async (): Promise<boolean> => {

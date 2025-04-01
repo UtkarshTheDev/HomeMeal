@@ -26,6 +26,7 @@ import Animated, {
 import { supabase } from "@/src/utils/supabaseClient";
 import { ROUTES } from "@/src/utils/routes";
 import { FontAwesome5, MaterialIcons, Feather } from "@expo/vector-icons";
+import { useAuth } from "@/src/providers/AuthProvider";
 
 const { width } = Dimensions.get("window");
 
@@ -34,6 +35,7 @@ type UIRole = "customer" | "chef" | "delivery_boy";
 type DBRole = "customer" | "maker" | "delivery_boy";
 
 export default function RoleSelectionScreen() {
+  const { updateSetupStatus } = useAuth();
   const [selectedRole, setSelectedRole] = useState<UIRole | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,15 +61,10 @@ export default function RoleSelectionScreen() {
       }
 
       const userId = userData.user.id;
-      // console.log("Updating role for user:", userId);
 
       // Map UI role to database role
       const dbRole = mapUIRoleToDBRole(selectedRole);
-      // console.log(
-      //   `Selected UI role: ${selectedRole}, mapped to DB role: ${dbRole}`
-      // );
 
-      // Start a transaction to update user role and create role-specific entries
       // Update user role in the users table
       const { error: userUpdateError } = await supabase
         .from("users")
@@ -77,11 +74,15 @@ export default function RoleSelectionScreen() {
         .eq("id", userId);
 
       if (userUpdateError) {
-        // console.error("Error updating user role:", userUpdateError);
         setError("Error updating user role. Please try again.");
         setLoading(false);
         return;
       }
+
+      // Update the setup status to mark role selection as complete
+      await updateSetupStatus({
+        role_selected: true,
+      });
 
       // Create role-specific entries based on the selected role
       if (selectedRole === "chef") {
@@ -106,12 +107,10 @@ export default function RoleSelectionScreen() {
             });
 
             if (makerError) {
-              // console.error("Error creating maker record:", makerError);
               // Continue despite error
             }
           }
         } catch (makerError) {
-          // console.error("Exception creating maker record:", makerError);
           // Continue despite error
         }
 
@@ -135,12 +134,10 @@ export default function RoleSelectionScreen() {
               });
 
             if (walletError) {
-              // console.error("Error creating wallet record:", walletError);
               // Continue despite error
             }
           }
         } catch (walletError) {
-          // console.error("Exception creating wallet record:", walletError);
           // Continue despite error
         }
       } else if (selectedRole === "delivery_boy") {
@@ -167,18 +164,10 @@ export default function RoleSelectionScreen() {
               });
 
             if (deliveryBoyError) {
-              // console.error(
-              //   "Error creating delivery boy record:",
-              //   deliveryBoyError
-              // );
               // Continue despite error
             }
           }
         } catch (deliveryBoyError) {
-          // console.error(
-          //   "Exception creating delivery boy record:",
-          //   deliveryBoyError
-          // );
           // Continue despite error
         }
 
@@ -202,12 +191,10 @@ export default function RoleSelectionScreen() {
               });
 
             if (walletError) {
-              // console.error("Error creating wallet record:", walletError);
               // Continue despite error
             }
           }
         } catch (walletError) {
-          // console.error("Exception creating wallet record:", walletError);
           // Continue despite error
         }
       } else if (selectedRole === "customer") {
@@ -231,23 +218,19 @@ export default function RoleSelectionScreen() {
               });
 
             if (walletError) {
-              // console.error("Error creating wallet record:", walletError);
               // Continue despite error
             }
           }
         } catch (walletError) {
-          // console.error("Exception creating wallet record:", walletError);
           // Continue despite error
         }
       }
 
       // Navigate to the location setup screen - regardless of errors
-      // console.log("Role selected, navigating to location setup screen");
       router.replace(ROUTES.LOCATION_SETUP);
     } catch (error: any) {
       console.error("Error in role selection:", error);
       // Try to navigate anyway regardless of errors
-      // console.log("Error occurred but still navigating to location setup");
       router.replace(ROUTES.LOCATION_SETUP);
     } finally {
       setLoading(false);

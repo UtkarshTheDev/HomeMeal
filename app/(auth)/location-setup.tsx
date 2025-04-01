@@ -43,11 +43,13 @@ import {
   MaterialCommunityIcons,
   Entypo,
 } from "@expo/vector-icons";
+import { useAuth } from "@/src/providers/AuthProvider";
 
 const { width, height } = Dimensions.get("window");
 const CARD_HEIGHT = height * 0.25;
 
 export default function LocationSetupScreen() {
+  const { updateSetupStatus } = useAuth();
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
   const [pincode, setPincode] = useState("");
@@ -260,6 +262,11 @@ export default function LocationSetupScreen() {
         console.error("Exception updating user location:", updateError);
         // Continue despite errors
       }
+
+      // Update setup status to mark location as set
+      await updateSetupStatus({
+        location_set: true,
+      });
 
       let userRole = null;
 

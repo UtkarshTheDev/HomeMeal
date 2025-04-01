@@ -8,6 +8,8 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Pressable,
+  StyleSheet,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -31,6 +33,10 @@ import {
 import { supabase } from "@/src/utils/supabaseClient";
 import { router } from "expo-router";
 import { ROUTES } from "@/src/utils/routes";
+import { useAuth } from "@/src/providers/AuthProvider";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { COLORS } from "@/src/theme/colors";
+import LoadingIndicator from "@/src/components/LoadingIndicator";
 
 // Payment methods available
 const PAYMENT_METHODS = [
@@ -40,7 +46,11 @@ const PAYMENT_METHODS = [
   { id: "wallet", name: "Other Wallets", icon: "wallet" as any },
 ];
 
+// Animated Pressable component for better user interaction
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
 export default function WalletSetupScreen() {
+  const { user, updateSetupStatus } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [amount, setAmount] = useState("");
@@ -48,9 +58,10 @@ export default function WalletSetupScreen() {
   const [wallet, setWallet] = useState<{ id: string; balance: number } | null>(
     null
   );
+  const insets = useSafeAreaInsets();
 
   // Animated values
-  const buttonScale = useSharedValue(1);
+  const setupScale = useSharedValue(1);
   const skipButtonScale = useSharedValue(1);
   const amountScale = useSharedValue(1);
 
@@ -137,7 +148,7 @@ export default function WalletSetupScreen() {
   // Add funds to wallet (simulated for now)
   const addFunds = async () => {
     // Animate button press
-    buttonScale.value = withSequence(
+    setupScale.value = withSequence(
       withTiming(0.95, { duration: 100 }),
       withTiming(1, { duration: 100 })
     );
@@ -200,15 +211,12 @@ export default function WalletSetupScreen() {
       }
 
       // 4. Update user's onboarding status
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          wallet_setup_complete: true,
-        })
-        .eq("id", userData.user.id);
+      const success = await updateSetupStatus({
+        wallet_setup_completed: true,
+      });
 
-      if (updateError) {
-        console.error("Error updating user status:", updateError);
+      if (!success) {
+        console.error("Error updating wallet setup status");
         Alert.alert(
           "Warning",
           "Funds added successfully, but we encountered an issue updating your profile."
@@ -246,21 +254,13 @@ export default function WalletSetupScreen() {
     setIsSaving(true);
 
     try {
-      // Get current user
-      const { data: userData, error: userError } =
-        await supabase.auth.getUser();
-      if (userError) throw userError;
+      // Update the setup status to mark wallet setup as complete
+      const success = await updateSetupStatus({
+        wallet_setup_completed: true,
+      });
 
-      // Mark wallet setup as complete without going through the actual process
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          wallet_setup_complete: true,
-        })
-        .eq("id", userData.user.id);
-
-      if (updateError) {
-        console.error("Error updating user status:", updateError);
+      if (!success) {
+        console.error("Error updating wallet setup status");
       }
 
       // Immediately navigate to dashboard regardless of errors
@@ -276,9 +276,9 @@ export default function WalletSetupScreen() {
   };
 
   // Animated styles for buttons and amount
-  const buttonStyle = useAnimatedStyle(() => {
+  const setupAnimatedStyle = useAnimatedStyle(() => {
     return {
-      transform: [{ scale: buttonScale.value }],
+      transform: [{ scale: setupScale.value }],
     };
   });
 
@@ -293,6 +293,43 @@ export default function WalletSetupScreen() {
       transform: [{ scale: amountScale.value }],
     };
   });
+
+  // Handle button press animations
+  const handlePressIn = () => {
+    setupScale.value = withSpring(0.95);
+  };
+
+  const handlePressOut = () => {
+    setupScale.value = withSpring(1);
+  };
+
+  const handleSetupWallet = async () => {
+    if (isLoading) return;
+
+    setIsLoading(true);
+
+    try {
+      if (!user) {
+        throw new Error("User not logged in");
+      }
+
+      // Update the setup status to mark wallet setup as complete
+      const success = await updateSetupStatus({
+        wallet_setup_completed: true,
+      });
+
+      if (!success) {
+        throw new Error("Failed to update wallet setup status");
+      }
+
+      // Navigate to the main app
+      router.replace(ROUTES.TABS as any);
+    } catch (error) {
+      console.error("Error completing wallet setup:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-white">
@@ -466,27 +503,20 @@ export default function WalletSetupScreen() {
               </TouchableOpacity>
             </Animated.View>
 
-            <Animated.View style={buttonStyle} className="flex-1">
-              <TouchableOpacity
-                onPress={addFunds}
-                disabled={isSaving || !amount || !selectedMethod}
-                className={`h-[54px] overflow-hidden rounded-xl ${
-                  (!amount || !selectedMethod) && !isSaving ? "opacity-70" : ""
-                }`}
+            <Animated.View className="flex-1">
+              <AnimatedPressable
+                style={[styles.setupButton, setupAnimatedStyle]}
+                onPress={handleSetupWallet}
+                onPressIn={handlePressIn}
+                onPressOut={handlePressOut}
+                disabled={isLoading}
               >
-                <LinearGradient
-                  colors={["#FFAD00", "#FF6B00"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  className="h-full items-center justify-center"
-                >
-                  {isSaving ? (
-                    <ActivityIndicator color="#FFFFFF" />
-                  ) : (
-                    <Text className="text-white font-bold">Add Funds</Text>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
+                {isLoading ? (
+                  <LoadingIndicator color={COLORS.white} />
+                ) : (
+                  <Text style={styles.setupButtonText}>Setup Wallet</Text>
+                )}
+              </AnimatedPressable>
             </Animated.View>
           </View>
         </Animated.View>
@@ -494,3 +524,46 @@ export default function WalletSetupScreen() {
     </SafeAreaView>
   );
 }
+
+// Styles
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+  },
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+  },
+  headerContainer: {
+    marginBottom: 24,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: COLORS.text,
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: COLORS.textLight,
+    lineHeight: 24,
+  },
+  setupButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    height: 56,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  setupButtonText: {
+    color: COLORS.white,
+    fontSize: 18,
+    fontWeight: "600",
+  },
+});

@@ -22,6 +22,10 @@ export const ROUTES = {
   TAB_CREATE_MEAL_PLAN: "/(tabs)/create-meal-plan",
   TAB_WALLET: "/(tabs)/wallet",
 
+  // Meal creation routes
+  MEAL_CREATION: "/meal-creation",
+  MEAL_TYPE_FOODS: "/meal-type-foods",
+
   // Modal route
   MODAL: "/modal",
 } as const satisfies Record<string, Href>;

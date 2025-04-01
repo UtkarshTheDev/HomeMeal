@@ -15,6 +15,7 @@ The `users` table in the HomeMeal database has the following structure:
 | city         | VARCHAR                  | NULLABLE         | User's city                                    |
 | pincode      | VARCHAR                  | NULLABLE         | User's postal/zip code                         |
 | location     | JSONB                    | NULLABLE         | Complex object with location details           |
+| setup_status | JSONB                    | DEFAULT '{}'     | Object tracking onboarding stages completion   |
 | image_url    | VARCHAR                  | NULLABLE         | URL to user's profile image                    |
 | strike_count | INTEGER                  | DEFAULT 0        | Number of infractions                          |
 | banned       | BOOLEAN                  | DEFAULT false    | Whether user is banned                         |
@@ -35,7 +36,28 @@ The `location` column is a JSONB object with the following structure:
 }
 ```
 
+## Setup Status Object Structure
+
+The `setup_status` column is a JSONB object that tracks the completion of each onboarding stage:
+
+```json
+{
+  "role_selected": true,
+  "location_set": true,
+  "profile_completed": true,
+  "meal_creation_completed": false,
+  "maker_selection_completed": false,
+  "wallet_setup_completed": false
+}
+```
+
+This structure replaces individual boolean columns like `meal_creation_complete` with a single JSON structure that tracks all onboarding steps, making it easier to extend the onboarding flow without schema changes.
+
 ## Recent Changes
+
+### Added Columns
+
+- **setup_status**: Added to track onboarding progress in a single JSONB column.
 
 ### Removed Columns
 
@@ -55,6 +77,7 @@ When creating a new user, the minimal required fields are:
 const { error } = await supabase.from("users").insert({
   id: userId, // From auth.user.id
   phone_number: phoneNumber, // With country code, e.g., "+911234567890"
+  setup_status: {}, // Empty JSONB object for initial setup status
   created_at: new Date().toISOString(),
 });
 ```
@@ -94,22 +117,40 @@ const { error } = await supabase
     city: city,
     pincode: pincode,
     location: locationData,
+    setup_status: { ...userDetails.setup_status, location_set: true },
+  })
+  .eq("id", userId);
+```
+
+### Updating Setup Status
+
+When updating a specific setup step, use JSONB update syntax to modify only the relevant field:
+
+```typescript
+const { error } = await supabase
+  .from("users")
+  .update({
+    setup_status: {
+      ...userDetails.setup_status,
+      meal_creation_completed: true,
+    },
   })
   .eq("id", userId);
 ```
 
 ### Checking Onboarding Status
 
-To check if a user has completed onboarding, validate the presence of required fields:
+To check if a user has completed onboarding, validate the setup_status object:
 
 ```typescript
-const hasCompletedProfile = Boolean(
-  userData.name &&
-    userData.phone_number &&
-    userData.role &&
-    userData.address &&
-    userData.location
-);
+const hasCompletedOnboarding =
+  userData.setup_status?.role_selected &&
+  userData.setup_status?.location_set &&
+  userData.setup_status?.profile_completed &&
+  (userData.role !== "customer" ||
+    (userData.setup_status?.meal_creation_completed &&
+      userData.setup_status?.maker_selection_completed)) &&
+  userData.setup_status?.wallet_setup_completed;
 ```
 
 ## Row-Level Security Policies
@@ -129,6 +170,7 @@ See `Database-Security.md` for detailed SQL for these policies.
 2. **Update address fields AND location object**: When updating location data, be sure to update both the separate fields and the location JSONB object.
 3. **Handle nullable fields properly**: Many fields are nullable, so always use null-safe operations (e.g., `userData?.name || ''`).
 4. **Validate role values**: When setting roles, ensure the value is one of: 'customer', 'maker', or 'delivery_boy'.
+5. **Access setup_status fields safely**: Access setup_status fields with optional chaining (e.g., `userData.setup_status?.role_selected`) as the object might be null or empty initially.
 
 ## Schema Evolution
 

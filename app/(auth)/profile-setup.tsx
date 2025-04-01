@@ -60,6 +60,7 @@ import Svg, {
   G,
 } from "react-native-svg";
 import { ROUTES } from "@/src/utils/routes";
+import { useAuth } from "@/src/providers/AuthProvider";
 
 // Screen dimensions
 const { width, height } = Dimensions.get("window");
@@ -347,7 +348,7 @@ const styles = StyleSheet.create({
 });
 
 const ProfileSetupScreen = () => {
-  // We'll use supabase directly instead of the useSupabase hook
+  const { user, updateSetupStatus } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -694,44 +695,31 @@ const ProfileSetupScreen = () => {
 
   // Save the user profile
   const saveProfile = async () => {
-    // Validate form
-    if (!name.trim()) {
-      Alert.alert("Required Field", "Please enter your name");
-      return;
-    }
-
-    if (!email.trim()) {
-      Alert.alert("Required Field", "Please enter your email address");
-      return;
-    }
-
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email.trim())) {
-      Alert.alert("Invalid Email", "Please enter a valid email address");
-      return;
-    }
-
-    // Animate button press
-    buttonScale.value = withSequence(
-      withTiming(0.95, { duration: 100 }),
-      withTiming(1, { duration: 100 })
-    );
-
+    if (loading) return;
     setLoading(true);
 
     try {
-      // Get current user
-      const { data: userData, error: authError } =
-        await supabase.auth.getUser();
-
-      if (authError || !userData?.user) {
-        Alert.alert("Error", "You must be logged in");
+      // Validate form inputs
+      if (!name.trim()) {
+        Alert.alert("Name Required", "Please enter your name");
         setLoading(false);
         return;
       }
 
-      const userId = userData.user.id;
+      // Validate email if it exists
+      if (email && email.trim()) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email.trim())) {
+          Alert.alert("Invalid Email", "Please enter a valid email address");
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Get current authenticated user
+      const { data: userData, error: userError } =
+        await supabase.auth.getUser();
+      if (userError) throw userError;
 
       // Upload profile image if selected
       let imageUrl = null;
@@ -750,92 +738,56 @@ const ProfileSetupScreen = () => {
         }
       }
 
-      // Update user profile
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          name: name,
-          email: email,
-          image_url: imageUrl || null,
-          // Name field presence will be used to determine profile completion
-        })
-        .eq("id", userId);
+      // Update user profile in the database
+      const updateData: any = {
+        name: name.trim(),
+        image_url: imageUrl,
+      };
 
-      if (updateError) {
-        console.error("Error updating profile:", updateError);
-        Alert.alert(
-          "Warning",
-          "There was an issue saving your profile, but we'll continue with what we have."
-        );
-      } else {
-        console.log("Successfully saved profile");
+      // Only include email if it's provided
+      if (email && email.trim()) {
+        updateData.email = email.trim();
       }
 
-      // Show success animation before navigating
-      successAnimation.value = withTiming(1, { duration: 500 });
+      // Only include phone number if it's provided
+      if (phoneNumber) {
+        updateData.phone_number = phoneNumber;
+      }
 
-      // Delay navigation to show success animation
-      setTimeout(() => {
-        // Get the user role to determine next step
-        const checkUserRole = async () => {
-          try {
-            const { data: userData } = await supabase.auth.getUser();
-            if (!userData?.user?.id) {
-              console.error("No user ID found when trying to check role");
-              return null;
-            }
+      const { error: updateError } = await supabase
+        .from("users")
+        .update(updateData)
+        .eq("id", userData.user.id);
 
-            const { data: userDetails, error } = await supabase
-              .from("users")
-              .select("role")
-              .eq("id", userData.user.id)
-              .single();
+      if (updateError) throw updateError;
 
-            if (error) {
-              console.error("Error fetching user role:", error);
-              return null;
-            }
+      // Update setup status to mark profile completion
+      const success = await updateSetupStatus({
+        profile_completed: true,
+      });
 
-            return userDetails?.role;
-          } catch (err) {
-            console.error("Error in checkUserRole:", err);
-            return null;
-          }
-        };
+      if (!success) {
+        console.error("Failed to update setup status");
+      }
 
-        checkUserRole()
-          .then((role) => {
-            // Only go to meal creation if user is a customer
-            if (role === "customer") {
-              console.log(
-                "Customer detected. Navigating to meal creation setup..."
-              );
-              router.replace(ROUTES.MEAL_CREATION_SETUP as any);
-            } else if (role === "maker") {
-              console.log("Maker detected. Skipping to wallet setup...");
-              router.replace(ROUTES.WALLET_SETUP as any);
-            } else if (role === "delivery_boy") {
-              console.log("Delivery boy detected. Skipping to wallet setup...");
-              router.replace(ROUTES.WALLET_SETUP as any);
-            } else {
-              console.error(
-                "Unknown role or error checking role. Safely navigating to wallet setup."
-              );
-              router.replace(ROUTES.WALLET_SETUP as any);
-            }
-          })
-          .catch((err) => {
-            console.error("Navigation error:", err);
-            // Fallback route in case of any issues
-            router.replace(ROUTES.WALLET_SETUP as any);
-          });
-      }, 1200);
+      // Navigate based on user role
+      const { data: userDetails } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", userData.user.id)
+        .single();
+
+      if (userDetails?.role === "customer") {
+        // For customers, go to meal creation setup
+        router.replace(ROUTES.MEAL_CREATION_SETUP);
+      } else {
+        // For makers and delivery boys, go directly to wallet setup
+        router.replace(ROUTES.WALLET_SETUP);
+      }
     } catch (error) {
-      console.error("Error in saveProfile:", error);
-      Alert.alert(
-        "Error",
-        "An unexpected error occurred, but we'll try to continue."
-      );
+      console.error("Error updating profile:", error);
+      Alert.alert("Error", "Failed to update profile. Please try again.");
+    } finally {
       setLoading(false);
     }
   };
