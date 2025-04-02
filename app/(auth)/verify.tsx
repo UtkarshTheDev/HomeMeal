@@ -147,22 +147,33 @@ export default function VerifyScreen() {
         throw new Error("Authentication successful but no user ID returned");
       }
 
-      // Use checkUserStatus to get comprehensive user status
-      const { isNewUser, hasRole, hasLocation, hasCompletedProfile, userData } =
-        await checkUserStatus();
+      // Check if the user already exists in the database
+      const { data: existingUser, error: checkError } = await supabase
+        .from("users")
+        .select("id, setup_status")
+        .eq("id", userId)
+        .maybeSingle();
 
-      // Keep this log for debugging auth issues
-      console.log("User status:", {
-        isNewUser,
-        hasRole,
-        hasLocation,
-        hasCompletedProfile,
-      });
+      if (!checkError && existingUser) {
+        console.log("User already exists in database:", existingUser.id);
 
-      // For new users, create a record in the users table
-      if (isNewUser) {
-        // Keep this log for tracking user creation
+        // Initialize setup_status if it doesn't exist for existing users
+        if (!existingUser.setup_status) {
+          const { error: updateError } = await supabase
+            .from("users")
+            .update({ setup_status: {} })
+            .eq("id", userId);
+
+          if (updateError) {
+            console.error("Error initializing setup_status:", updateError);
+          } else {
+            console.log("Initialized setup_status for existing user");
+          }
+        }
+      } else {
+        // This is a new user - create a record in the users table
         console.log("Creating new user with ID:", userId);
+
         try {
           // Insert a new user record with basic information
           const { error: insertError } = await supabase.from("users").insert({
@@ -173,35 +184,16 @@ export default function VerifyScreen() {
           });
 
           if (insertError) {
-            // Don't treat duplicate key errors as critical - the user already exists
+            // Only log this as an error if it's not a duplicate key error
             if (insertError.code !== "23505") {
               console.error("Error creating user record:", insertError);
             } else {
-              // Keep this log for debugging auth flow
-              console.log("User already exists, continuing with flow...");
-
-              // Check if we need to update the setup_status field for existing users
-              const { data: existingUser, error: fetchError } = await supabase
-                .from("users")
-                .select("setup_status")
-                .eq("id", userId)
-                .single();
-
-              if (!fetchError && existingUser && !existingUser.setup_status) {
-                // If user exists but setup_status is null, initialize it
-                const { error: updateError } = await supabase
-                  .from("users")
-                  .update({ setup_status: {} })
-                  .eq("id", userId);
-
-                if (updateError) {
-                  console.error(
-                    "Failed to initialize setup_status:",
-                    updateError
-                  );
-                }
-              }
+              console.log(
+                "User already exists (detected by duplicate key error)"
+              );
             }
+          } else {
+            console.log("User record created successfully");
           }
         } catch (insertErr) {
           console.error("Exception creating user record:", insertErr);
@@ -209,11 +201,9 @@ export default function VerifyScreen() {
         }
       }
 
-      // Always send new users to role selection first
-      // If the user is returning and has a role, AuthProvider will redirect appropriately
-      console.log(
-        "Navigating to role selection screen as first step in onboarding flow"
-      );
+      // Always redirect new users to role selection first
+      // The AuthProvider will redirect appropriately based on onboarding status
+      console.log("Navigation to role selection screen");
       router.replace(ROUTES.AUTH_ROLE_SELECTION);
     } catch (error: any) {
       console.error("Verification error:", error);

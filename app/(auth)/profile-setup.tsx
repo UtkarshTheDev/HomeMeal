@@ -101,13 +101,8 @@ const googleAuthDiscovery = {
 const WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 
 // Create a platform-specific redirect URI
-const redirectUri = makeRedirectUri({
-  scheme: "homemeal",
-  // For Expo GO, it's important to match the redirect URI registered in Google Cloud Console
-  // which should be auth.expo.io/@your-username/HomeMeal
-  // Don't include native options for Expo Go
-});
 
+const redirectUri = "https://auth.expo.io/@utkarshthedev/HomeMeal";
 console.log("Redirect URI for Google Auth:", redirectUri);
 
 // Update styles for better scrolling and modern UI

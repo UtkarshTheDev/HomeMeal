@@ -199,67 +199,63 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
         // We have a user now after refresh
         setUser(refreshedSession.user);
-
-        // Fetch user details if needed
-        if (!userDetails) {
-          const details = await fetchUserDetails(refreshedSession.user.id);
-          if (details) {
-            setUserDetails(details);
-          } else {
-            return false;
-          }
-        }
       }
 
-      // If userDetails is still null after refresh attempts, try to fetch it
-      if (!userDetails && user) {
-        const details = await fetchUserDetails(user.id);
+      // At this point we should have a user object
+      const currentUserId = user?.id;
+      if (!currentUserId) {
+        console.error("No user ID available after authentication checks");
+        return false;
+      }
+
+      // Get the current user details - try from state first
+      let currentUserDetails = userDetails;
+
+      // If we don't have details in state, fetch from database
+      if (!currentUserDetails) {
+        const details = await fetchUserDetails(currentUserId);
+
         if (details) {
+          // Save to state
           setUserDetails(details);
+          currentUserDetails = details;
         } else {
-          // If we still can't get user details, try to create a basic record
-          const { data: userData, error: getUserError } =
-            await supabase.auth.getUser();
-
-          if (getUserError || !userData.user) {
-            console.error("Error getting authenticated user:", getUserError);
-            return false;
-          }
-
-          // Insert a basic user record if nothing exists
-          const { error: insertError } = await supabase
-            .from("users")
-            .insert({
-              id: userData.user.id,
+          // Create a basic user record if nothing exists
+          try {
+            const { error: insertError } = await supabase.from("users").insert({
+              id: currentUserId,
+              phone_number: user.phone || "",
+              setup_status: update, // Include the current update in the initial state
               created_at: new Date().toISOString(),
-              setup_status: update,
-            })
-            .select();
+            });
 
-          if (insertError && insertError.code !== "23505") {
-            // Ignore duplicate key errors
-            console.error("Failed to create user record:", insertError);
-            return false;
-          }
-
-          // Try to fetch the details again
-          const newDetails = await fetchUserDetails(userData.user.id);
-          if (newDetails) {
-            setUserDetails(newDetails);
-          } else {
+            // If insertion succeeded or it was a duplicate key error (user already exists)
+            if (!insertError || insertError.code === "23505") {
+              // Fetch the user details again after creating
+              const newDetails = await fetchUserDetails(currentUserId);
+              if (newDetails) {
+                setUserDetails(newDetails);
+                currentUserDetails = newDetails;
+              }
+            } else {
+              console.error("Failed to create user record:", insertError);
+              return false;
+            }
+          } catch (createError) {
+            console.error("Error creating user record:", createError);
             return false;
           }
         }
       }
 
-      // At this point we should have user and userDetails
-      if (!user || !userDetails) {
-        console.error("Still unable to get user data after recovery attempts");
+      // If we still don't have user details, we can't continue
+      if (!currentUserDetails) {
+        console.error("Unable to get or create user data");
         return false;
       }
 
       // Ensure setup_status exists
-      const currentSetupStatus = userDetails.setup_status || {};
+      const currentSetupStatus = currentUserDetails.setup_status || {};
 
       // Merge current setup_status with the update
       const updatedSetupStatus = {
@@ -271,7 +267,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const { error } = await supabase
         .from("users")
         .update({ setup_status: updatedSetupStatus })
-        .eq("id", user.id);
+        .eq("id", currentUserId);
 
       if (error) {
         console.error("Error updating setup status:", error);
@@ -280,7 +276,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // Update local state
       setUserDetails({
-        ...userDetails,
+        ...currentUserDetails,
         setup_status: updatedSetupStatus,
       });
 
@@ -309,7 +305,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         // If still no details, handle as a new user
         if (!details) {
           console.log(
-            "No user details found in database, treating as new user"
+            "No user details found in database, creating basic record"
           );
 
           // Try to create a basic user record
@@ -321,16 +317,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
               created_at: new Date().toISOString(),
             });
 
+            // Whether insert succeeded or it was a duplicate key error, try to fetch again
             if (!insertError || insertError.code === "23505") {
-              // Fetch again after creation
               details = await fetchUserDetails(user.id);
+            } else {
+              console.error("Error creating user record:", insertError);
             }
           } catch (createError) {
             console.error("Error creating user record:", createError);
           }
 
-          // If still no details, redirect to role selection
+          // If still no details after creation attempt, redirect to role selection
           if (!details) {
+            console.log(
+              "Unable to create or fetch user details, sending to role selection"
+            );
             return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
           }
         }
@@ -340,10 +341,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         setUserRole(details.role || null);
       }
 
+      // Log for debugging
+      console.log("User details found, checking onboarding status:", {
+        role: details.role,
+        setupStatus: details.setup_status || {},
+        location: !!details.location,
+        name: !!details.name,
+      });
+
       // Ensure setup_status exists
       let setupStatus = details.setup_status || {};
 
-      // Make sure setup_status is stored in the database
+      // Make sure setup_status is stored in the database if it doesn't exist
       if (!details.setup_status) {
         await supabase
           .from("users")
@@ -354,28 +363,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       // Sequential check for completion of each onboarding step based on setup_status
+
       // Step 1: Check if role is selected
-      if (!details.role || !setupStatus.role_selected) {
+      if (!details.role) {
         await updateSetupStatus({
-          role_selected: Boolean(details.role),
+          role_selected: false,
         });
         return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
       }
 
-      // Step 2: Check if location is set
-      if (!setupStatus.location_set || !details.location || !details.address) {
+      // If role exists but role_selected flag isn't set, update it
+      if (!setupStatus.role_selected) {
         await updateSetupStatus({
-          location_set: Boolean(details.location && details.address),
+          role_selected: true,
+        });
+      }
+
+      // Step 2: Check if location is set
+      if (!details.location || !details.address) {
+        await updateSetupStatus({
+          location_set: false,
         });
         return { isComplete: false, route: ROUTES.LOCATION_SETUP };
       }
 
-      // Step 3: Check if profile is complete
-      if (!setupStatus.profile_completed || !details.name) {
+      // If location exists but location_set flag isn't set, update it
+      if (!setupStatus.location_set) {
         await updateSetupStatus({
-          profile_completed: Boolean(details.name),
+          location_set: true,
+        });
+      }
+
+      // Step 3: Check if profile is complete
+      if (!details.name) {
+        await updateSetupStatus({
+          profile_completed: false,
         });
         return { isComplete: false, route: ROUTES.AUTH_PROFILE_SETUP };
+      }
+
+      // If profile is complete but profile_completed flag isn't set, update it
+      if (!setupStatus.profile_completed) {
+        await updateSetupStatus({
+          profile_completed: true,
+        });
       }
 
       // Role-specific steps
@@ -396,12 +427,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         return { isComplete: false, route: ROUTES.WALLET_SETUP };
       }
 
-      // Create wallet if needed
+      // Create wallet if needed (regardless of completed status)
       if (details.role) {
         await createUserWallet(user.id);
       }
 
       // User has completed all onboarding steps
+      console.log("User has completed all onboarding steps");
       return { isComplete: true, route: ROUTES.TABS };
     } catch (error) {
       console.error("Error checking onboarding status:", error);
