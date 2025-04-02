@@ -1,15 +1,14 @@
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
-  TouchableOpacity,
-  Image,
   TextInput,
+  TouchableOpacity,
   ScrollView,
-  ActivityIndicator,
-  Alert,
+  Image,
   StyleSheet,
-  Dimensions,
+  Pressable,
+  Alert,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import {
@@ -17,176 +16,163 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import {
-  Ionicons,
-  MaterialCommunityIcons,
-  FontAwesome5,
-} from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import Animated, {
   FadeIn,
-  FadeInUp,
-  FadeInRight,
   FadeInDown,
-  useSharedValue,
+  FadeInUp,
+  SlideInUp,
   useAnimatedStyle,
   withTiming,
-  withSequence,
   withSpring,
-  Easing,
+  withSequence,
 } from "react-native-reanimated";
-import { useSupabase } from "@/src/hooks/useSupabase";
-import { useAuth } from "@/src/providers/AuthProvider";
-import { ROUTES } from "@/src/utils/routes";
 import { COLORS } from "@/src/theme/colors";
+import { useAnimatedSafeValue } from "@/src/hooks/useAnimatedValues";
+import AnimatedSafeView from "@/src/components/AnimatedSafeView";
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-
-// Define meal types
+// Define meal types with their properties
 const MEAL_TYPES = [
   {
     id: "breakfast",
     name: "Breakfast",
     icon: "sunny-outline",
-    color: "#FFC837",
-    description: "Start your day right with a nutritious breakfast",
-    timeRange: "7:00 AM - 10:00 AM",
+    color: "#FF9500",
+    description: "Morning energy boost",
+    timeRange: "6:00 AM - 10:00 AM",
   },
   {
     id: "lunch",
     name: "Lunch",
     icon: "restaurant-outline",
     color: "#FF6B00",
-    description: "Midday meals to keep you energized",
+    description: "Midday nourishment",
     timeRange: "12:00 PM - 3:00 PM",
   },
   {
     id: "dinner",
     name: "Dinner",
     icon: "moon-outline",
-    color: "#8E44AD",
-    description: "Delicious dinners for a perfect evening",
-    timeRange: "7:00 PM - 10:00 PM",
+    color: "#5856D6",
+    description: "Evening satisfaction",
+    timeRange: "6:00 PM - 9:00 PM",
   },
   {
     id: "snacks",
     name: "Snacks",
     icon: "cafe-outline",
-    color: "#2ECC71",
-    description: "Light bites for in-between meals",
-    timeRange: "Any time",
+    color: "#34C759",
+    description: "Between-meal bites",
+    timeRange: "Anytime",
   },
 ];
 
 export default function MealCreationScreen() {
   const insets = useSafeAreaInsets();
-  const { supabase } = useSupabase();
-  const { user, updateSetupStatus } = useAuth();
+
+  // State for loading and meal plan data
   const [isLoading, setIsLoading] = useState(false);
   const [mealName, setMealName] = useState("");
-  const [selectedMealTypes, setSelectedMealTypes] = useState<Set<string>>(
-    new Set()
-  );
-  const [selectedFoodsCount, setSelectedFoodsCount] = useState({
-    breakfast: 0,
-    lunch: 0,
-    dinner: 0,
-    snacks: 0,
-  });
+  const [selectedMealTypes, setSelectedMealTypes] = useState<string[]>([]);
+  const [selectedFoodsCount, setSelectedFoodsCount] = useState<{
+    [key: string]: number;
+  }>({});
 
-  // Animation values
-  const saveButtonScale = useSharedValue(1);
-  const mealTypeScales = MEAL_TYPES.map(() => useSharedValue(1));
+  // Use our safe animated values
+  const { sharedValue: saveButtonScale } = useAnimatedSafeValue(1);
 
-  // Navigate to food selection screen for a meal type
-  const handleMealTypeSelect = (mealTypeId: string, index: number) => {
-    // Animate button press
-    mealTypeScales[index].value = withSequence(
+  // Create animated styles for the save button
+  const saveButtonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: saveButtonScale.value }],
+  }));
+
+  // Create animated scales for meal type cards
+  const mealTypeScales = MEAL_TYPES.reduce((acc, mealType) => {
+    acc[mealType.id] = useAnimatedSafeValue<number>(1);
+    return acc;
+  }, {} as { [key: string]: ReturnType<typeof useAnimatedSafeValue<number>> });
+
+  // Handle meal type selection
+  const toggleMealType = (mealTypeId: string) => {
+    // Animate the button press effect
+    mealTypeScales[mealTypeId].sharedValue.value = withSequence(
       withTiming(0.95, { duration: 100 }),
       withTiming(1, { duration: 150 })
     );
 
-    // Add meal type to selected set
-    const newSelectedTypes = new Set(selectedMealTypes);
-    newSelectedTypes.add(mealTypeId);
-    setSelectedMealTypes(newSelectedTypes);
+    setSelectedMealTypes((prev) => {
+      if (prev.includes(mealTypeId)) {
+        // If already selected, remove it
+        return prev.filter((id) => id !== mealTypeId);
+      } else {
+        // If not selected, add it
+        return [...prev, mealTypeId];
+      }
+    });
 
-    // Navigate to food selection screen for this meal type
-    router.push({
-      pathname: ROUTES.MEAL_TYPE_FOODS,
-      params: { mealType: mealTypeId },
-    } as any);
+    // Reset the food counts if deselecting a meal type
+    if (selectedMealTypes.includes(mealTypeId)) {
+      setSelectedFoodsCount((prev) => {
+        const newCounts = { ...prev };
+        delete newCounts[mealTypeId];
+        return newCounts;
+      });
+    }
   };
 
-  // Handle saving the meal plan
-  const handleSaveMeal = async () => {
-    // Validate meal name
+  // Save the meal plan
+  const saveMealPlan = () => {
+    // Validate input
     if (!mealName.trim()) {
       Alert.alert(
         "Missing Information",
-        "Please enter a name for your meal plan."
+        "Please enter a name for your meal plan"
       );
       return;
     }
 
-    // Check if any meal types have been set up
-    if (selectedMealTypes.size === 0) {
-      Alert.alert("No Meals Added", "Please set up at least one meal type.");
+    if (selectedMealTypes.length === 0) {
+      Alert.alert(
+        "Missing Information",
+        "Please select at least one meal type"
+      );
       return;
     }
 
-    // Animate button press
+    // Animate the save button
     saveButtonScale.value = withSequence(
-      withTiming(0.95, { duration: 100 }),
+      withTiming(0.9, { duration: 100 }),
       withTiming(1, { duration: 150 })
     );
 
-    setIsLoading(true);
+    // Normally you would save the data to a database or context here
+    console.log("Saving meal plan:", {
+      name: mealName,
+      mealTypes: selectedMealTypes,
+    });
 
-    try {
-      // Mark meal creation as completed
-      await updateSetupStatus({
-        meal_creation_completed: true,
+    // Navigate to the first meal type selection screen
+    if (selectedMealTypes.length > 0) {
+      router.push({
+        pathname: "/meal-type-foods",
+        params: { mealType: selectedMealTypes[0] },
       });
-
-      // In a real app, you would save the meal plan to Supabase here
-      Alert.alert("Success", "Your meal plan has been created!", [
-        {
-          text: "OK",
-          onPress: () => {
-            // Navigate to maker selection setup
-            router.replace(ROUTES.MAKER_SELECTION_SETUP);
-          },
-        },
-      ]);
-    } catch (error) {
-      console.error("Error saving meal plan:", error);
-      Alert.alert("Error", "Failed to save meal plan. Please try again.");
-    } finally {
-      setIsLoading(false);
     }
   };
 
-  // Animated styles for save button
-  const saveButtonAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: saveButtonScale.value }],
-    };
-  });
-
-  // Generate animated styles for meal type cards
-  const getMealTypeAnimatedStyle = (index: number) => {
-    return useAnimatedStyle(() => {
-      return {
-        transform: [{ scale: mealTypeScales[index].value }],
-      };
-    });
-  };
+  // Create animated styles for each meal type card
+  const getMealTypeAnimatedStyle = (mealTypeId: string) =>
+    useAnimatedStyle(() => ({
+      transform: [
+        { scale: mealTypeScales[mealTypeId].sharedValue.value as number },
+      ],
+    }));
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
 
-      {/* Header with back button */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => router.back()}
@@ -195,156 +181,145 @@ export default function MealCreationScreen() {
           <Ionicons name="arrow-back" size={22} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Create Meal Plan</Text>
-        <View style={styles.placeholderView} /> {/* Empty view for alignment */}
+        <View style={styles.headerPlaceholder} />
       </View>
 
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: insets.bottom + 100 }, // Extra padding for bottom button
+          styles.contentContainer,
+          { paddingBottom: insets.bottom + 100 },
         ]}
         showsVerticalScrollIndicator={false}
       >
         {/* Meal Plan Name Input */}
-        <Animated.View
-          entering={FadeInDown.delay(200).duration(500)}
+        <AnimatedSafeView
+          entering={FadeInDown.duration(400)}
           style={styles.inputContainer}
         >
           <Text style={styles.inputLabel}>Meal Plan Name</Text>
-          <View style={styles.textInputContainer}>
-            <FontAwesome5 name="utensils" size={18} color={COLORS.primary} />
-            <TextInput
-              style={styles.textInput}
-              placeholder="Enter meal plan name"
-              value={mealName}
-              onChangeText={setMealName}
-              placeholderTextColor="#9CA3AF"
-            />
-          </View>
-        </Animated.View>
+          <TextInput
+            value={mealName}
+            onChangeText={setMealName}
+            placeholder="E.g., Weekly Meal Plan"
+            style={styles.textInput}
+            placeholderTextColor="#9CA3AF"
+          />
+        </AnimatedSafeView>
 
         {/* Meal Types Section */}
-        <Animated.View
-          entering={FadeInDown.delay(300).duration(500)}
+        <AnimatedSafeView
+          entering={FadeInDown.delay(100).duration(400)}
           style={styles.sectionContainer}
         >
           <Text style={styles.sectionTitle}>Select Meal Types</Text>
           <Text style={styles.sectionSubtitle}>
-            Tap on a meal type to select foods for that meal
+            Choose the meals you want to include in your plan
           </Text>
 
-          {MEAL_TYPES.map((mealType, index) => (
-            <Animated.View
-              key={mealType.id}
-              entering={FadeInRight.delay(index * 100 + 400).duration(400)}
-              style={[
-                getMealTypeAnimatedStyle(index),
-                styles.mealTypeCardWrapper,
-              ]}
-            >
-              <TouchableOpacity
-                activeOpacity={0.8}
-                onPress={() => handleMealTypeSelect(mealType.id, index)}
-                style={[
-                  styles.mealTypeCard,
-                  selectedMealTypes.has(mealType.id) &&
-                    styles.selectedMealTypeCard,
-                ]}
-              >
-                <View style={styles.mealTypeContent}>
-                  {/* Left Icon */}
-                  <View
-                    style={[
-                      styles.mealTypeIconContainer,
-                      { backgroundColor: `${mealType.color}20` }, // 20% opacity
-                    ]}
+          {/* Meal Type Cards */}
+          <View style={styles.mealTypesGrid}>
+            {MEAL_TYPES.map((mealType, index) => {
+              const isSelected = selectedMealTypes.includes(mealType.id);
+              const foodCount = selectedFoodsCount[mealType.id] || 0;
+
+              return (
+                <AnimatedSafeView
+                  key={mealType.id}
+                  entering={FadeInUp.delay(200 + index * 100).duration(400)}
+                  style={[
+                    styles.mealTypeCard,
+                    isSelected && {
+                      borderColor: mealType.color,
+                      borderWidth: 2,
+                    },
+                  ]}
+                  animatedProps={getMealTypeAnimatedStyle(mealType.id)}
+                >
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => toggleMealType(mealType.id)}
+                    style={styles.mealTypeCardContent}
                   >
-                    <Ionicons
-                      name={mealType.icon as any}
-                      size={24}
-                      color={mealType.color}
-                    />
-                  </View>
+                    {/* Meal Type Icon */}
+                    <View
+                      style={[
+                        styles.mealTypeIconContainer,
+                        { backgroundColor: mealType.color + "20" },
+                      ]}
+                    >
+                      <Ionicons
+                        name={mealType.icon as any}
+                        size={24}
+                        color={mealType.color}
+                      />
+                    </View>
 
-                  {/* Content */}
-                  <View style={styles.mealTypeDetails}>
-                    <View style={styles.mealTypeHeader}>
+                    {/* Meal Type Details */}
+                    <View style={styles.mealTypeDetails}>
                       <Text style={styles.mealTypeName}>{mealType.name}</Text>
-
-                      {selectedMealTypes.has(mealType.id) && (
-                        <View style={styles.selectedItemsContainer}>
-                          <Text style={styles.selectedItemsText}>
-                            {
-                              selectedFoodsCount[
-                                mealType.id as keyof typeof selectedFoodsCount
-                              ]
-                            }{" "}
-                            items
-                          </Text>
-                          <Ionicons
-                            name="checkmark-circle"
-                            size={20}
-                            color={COLORS.primary}
-                          />
-                        </View>
-                      )}
+                      <Text style={styles.mealTypeDescription}>
+                        {mealType.description}
+                      </Text>
+                      <Text style={styles.mealTypeTimeRange}>
+                        {mealType.timeRange}
+                      </Text>
                     </View>
 
-                    <Text style={styles.mealTypeDescription}>
-                      {mealType.description}
-                    </Text>
+                    {/* Selection Status */}
+                    {isSelected ? (
+                      <View
+                        style={[
+                          styles.selectedIndicator,
+                          { backgroundColor: mealType.color },
+                        ]}
+                      >
+                        <Ionicons name="checkmark" size={16} color="#FFF" />
+                      </View>
+                    ) : (
+                      <View style={styles.unselectedIndicator}>
+                        <Ionicons name="add" size={16} color="#9CA3AF" />
+                      </View>
+                    )}
 
-                    <View style={styles.timeContainer}>
-                      <Ionicons name="time-outline" size={14} color="#64748B" />
-                      <Text style={styles.timeText}>{mealType.timeRange}</Text>
-                    </View>
-                  </View>
-                </View>
-
-                {selectedMealTypes.has(mealType.id) && (
-                  <View
-                    style={[
-                      styles.selectedIndicator,
-                      { backgroundColor: mealType.color },
-                    ]}
-                  />
-                )}
-              </TouchableOpacity>
-            </Animated.View>
-          ))}
-        </Animated.View>
+                    {/* Food Count Badge */}
+                    {isSelected && foodCount > 0 && (
+                      <View
+                        style={[
+                          styles.foodCountBadge,
+                          { backgroundColor: mealType.color },
+                        ]}
+                      >
+                        <Text style={styles.foodCountText}>
+                          {foodCount} items
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </AnimatedSafeView>
+              );
+            })}
+          </View>
+        </AnimatedSafeView>
       </ScrollView>
 
       {/* Save Button */}
-      <Animated.View
-        entering={FadeInUp.delay(800).duration(500)}
+      <AnimatedSafeView
         style={[
-          styles.bottomButtonContainer,
-          { paddingBottom: insets.bottom > 0 ? insets.bottom : 16 },
+          styles.saveButtonContainer,
+          { bottom: insets.bottom + 20 },
+          saveButtonAnimatedStyle,
         ]}
-        // @ts-ignore - animated style
-        animatedStyle={saveButtonAnimatedStyle}
       >
         <TouchableOpacity
-          onPress={handleSaveMeal}
-          disabled={
-            isLoading || !mealName.trim() || selectedMealTypes.size === 0
-          }
           activeOpacity={0.8}
-          style={[
-            styles.saveButton,
-            (!mealName.trim() || selectedMealTypes.size === 0) &&
-              styles.disabledButton,
-          ]}
+          onPress={saveMealPlan}
+          style={styles.saveButton}
         >
-          {isLoading ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.saveButtonText}>Save Meal Plan</Text>
-          )}
+          <Text style={styles.saveButtonText}>Continue</Text>
+          <Ionicons name="arrow-forward" size={20} color="#FFF" />
         </TouchableOpacity>
-      </Animated.View>
+      </AnimatedSafeView>
     </SafeAreaView>
   );
 }
@@ -352,15 +327,16 @@ export default function MealCreationScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: "#f9fafb",
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingTop: 10,
+    paddingTop: 16,
     paddingBottom: 16,
+    backgroundColor: "#FFF",
     borderBottomWidth: 1,
     borderBottomColor: "#F3F4F6",
   },
@@ -374,18 +350,18 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: "700",
-    color: COLORS.text,
+    fontWeight: "600",
+    color: "#333",
   },
-  placeholderView: {
+  headerPlaceholder: {
     width: 40,
   },
   scrollView: {
     flex: 1,
   },
-  scrollContent: {
+  contentContainer: {
+    paddingTop: 24,
     paddingHorizontal: 20,
-    paddingVertical: 16,
   },
   inputContainer: {
     marginBottom: 24,
@@ -393,61 +369,57 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 16,
     fontWeight: "500",
-    color: COLORS.text,
+    color: "#374151",
     marginBottom: 8,
   },
-  textInputContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F9FAFB",
-    borderRadius: 12,
+  textInput: {
+    backgroundColor: "#FFF",
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  textInput: {
-    flex: 1,
+    borderRadius: 12,
+    padding: 16,
     fontSize: 16,
-    color: COLORS.text,
-    marginLeft: 12,
+    color: "#1F2937",
   },
   sectionContainer: {
-    marginBottom: 24,
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: COLORS.text,
+    color: "#1F2937",
     marginBottom: 8,
   },
   sectionSubtitle: {
     fontSize: 14,
-    color: COLORS.textLight,
+    color: "#6B7280",
     marginBottom: 16,
   },
-  mealTypeCardWrapper: {
-    marginBottom: 16,
+  mealTypesGrid: {
+    flexDirection: "column",
+    gap: 16,
   },
   mealTypeCard: {
-    backgroundColor: COLORS.white,
+    backgroundColor: "#FFF",
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "#E5E7EB",
     overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
   },
-  selectedMealTypeCard: {
-    borderWidth: 2,
-    borderColor: COLORS.primary,
-  },
-  mealTypeContent: {
+  mealTypeCardContent: {
     flexDirection: "row",
+    alignItems: "center",
     padding: 16,
   },
   mealTypeIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 12,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 16,
@@ -455,79 +427,71 @@ const styles = StyleSheet.create({
   mealTypeDetails: {
     flex: 1,
   },
-  mealTypeHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 4,
-  },
   mealTypeName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "600",
-    color: COLORS.text,
-  },
-  selectedItemsContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  selectedItemsText: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: COLORS.primary,
-    marginRight: 4,
+    color: "#1F2937",
+    marginBottom: 4,
   },
   mealTypeDescription: {
     fontSize: 14,
-    color: COLORS.textLight,
-    marginBottom: 8,
+    color: "#6B7280",
+    marginBottom: 4,
   },
-  timeContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  timeText: {
+  mealTypeTimeRange: {
     fontSize: 12,
-    color: "#64748B",
-    marginLeft: 4,
+    color: "#9CA3AF",
   },
   selectedIndicator: {
-    height: 6,
-    width: "100%",
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  bottomButtonContainer: {
+  unselectedIndicator: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F3F4F6",
+  },
+  foodCountBadge: {
     position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    backgroundColor: COLORS.white,
-    borderTopWidth: 1,
-    borderTopColor: "#F0F0F0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 5,
+    bottom: 12,
+    right: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  foodCountText: {
+    fontSize: 12,
+    fontWeight: "500",
+    color: "#FFF",
+  },
+  saveButtonContainer: {
+    position: "absolute",
+    left: 20,
+    right: 20,
   },
   saveButton: {
     backgroundColor: COLORS.primary,
     borderRadius: 12,
-    height: 56,
-    justifyContent: "center",
+    flexDirection: "row",
     alignItems: "center",
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
+    justifyContent: "center",
+    paddingVertical: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
     elevation: 4,
   },
-  disabledButton: {
-    opacity: 0.7,
-  },
   saveButtonText: {
-    color: COLORS.white,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "600",
+    color: "#FFF",
+    marginRight: 8,
   },
 });

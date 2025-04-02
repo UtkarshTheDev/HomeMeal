@@ -41,6 +41,7 @@ export default function VerifyScreen() {
     Array(OTP_LENGTH).fill(null)
   );
   const [error, setError] = useState("");
+  const [verificationSuccess, setVerificationSuccess] = useState(false);
 
   useEffect(() => {
     inputRefs.current[0]?.focus();
@@ -55,6 +56,35 @@ export default function VerifyScreen() {
       handleVerify();
     }
   }, [otp]);
+
+  // Add this effect to handle navigation after verification is successful
+  useEffect(() => {
+    if (verificationSuccess) {
+      // Add a delay to ensure the component is fully mounted
+      const timer = setTimeout(() => {
+        try {
+          console.log("Navigation to role selection screen");
+          router.replace(ROUTES.AUTH_ROLE_SELECTION);
+        } catch (error) {
+          console.error("Navigation error:", error);
+          // Retry once more with a longer delay
+          setTimeout(() => {
+            try {
+              router.replace(ROUTES.AUTH_ROLE_SELECTION);
+            } catch (retryError) {
+              console.error("Retry navigation error:", retryError);
+              Alert.alert(
+                "Navigation Error",
+                "Unable to proceed. Please restart the app and try again."
+              );
+            }
+          }, 1000);
+        }
+      }, 500);
+
+      return () => clearTimeout(timer);
+    }
+  }, [verificationSuccess]);
 
   const startResendTimer = () => {
     const interval = setInterval(() => {
@@ -201,14 +231,16 @@ export default function VerifyScreen() {
         }
       }
 
-      // Always redirect new users to role selection first
-      // The AuthProvider will redirect appropriately based on onboarding status
-      console.log("Navigation to role selection screen");
-      router.replace(ROUTES.AUTH_ROLE_SELECTION);
+      // FIXED: Use a more reliable approach to navigate after verification
+      // Set a flag that verification is complete and navigate in useEffect
+      setLoading(false);
+      setVerifying(false);
+
+      // Store in state that verification was successful
+      setVerificationSuccess(true);
     } catch (error: any) {
       console.error("Verification error:", error);
       setError(error.message || "Failed to verify code. Please try again.");
-    } finally {
       setLoading(false);
       setVerifying(false);
     }

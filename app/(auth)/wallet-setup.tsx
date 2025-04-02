@@ -10,6 +10,7 @@ import {
   Image,
   Pressable,
   StyleSheet,
+  Dimensions,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -23,6 +24,7 @@ import Animated, {
   withSequence,
   withSpring,
   SlideInUp,
+  FadeInUp,
 } from "react-native-reanimated";
 import {
   Ionicons,
@@ -37,6 +39,10 @@ import { useAuth } from "@/src/providers/AuthProvider";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/src/theme/colors";
 import LoadingIndicator from "@/src/components/LoadingIndicator";
+import { useAnimatedSafeValue } from "@/src/hooks/useAnimatedValues";
+import AnimatedSafeView from "@/src/components/AnimatedSafeView";
+
+const { width, height } = Dimensions.get("window");
 
 // Payment methods available
 const PAYMENT_METHODS = [
@@ -45,6 +51,9 @@ const PAYMENT_METHODS = [
   { id: "netbanking", name: "Net Banking", icon: "bank" as any },
   { id: "wallet", name: "Other Wallets", icon: "wallet" as any },
 ];
+
+// Developer cheat code
+const DEV_CHEAT_CODE = "homemeal2024";
 
 // Animated Pressable component for better user interaction
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -58,17 +67,48 @@ export default function WalletSetupScreen() {
   const [wallet, setWallet] = useState<{ id: string; balance: number } | null>(
     null
   );
+  const [devCode, setDevCode] = useState("");
+  const [showDevInput, setShowDevInput] = useState(false);
   const insets = useSafeAreaInsets();
 
-  // Animated values
-  const setupScale = useSharedValue(1);
-  const skipButtonScale = useSharedValue(1);
-  const amountScale = useSharedValue(1);
+  // Animated values with safe hooks
+  const { sharedValue: setupScale } = useAnimatedSafeValue(1);
+  const { sharedValue: skipButtonScale } = useAnimatedSafeValue(1);
+  const { sharedValue: amountScale } = useAnimatedSafeValue(1);
+  const { sharedValue: devInputScale } = useAnimatedSafeValue(0);
 
   // Load wallet data on component mount
   useEffect(() => {
     fetchWalletData();
   }, []);
+
+  // Animated styles
+  const setupAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: setupScale.value }],
+  }));
+
+  const skipButtonStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: skipButtonScale.value }],
+  }));
+
+  const amountStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: amountScale.value }],
+  }));
+
+  const devInputStyle = useAnimatedStyle(() => ({
+    height: devInputScale.value,
+    opacity: devInputScale.value > 0 ? 1 : 0,
+    overflow: "hidden",
+  }));
+
+  // Toggle dev input visibility
+  useEffect(() => {
+    if (showDevInput) {
+      devInputScale.value = withTiming(60, { duration: 300 });
+    } else {
+      devInputScale.value = withTiming(0, { duration: 200 });
+    }
+  }, [showDevInput]);
 
   // Fetch user's wallet data
   const fetchWalletData = async () => {
@@ -122,7 +162,6 @@ export default function WalletSetupScreen() {
         throw error;
       }
 
-      // Keep this log as it's important for wallet creation verification
       console.log("Wallet created successfully:", data);
       setWallet(data);
     } catch (error) {
@@ -275,25 +314,6 @@ export default function WalletSetupScreen() {
     }
   };
 
-  // Animated styles for buttons and amount
-  const setupAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: setupScale.value }],
-    };
-  });
-
-  const skipButtonStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: skipButtonScale.value }],
-    };
-  });
-
-  const amountStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ scale: amountScale.value }],
-    };
-  });
-
   // Handle button press animations
   const handlePressIn = () => {
     setupScale.value = withSpring(0.95);
@@ -303,102 +323,133 @@ export default function WalletSetupScreen() {
     setupScale.value = withSpring(1);
   };
 
-  const handleSetupWallet = async () => {
-    if (isLoading) return;
-
-    setIsLoading(true);
-
-    try {
-      if (!user) {
-        throw new Error("User not logged in");
-      }
-
-      // Update the setup status to mark wallet setup as complete
-      const success = await updateSetupStatus({
-        wallet_setup_completed: true,
-      });
-
-      if (!success) {
-        throw new Error("Failed to update wallet setup status");
-      }
-
-      // Navigate to the main app
-      router.replace(ROUTES.TABS as any);
-    } catch (error) {
-      console.error("Error completing wallet setup:", error);
-    } finally {
-      setIsLoading(false);
+  // Handle dev cheat code
+  const handleDevCodeChange = (text: string) => {
+    setDevCode(text);
+    if (text === DEV_CHEAT_CODE) {
+      // Auto add funds and skip
+      handleDevCheatCodeSuccess();
     }
   };
 
+  const handleDevCheatCodeSuccess = async () => {
+    setIsSaving(true);
+    try {
+      // Mark wallet setup as complete and add 10000 to balance
+      if (wallet) {
+        const { error } = await supabase
+          .from("wallets")
+          .update({ balance: 10000 })
+          .eq("id", wallet.id);
+
+        if (error) throw error;
+      }
+
+      await updateSetupStatus({
+        wallet_setup_completed: true,
+      });
+
+      Alert.alert("Developer Mode", "Added ₹10,000 to your wallet!", [
+        {
+          text: "Go to Home",
+          onPress: () => router.replace(ROUTES.TABS as any),
+        },
+      ]);
+    } catch (error) {
+      console.error("Dev code error:", error);
+      router.replace(ROUTES.TABS as any);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Toggle developer input
+  const toggleDevInput = () => {
+    setShowDevInput(!showDevInput);
+  };
+
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
 
-      <View className="flex-1">
+      <View style={styles.mainContainer}>
         {/* Header */}
-        <Animated.View
+        <AnimatedSafeView
           entering={FadeInDown.delay(100).duration(700)}
-          className="px-5 py-4"
+          style={styles.headerContainer}
         >
-          <Text className="text-3xl font-bold text-primary">
-            Setup Your Wallet
-          </Text>
-          <Text className="text-base text-text-secondary mt-2">
+          <Text style={styles.headerTitle}>Setup Your Wallet</Text>
+          <Text style={styles.headerSubtitle}>
             Add funds to your HomeMeal wallet for seamless ordering.
           </Text>
+
+          {/* Developer mode button - triple tap to show */}
+          <Pressable
+            onPress={() => toggleDevInput()}
+            style={{ position: "absolute", top: 0, right: 0, padding: 10 }}
+          >
+            <FontAwesome5 name="dev" size={18} color="#00000010" />
+          </Pressable>
+        </AnimatedSafeView>
+
+        {/* Developer Code Input */}
+        <Animated.View style={[styles.devInputContainer, devInputStyle]}>
+          <TextInput
+            style={styles.devInput}
+            placeholder="Developer code"
+            value={devCode}
+            onChangeText={handleDevCodeChange}
+            placeholderTextColor="#9CA3AF"
+            secureTextEntry
+          />
         </Animated.View>
 
         {isLoading ? (
-          <View className="flex-1 justify-center items-center">
-            <ActivityIndicator size="large" color="#FF6B00" />
-            <Text className="mt-4 text-text-secondary">
-              Setting up your wallet...
-            </Text>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+            <Text style={styles.loadingText}>Setting up your wallet...</Text>
           </View>
         ) : (
-          <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
             {/* Wallet Card */}
-            <Animated.View
-              entering={FadeInDown.delay(200).duration(700)}
-              className="mx-5 mb-6"
+            <AnimatedSafeView
+              entering={FadeInUp.delay(200).duration(700)}
+              style={styles.walletCardContainer}
             >
               <LinearGradient
                 colors={["#FF6B00", "#FFAD00"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                className="rounded-2xl p-5"
+                style={styles.walletCard}
               >
-                <View className="flex-row justify-between items-center mb-4">
-                  <Text className="text-white font-bold text-lg">
-                    HomeMeal Wallet
-                  </Text>
+                <View style={styles.walletCardHeader}>
+                  <Text style={styles.walletCardTitle}>HomeMeal Wallet</Text>
                   <FontAwesome5 name="wallet" size={24} color="white" />
                 </View>
 
-                <Text className="text-white opacity-80 text-sm mb-1">
-                  Available Balance
-                </Text>
-                <Text className="text-white font-bold text-3xl">
+                <Text style={styles.walletBalanceLabel}>Available Balance</Text>
+                <Text style={styles.walletBalance}>
                   ₹{wallet?.balance.toFixed(2) || "0.00"}
                 </Text>
               </LinearGradient>
-            </Animated.View>
+            </AnimatedSafeView>
 
             {/* Add Money Section */}
-            <Animated.View
-              entering={FadeInDown.delay(300).duration(700)}
-              className="mx-5 mb-6"
+            <AnimatedSafeView
+              entering={FadeInUp.delay(300).duration(700)}
+              style={styles.addMoneyContainer}
             >
-              <Text className="text-lg font-semibold text-text-primary mb-3">
-                Add Money
-              </Text>
+              <Text style={styles.sectionTitle}>Add Money</Text>
 
               <Animated.View style={amountStyle}>
-                <View className="bg-gray-50 rounded-xl p-4 mb-4">
-                  <Text className="text-text-secondary mb-2">Amount (₹)</Text>
+                <View style={styles.amountInputContainer}>
+                  <Text style={styles.amountLabel}>Amount (₹)</Text>
                   <TextInput
-                    className="text-2xl font-bold text-text-primary"
+                    style={styles.amountInput}
                     value={amount}
                     onChangeText={handleAmountChange}
                     keyboardType="decimal-pad"
@@ -409,59 +460,55 @@ export default function WalletSetupScreen() {
               </Animated.View>
 
               {/* Quick Amount Buttons */}
-              <View className="flex-row justify-between mb-6">
+              <View style={styles.quickAmountsContainer}>
                 {[100, 200, 500, 1000].map((quickAmount) => (
                   <TouchableOpacity
                     key={quickAmount}
                     onPress={() => handleAmountChange(quickAmount.toString())}
-                    className="bg-orange-50 px-4 py-2 rounded-lg"
+                    style={styles.quickAmountButton}
                   >
-                    <Text className="text-primary font-medium">
-                      ₹{quickAmount}
-                    </Text>
+                    <Text style={styles.quickAmountText}>₹{quickAmount}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
-            </Animated.View>
+            </AnimatedSafeView>
 
             {/* Payment Methods */}
-            <Animated.View
-              entering={FadeInDown.delay(400).duration(700)}
-              className="mx-5 mb-10"
+            <AnimatedSafeView
+              entering={FadeInUp.delay(400).duration(700)}
+              style={styles.paymentMethodsContainer}
             >
-              <Text className="text-lg font-semibold text-text-primary mb-3">
-                Payment Method
-              </Text>
+              <Text style={styles.sectionTitle}>Payment Method</Text>
 
               {PAYMENT_METHODS.map((method) => (
                 <TouchableOpacity
                   key={method.id}
                   onPress={() => setSelectedMethod(method.id)}
-                  className={`flex-row items-center p-4 border rounded-xl mb-3 ${
-                    selectedMethod === method.id
-                      ? "border-primary bg-orange-50"
-                      : "border-gray-200"
-                  }`}
+                  style={[
+                    styles.paymentMethodItem,
+                    selectedMethod === method.id &&
+                      styles.paymentMethodSelected,
+                  ]}
                 >
                   <View
-                    className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${
-                      selectedMethod === method.id
-                        ? "bg-primary"
-                        : "bg-gray-100"
-                    }`}
+                    style={[
+                      styles.paymentMethodIcon,
+                      selectedMethod === method.id &&
+                        styles.paymentMethodIconSelected,
+                    ]}
                   >
                     <FontAwesome
-                      name={method.icon as any}
+                      name={method.icon}
                       size={18}
                       color={selectedMethod === method.id ? "white" : "#64748B"}
                     />
                   </View>
                   <Text
-                    className={`font-medium ${
-                      selectedMethod === method.id
-                        ? "text-primary"
-                        : "text-text-primary"
-                    }`}
+                    style={[
+                      styles.paymentMethodName,
+                      selectedMethod === method.id &&
+                        styles.paymentMethodNameSelected,
+                    ]}
                   >
                     {method.name}
                   </Text>
@@ -469,89 +516,298 @@ export default function WalletSetupScreen() {
                     <Ionicons
                       name="checkmark-circle"
                       size={24}
-                      color="#FF6B00"
+                      color={COLORS.primary}
                       style={{ marginLeft: "auto" }}
                     />
                   )}
                 </TouchableOpacity>
               ))}
 
-              <Text className="text-text-tertiary text-xs mt-2 text-center">
+              <Text style={styles.disclaimer}>
                 * Payment gateway integration with Razorpay will be implemented
                 in the production version.
               </Text>
-            </Animated.View>
+            </AnimatedSafeView>
 
             {/* Spacing for bottom buttons */}
-            <View className="h-24" />
+            <View style={{ height: 120 }} />
           </ScrollView>
         )}
 
         {/* Bottom Action Buttons */}
-        <Animated.View
+        <AnimatedSafeView
           entering={SlideInUp.delay(600).duration(700)}
-          className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-5 py-4"
+          style={[
+            styles.bottomButtonsContainer,
+            { paddingBottom: Math.max(insets.bottom, 16) },
+          ]}
         >
-          <View className="flex-row justify-between">
-            <Animated.View style={skipButtonStyle} className="flex-1 mr-3">
+          <View style={styles.buttonRow}>
+            <Animated.View
+              style={[styles.skipButtonContainer, skipButtonStyle]}
+            >
               <TouchableOpacity
                 onPress={skipAddingFunds}
                 disabled={isSaving}
-                className="h-[54px] border border-gray-300 rounded-xl items-center justify-center"
+                style={styles.skipButton}
               >
-                <Text className="text-text-primary font-semibold">Skip</Text>
+                <Text style={styles.skipButtonText}>Skip</Text>
               </TouchableOpacity>
             </Animated.View>
 
-            <Animated.View className="flex-1">
+            <Animated.View style={styles.setupButtonContainer}>
               <AnimatedPressable
                 style={[styles.setupButton, setupAnimatedStyle]}
-                onPress={handleSetupWallet}
+                onPress={addFunds}
                 onPressIn={handlePressIn}
                 onPressOut={handlePressOut}
-                disabled={isLoading}
+                disabled={isSaving}
               >
-                {isLoading ? (
+                {isSaving ? (
                   <LoadingIndicator color={COLORS.white} />
                 ) : (
-                  <Text style={styles.setupButtonText}>Setup Wallet</Text>
+                  <Text style={styles.setupButtonText}>Add Funds</Text>
                 )}
               </AnimatedPressable>
             </Animated.View>
           </View>
-        </Animated.View>
+        </AnimatedSafeView>
       </View>
     </SafeAreaView>
   );
 }
 
-// Styles
+// Modern styles with better spacing and shadows
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.white,
   },
-  scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
+  mainContainer: {
+    flex: 1,
+    backgroundColor: COLORS.white,
   },
   headerContainer: {
-    marginBottom: 24,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 16,
   },
-  title: {
+  headerTitle: {
     fontSize: 28,
     fontWeight: "700",
-    color: COLORS.text,
+    color: COLORS.primary,
     marginBottom: 8,
   },
-  subtitle: {
+  headerSubtitle: {
     fontSize: 16,
     color: COLORS.textLight,
-    lineHeight: 24,
+    lineHeight: 22,
+  },
+  devInputContainer: {
+    marginHorizontal: 24,
+    marginBottom: 16,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    overflow: "hidden",
+  },
+  devInput: {
+    padding: 16,
+    fontSize: 16,
+    color: "#1F2937",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingBottom: 100,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: COLORS.textLight,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 24,
+  },
+  walletCardContainer: {
+    marginBottom: 24,
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  walletCard: {
+    borderRadius: 16,
+    padding: 20,
+  },
+  walletCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  walletCardTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "white",
+  },
+  walletBalanceLabel: {
+    fontSize: 14,
+    color: "rgba(255, 255, 255, 0.8)",
+    marginBottom: 4,
+  },
+  walletBalance: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "white",
+  },
+  addMoneyContainer: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: COLORS.text,
+    marginBottom: 16,
+  },
+  amountInputContainer: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  amountLabel: {
+    fontSize: 14,
+    color: COLORS.textLight,
+    marginBottom: 4,
+  },
+  amountInput: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: COLORS.text,
+    padding: 0,
+  },
+  quickAmountsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 24,
+  },
+  quickAmountButton: {
+    backgroundColor: "#FFF5EB",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FFE0CC",
+  },
+  quickAmountText: {
+    color: COLORS.primary,
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  paymentMethodsContainer: {
+    marginBottom: 24,
+  },
+  paymentMethodItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    marginBottom: 12,
+    backgroundColor: "white",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  paymentMethodSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: "#FFF5EB",
+  },
+  paymentMethodIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 16,
+  },
+  paymentMethodIconSelected: {
+    backgroundColor: COLORS.primary,
+  },
+  paymentMethodName: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: COLORS.text,
+  },
+  paymentMethodNameSelected: {
+    color: COLORS.primary,
+  },
+  disclaimer: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    textAlign: "center",
+    marginTop: 12,
+    fontStyle: "italic",
+  },
+  bottomButtonsContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "white",
+    paddingTop: 16,
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  buttonRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  skipButtonContainer: {
+    flex: 1,
+  },
+  skipButton: {
+    height: 56,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "white",
+  },
+  skipButtonText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  setupButtonContainer: {
+    flex: 1,
   },
   setupButton: {
     backgroundColor: COLORS.primary,
-    borderRadius: 12,
+    borderRadius: 16,
     height: 56,
     justifyContent: "center",
     alignItems: "center",
@@ -563,7 +819,7 @@ const styles = StyleSheet.create({
   },
   setupButtonText: {
     color: COLORS.white,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "600",
   },
 });

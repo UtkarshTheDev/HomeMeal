@@ -10,6 +10,7 @@ import {
   Dimensions,
   TextInput,
   Pressable,
+  StyleSheet,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -38,6 +39,8 @@ import { ROUTES } from "@/src/utils/routes";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/src/theme/colors";
 import LoadingIndicator from "@/src/components/LoadingIndicator";
+import { useAnimatedSafeValue } from "@/src/hooks/useAnimatedValues";
+import AnimatedSafeView from "@/src/components/AnimatedSafeView";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -83,11 +86,11 @@ export default function MakerSelectionSetupScreen() {
   const insets = useSafeAreaInsets();
   const [actionType, setActionType] = useState<"explore" | "skip" | null>(null);
 
-  // Animation values
-  const continueButtonScale = useSharedValue(1);
-  const skipButtonScale = useSharedValue(1);
-  const exploreScale = useSharedValue(1);
-  const skipScale = useSharedValue(1);
+  // Animation values with safe hooks
+  const { sharedValue: continueButtonScale } = useAnimatedSafeValue(1);
+  const { sharedValue: skipButtonScale } = useAnimatedSafeValue(1);
+  const { sharedValue: exploreScale } = useAnimatedSafeValue(1);
+  const { sharedValue: skipScale } = useAnimatedSafeValue(1);
 
   // Fetch makers when component mounts
   useEffect(() => {
@@ -435,128 +438,103 @@ export default function MakerSelectionSetupScreen() {
     const isSelected = selectedMakers.has(item.id);
 
     return (
-      <Animated.View
-        entering={FadeInUp.delay(index * 100 + 100).duration(400)}
-        className="mx-5 mb-4"
-      >
+      <View style={[styles.makerCard, isSelected && styles.makerCardSelected]}>
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={() => toggleMakerSelection(item.id)}
-          className={`bg-white rounded-xl overflow-hidden shadow-sm ${
-            isSelected ? "border-2 border-[#FF6B00]" : "border border-gray-200"
-          }`}
+          style={styles.makerCardContent}
         >
-          <View className="flex-row">
-            {/* Maker Image */}
-            <View className="w-[120px] h-[130px] relative">
-              {item.image_url ? (
-                <Image
-                  source={{ uri: item.image_url }}
-                  className="w-full h-full"
-                  resizeMode="cover"
+          {/* Maker Image */}
+          <View style={styles.makerImageContainer}>
+            {item.image_url ? (
+              <Image
+                source={{ uri: item.image_url }}
+                style={styles.makerImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.makerImagePlaceholder}>
+                <MaterialCommunityIcons
+                  name="chef-hat"
+                  size={40}
+                  color="#9CA3AF"
                 />
-              ) : (
-                <View className="w-full h-full bg-gray-200 items-center justify-center">
-                  <MaterialCommunityIcons
-                    name="chef-hat"
-                    size={40}
-                    color="#9CA3AF"
+              </View>
+            )}
+
+            {/* Verified Badge */}
+            {item.is_verified && (
+              <View style={styles.verifiedBadge}>
+                <Ionicons name="checkmark" size={14} color="white" />
+              </View>
+            )}
+
+            {/* Selected Indicator */}
+            {isSelected && (
+              <View style={styles.selectedOverlay}>
+                <View style={styles.selectedIndicator}>
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={30}
+                    color={COLORS.primary}
                   />
                 </View>
-              )}
+              </View>
+            )}
+          </View>
 
-              {/* Verified Badge */}
-              {item.is_verified && (
-                <View className="absolute top-2 left-2 bg-green-500 rounded-full p-1">
-                  <Ionicons name="checkmark" size={14} color="white" />
-                </View>
-              )}
+          {/* Maker Details */}
+          <View style={styles.makerDetails}>
+            <View>
+              <Text style={styles.makerName}>{item.business_name}</Text>
 
-              {/* Selected Indicator */}
-              {isSelected && (
-                <View className="absolute top-0 right-0 bottom-0 left-0 bg-black/10 items-center justify-center">
-                  <View className="bg-white rounded-full p-2">
-                    <Ionicons
-                      name="checkmark-circle"
-                      size={30}
-                      color="#FF6B00"
-                    />
-                  </View>
-                </View>
-              )}
-            </View>
-
-            {/* Maker Details */}
-            <View className="flex-1 p-3 justify-between">
-              <View>
-                <Text className="text-base font-bold text-gray-800 mb-1">
-                  {item.business_name}
+              <View style={styles.ratingContainer}>
+                {renderRatingStars(item.rating)}
+                <Text style={styles.ratingText}>
+                  ({item.rating}) · {item.total_ratings} reviews
                 </Text>
+              </View>
 
-                <View className="flex-row items-center mb-2">
-                  {renderRatingStars(item.rating)}
-                  <Text className="text-xs text-gray-500 ml-1">
-                    ({item.rating}) · {item.total_ratings} reviews
+              {item.specialty && (
+                <View style={styles.makerInfoItem}>
+                  <MaterialIcons name="restaurant" size={14} color="#4B5563" />
+                  <Text style={styles.makerInfoText}>{item.specialty}</Text>
+                </View>
+              )}
+
+              {item.distance !== undefined && (
+                <View style={styles.makerInfoItem}>
+                  <Ionicons name="location-outline" size={14} color="#4B5563" />
+                  <Text style={styles.makerInfoText}>
+                    {item.distance} km away
                   </Text>
                 </View>
-
-                {item.specialty && (
-                  <View className="flex-row items-center mb-1">
-                    <MaterialIcons
-                      name="restaurant"
-                      size={14}
-                      color="#4B5563"
-                    />
-                    <Text className="text-xs text-gray-600 ml-1">
-                      {item.specialty}
-                    </Text>
-                  </View>
-                )}
-
-                {item.distance !== undefined && (
-                  <View className="flex-row items-center">
-                    <Ionicons
-                      name="location-outline"
-                      size={14}
-                      color="#4B5563"
-                    />
-                    <Text className="text-xs text-gray-600 ml-1">
-                      {item.distance} km away
-                    </Text>
-                  </View>
-                )}
-              </View>
+              )}
             </View>
           </View>
         </TouchableOpacity>
-      </Animated.View>
+      </View>
     );
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
 
       {/* Header */}
-      <Animated.View
-        entering={FadeInDown.delay(100).duration(700)}
-        className="px-5 pt-2 pb-4"
-      >
-        <Text className="text-3xl font-bold text-[#FF6B00]">Find Chefs</Text>
-        <Text className="text-base text-gray-600 mt-2">
+      <View style={styles.headerContainer}>
+        <Text style={styles.headerTitle}>Find Chefs</Text>
+        <Text style={styles.headerSubtitle}>
           Select your favorite home chefs to prepare your meals
         </Text>
-      </Animated.View>
+      </View>
 
       {/* Search Bar */}
-      <Animated.View
-        entering={FadeInDown.delay(200).duration(700)}
-        className="px-5 mb-4"
-      >
-        <View className="flex-row items-center bg-gray-100 rounded-xl px-4 py-3">
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBar}>
           <Ionicons name="search" size={20} color="#6B7280" />
           <TextInput
-            className="flex-1 ml-2 text-base text-gray-800"
+            style={styles.searchInput}
             placeholder="Search chefs, cuisines..."
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -568,13 +546,10 @@ export default function MakerSelectionSetupScreen() {
             </TouchableOpacity>
           )}
         </View>
-      </Animated.View>
+      </View>
 
       {/* Filter Options */}
-      <Animated.View
-        entering={FadeInDown.delay(300).duration(700)}
-        className="mb-4"
-      >
+      <View style={styles.filtersContainer}>
         <FlatList
           data={[
             { id: "all", name: "All Chefs" },
@@ -585,102 +560,105 @@ export default function MakerSelectionSetupScreen() {
           keyExtractor={(item) => item.id}
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 20 }}
+          contentContainerStyle={styles.filtersList}
           renderItem={({ item, index }) => (
-            <Animated.View
-              entering={FadeInRight.delay(400 + index * 100).duration(500)}
-            >
+            <View style={styles.filterItemWrapper}>
               <TouchableOpacity
                 onPress={() => handleFilterSelect(item.id as FilterOption)}
-                className={`mr-3 px-4 py-2 rounded-full ${
-                  selectedFilter === item.id ? "bg-orange-100" : "bg-gray-100"
-                }`}
+                style={[
+                  styles.filterItem,
+                  selectedFilter === item.id
+                    ? styles.filterItemSelected
+                    : styles.filterItemDefault,
+                ]}
                 activeOpacity={0.7}
               >
                 <Text
-                  className={`font-medium ${
+                  style={[
+                    styles.filterText,
                     selectedFilter === item.id
-                      ? "text-[#FF6B00]"
-                      : "text-gray-600"
-                  }`}
+                      ? styles.filterTextSelected
+                      : styles.filterTextDefault,
+                  ]}
                 >
                   {item.name}
                 </Text>
               </TouchableOpacity>
-            </Animated.View>
-          )}
-        />
-      </Animated.View>
-
-      {/* Makers List */}
-      {isLoading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator size="large" color="#FF6B00" />
-          <Text className="text-gray-500 mt-4">Finding chefs near you...</Text>
-        </View>
-      ) : (
-        <FlatList
-          data={filteredMakers}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMakerItem}
-          contentContainerStyle={{ paddingVertical: 10, paddingBottom: 100 }}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={() => (
-            <View className="items-center justify-center py-16 px-5">
-              <MaterialCommunityIcons
-                name="chef-hat"
-                size={60}
-                color="#D1D5DB"
-              />
-              <Text className="text-lg font-bold text-gray-400 mt-4 text-center">
-                No chefs found
-              </Text>
-              <Text className="text-gray-400 text-center mt-2">
-                Try adjusting your search or filters
-              </Text>
             </View>
           )}
         />
-      )}
+      </View>
 
-      {/* Bottom Buttons - Fixed at bottom */}
+      {/* Makers List */}
+      <View style={styles.makersListContainer}>
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+            <Text style={styles.loadingText}>Finding chefs near you...</Text>
+          </View>
+        ) : filteredMakers.length === 0 ? (
+          <View style={styles.emptyStateContainer}>
+            <MaterialCommunityIcons name="chef-hat" size={64} color="#D1D5DB" />
+            <Text style={styles.emptyStateTitle}>No chefs found</Text>
+            <Text style={styles.emptyStateText}>
+              We couldn't find any chefs matching your criteria. Try adjusting
+              your filters.
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={filteredMakers}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMakerItem}
+            contentContainerStyle={styles.makersList}
+            showsVerticalScrollIndicator={false}
+          />
+        )}
+      </View>
+
+      {/* Bottom Buttons */}
       <Animated.View
-        entering={FadeInUp.delay(800).duration(700)}
-        className="absolute bottom-0 left-0 right-0 bg-white pt-3 pb-6 px-5 shadow-lg border-t border-gray-100"
+        style={[
+          styles.bottomButtonsContainer,
+          { paddingBottom: Math.max(insets.bottom, 16) },
+        ]}
       >
-        <View className="flex-row justify-between gap-3">
-          <Animated.View style={skipButtonAnimatedStyle} className="flex-1">
+        <View style={styles.buttonRow}>
+          <Animated.View
+            style={[styles.skipButtonContainer, skipButtonAnimatedStyle]}
+          >
             <TouchableOpacity
               onPress={skipSetup}
               disabled={isSaving}
-              className="h-[56px] border border-gray-300 rounded-xl items-center justify-center"
+              style={styles.skipButton}
               activeOpacity={0.7}
             >
-              <Text className="text-gray-700 font-semibold text-base">
-                Skip
-              </Text>
+              <Text style={styles.skipButtonText}>Skip</Text>
             </TouchableOpacity>
           </Animated.View>
 
-          <Animated.View style={continueButtonAnimatedStyle} className="flex-1">
+          <Animated.View
+            style={[
+              styles.continueButtonContainer,
+              continueButtonAnimatedStyle,
+            ]}
+          >
             <TouchableOpacity
               onPress={exploreMakers}
               disabled={isSaving}
-              className="h-[56px] overflow-hidden rounded-xl"
+              style={styles.continueButton}
               activeOpacity={0.7}
             >
               <LinearGradient
                 colors={["#FFAD00", "#FF6B00"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                className="h-full items-center justify-center"
+                style={styles.gradientButton}
               >
                 {isSaving ? (
                   <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
-                  <Text className="text-white font-bold text-base">
-                    Continue
-                  </Text>
+                  <Text style={styles.continueButtonText}>Continue</Text>
                 )}
               </LinearGradient>
             </TouchableOpacity>
@@ -690,3 +668,295 @@ export default function MakerSelectionSetupScreen() {
     </SafeAreaView>
   );
 }
+
+// Modern styles with clean aesthetics
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+  },
+  headerContainer: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: COLORS.primary,
+    marginBottom: 6,
+  },
+  headerSubtitle: {
+    fontSize: 16,
+    color: COLORS.textLight,
+    lineHeight: 22,
+  },
+  searchContainer: {
+    paddingHorizontal: 24,
+    marginBottom: 16,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: 8,
+    fontSize: 16,
+    color: COLORS.text,
+  },
+  filtersContainer: {
+    marginBottom: 16,
+  },
+  filtersList: {
+    paddingHorizontal: 24,
+  },
+  filterItemWrapper: {
+    marginRight: 12,
+  },
+  filterItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 100,
+    borderWidth: 1,
+  },
+  filterItemSelected: {
+    backgroundColor: "#FFF5EB",
+    borderColor: COLORS.primary,
+  },
+  filterItemDefault: {
+    backgroundColor: "#F3F4F6",
+    borderColor: "#E5E7EB",
+  },
+  filterText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  filterTextSelected: {
+    color: COLORS.primary,
+  },
+  filterTextDefault: {
+    color: COLORS.text,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 40,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: COLORS.textLight,
+    marginTop: 16,
+  },
+  emptyContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#9CA3AF",
+    marginTop: 16,
+    textAlign: "center",
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    marginTop: 8,
+    textAlign: "center",
+  },
+  makerCard: {
+    marginHorizontal: 24,
+    marginBottom: 16,
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  makerCardSelected: {
+    borderColor: COLORS.primary,
+    borderWidth: 2,
+  },
+  makerCardContent: {
+    flexDirection: "row",
+  },
+  makerImageContainer: {
+    width: 120,
+    height: 130,
+    position: "relative",
+  },
+  makerImage: {
+    width: "100%",
+    height: "100%",
+  },
+  makerImagePlaceholder: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  verifiedBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    backgroundColor: "#10B981",
+    borderRadius: 100,
+    padding: 4,
+  },
+  selectedOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectedIndicator: {
+    backgroundColor: COLORS.white,
+    borderRadius: 100,
+    padding: 8,
+  },
+  makerDetails: {
+    flex: 1,
+    padding: 12,
+    justifyContent: "space-between",
+  },
+  makerName: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  ratingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  ratingText: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    marginLeft: 4,
+  },
+  makerInfoItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  makerInfoText: {
+    fontSize: 12,
+    color: COLORS.textLight,
+    marginLeft: 4,
+  },
+  bottomButtonsContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "white",
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 8,
+  },
+  buttonRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  skipButtonContainer: {
+    flex: 1,
+    height: 56,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "white",
+  },
+  skipButton: {
+    flex: 1,
+    height: 56,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "white",
+  },
+  skipButtonText: {
+    color: COLORS.text,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  continueButtonContainer: {
+    flex: 1,
+    height: 56,
+    overflow: "hidden",
+    borderRadius: 16,
+  },
+  continueButton: {
+    flex: 1,
+    height: 56,
+    overflow: "hidden",
+    borderRadius: 16,
+  },
+  gradientButton: {
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  continueButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  makersListContainer: {
+    flex: 1,
+  },
+  emptyStateContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#9CA3AF",
+    marginTop: 16,
+    textAlign: "center",
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    marginTop: 8,
+    textAlign: "center",
+  },
+  makersList: {
+    paddingVertical: 10,
+  },
+});
