@@ -347,6 +347,7 @@ const ProfileSetupScreen = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [bio, setBio] = useState("");
   const [profileImage, setProfileImage] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -526,6 +527,19 @@ const ProfileSetupScreen = () => {
             if (profileData.phone_number)
               setPhoneNumber(profileData.phone_number);
             if (profileData.image_url) setProfileImage(profileData.image_url);
+
+            // If the user is a maker, fetch their bio
+            if (profileData.role === "maker") {
+              const { data: makerData, error: makerError } = await supabase
+                .from("makers")
+                .select("bio")
+                .eq("user_id", userId)
+                .single();
+
+              if (!makerError && makerData && makerData.bio) {
+                setBio(makerData.bio);
+              }
+            }
 
             // Check if form is already filled
             if (profileData.name && profileData.email) {
@@ -755,6 +769,45 @@ const ProfileSetupScreen = () => {
         .eq("id", userData.user.id);
 
       if (updateError) throw updateError;
+
+      // If the user is a maker, update the bio in the makers table
+      if (userRole === "maker" && bio.trim()) {
+        // First check if maker record exists
+        const { data: makerData, error: makerCheckError } = await supabase
+          .from("makers")
+          .select("id")
+          .eq("user_id", userData.user.id)
+          .single();
+
+        if (makerCheckError && makerCheckError.code === "PGRST116") {
+          // Maker doesn't exist, create a new maker record
+          const { error: createMakerError } = await supabase
+            .from("makers")
+            .insert({
+              user_id: userData.user.id,
+              bio: bio.trim(),
+              business_name: name.trim(), // Use the name as the default business name
+              rating: 0,
+              total_ratings: 0,
+              is_verified: false,
+              created_at: new Date().toISOString(),
+            });
+
+          if (createMakerError) {
+            console.error("Error creating maker record:", createMakerError);
+          }
+        } else if (!makerCheckError && makerData) {
+          // Maker exists, update the bio
+          const { error: updateMakerError } = await supabase
+            .from("makers")
+            .update({ bio: bio.trim() })
+            .eq("user_id", userData.user.id);
+
+          if (updateMakerError) {
+            console.error("Error updating maker bio:", updateMakerError);
+          }
+        }
+      }
 
       // Update setup status to mark profile completion
       const success = await updateSetupStatus({
@@ -994,6 +1047,31 @@ const ProfileSetupScreen = () => {
                 />
               </View>
             </View>
+
+            {/* Bio input field - only show for makers */}
+            {userRole === "maker" && (
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Bio *</Text>
+                <View style={styles.inputWrapper}>
+                  <View style={styles.inputIcon}>
+                    <User size={20} color="#64748B" />
+                  </View>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Tell us about yourself and your cooking specialties"
+                    value={bio}
+                    onChangeText={setBio}
+                    multiline={true}
+                    numberOfLines={4}
+                    textAlignVertical="top"
+                    placeholderTextColor="#A0AEC0"
+                  />
+                </View>
+                <Text style={styles.inputHint}>
+                  Your bio will be visible to customers browsing your profile
+                </Text>
+              </View>
+            )}
 
             <View style={styles.inputContainer}>
               <Text style={styles.inputLabel}>Phone Number</Text>

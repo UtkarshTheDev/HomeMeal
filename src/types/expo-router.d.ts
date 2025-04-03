@@ -11,6 +11,7 @@ declare module "expo-router" {
     | "/(auth)/location-setup"
     | "/(auth)/meal-creation-setup"
     | "/(auth)/maker-selection-setup"
+    | "/(auth)/maker-food-selection-setup"
     | "/(auth)/wallet-setup"
     | "/(tabs)"
     | "/(tabs)/meal-plans"

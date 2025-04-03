@@ -17,8 +17,6 @@ import Animated, {
   FadeIn,
   FadeInRight,
   SlideInRight,
-  useSharedValue,
-  useAnimatedStyle,
   withTiming,
   withSequence,
 } from "react-native-reanimated";
@@ -26,6 +24,8 @@ import { Feather, Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { useSupabase } from "@/src/utils/useSupabase";
 import { useAuth } from "@/src/providers/AuthProvider";
 import { ROUTES } from "@/src/utils/routes";
+import { useAnimatedSafeValue } from "@/src/hooks/useAnimatedValues";
+import AnimatedSafeView from "@/src/components/AnimatedSafeView";
 
 // Interface for food item
 interface FoodItem {
@@ -79,7 +79,43 @@ export default function CreateMealPlanScreen() {
   const [mealPlan, setMealPlan] = useState<MealPlanType>({});
 
   // Animated values for button effect
-  const buttonScale = useSharedValue(1);
+  const { sharedValue: buttonScale, getValue: getButtonScale } =
+    useAnimatedSafeValue(1);
+
+  // Get food image URL from Supabase storage
+  const getFoodImageUrl = (foodId: string, fallbackImage?: string): string => {
+    try {
+      // Try to get the image from the food-images bucket
+      const {
+        data: { publicUrl },
+      } = supabase.storage
+        .from("food-images")
+        .getPublicUrl(`catalog/${foodId}/${foodId}.jpg`);
+
+      return publicUrl;
+    } catch (error) {
+      console.log(`Error getting image for food ${foodId}:`, error);
+
+      // First try to use the fallback image provided by the food item
+      if (fallbackImage && fallbackImage.startsWith("http")) {
+        return fallbackImage;
+      }
+
+      // If that fails, use the default food image from the bucket
+      try {
+        const {
+          data: { publicUrl },
+        } = supabase.storage
+          .from("food-images")
+          .getPublicUrl("defaults/default-food.jpg");
+
+        return publicUrl;
+      } catch {
+        // Last resort - use an external placeholder
+        return "https://via.placeholder.com/300x200?text=Food+Image";
+      }
+    }
+  };
 
   // Load food items from Supabase
   useEffect(() => {
@@ -98,10 +134,79 @@ export default function CreateMealPlanScreen() {
 
       if (error) throw error;
 
-      setFoodItems(data || []);
+      if (data && data.length > 0) {
+        console.log(`Loaded ${data.length} food items from database`);
+
+        // Process food items to use Supabase storage for images
+        const processedFoodItems = data.map((food) => ({
+          ...food,
+          image_url: getFoodImageUrl(food.id, food.image_url),
+        }));
+
+        setFoodItems(processedFoodItems);
+      } else {
+        console.log("No food items found in database, using fallback data");
+        // Only use fallback data if no results from database
+        const fallbackFoodItems: FoodItem[] = [
+          {
+            id: "fallback-1",
+            name: "Vegetable Curry",
+            price: 120,
+            description: "Fresh vegetables in a spicy curry sauce",
+            image_url: "https://source.unsplash.com/random/100x100/?curry",
+            is_available: true,
+          },
+          {
+            id: "fallback-2",
+            name: "Chicken Biryani",
+            price: 180,
+            description: "Fragrant rice with tender chicken pieces",
+            image_url: "https://source.unsplash.com/random/100x100/?biryani",
+            is_available: true,
+          },
+          {
+            id: "fallback-3",
+            name: "Paneer Butter Masala",
+            price: 150,
+            description: "Cottage cheese in rich tomato gravy",
+            image_url: "https://source.unsplash.com/random/100x100/?paneer",
+            is_available: true,
+          },
+        ];
+        setFoodItems(fallbackFoodItems);
+      }
     } catch (error) {
       console.error("Error fetching food items:", error);
       Alert.alert("Error", "Failed to load food items. Please try again.");
+
+      // Use fallback data in case of error
+      const fallbackFoodItems: FoodItem[] = [
+        {
+          id: "fallback-1",
+          name: "Vegetable Curry",
+          price: 120,
+          description: "Fresh vegetables in a spicy curry sauce",
+          image_url: "https://source.unsplash.com/random/100x100/?curry",
+          is_available: true,
+        },
+        {
+          id: "fallback-2",
+          name: "Chicken Biryani",
+          price: 180,
+          description: "Fragrant rice with tender chicken pieces",
+          image_url: "https://source.unsplash.com/random/100x100/?biryani",
+          is_available: true,
+        },
+        {
+          id: "fallback-3",
+          name: "Paneer Butter Masala",
+          price: 150,
+          description: "Cottage cheese in rich tomato gravy",
+          image_url: "https://source.unsplash.com/random/100x100/?paneer",
+          is_available: true,
+        },
+      ];
+      setFoodItems(fallbackFoodItems);
     } finally {
       setIsLoading(false);
     }
@@ -268,9 +373,9 @@ export default function CreateMealPlanScreen() {
   };
 
   // Animated style for save button
-  const buttonAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: buttonScale.value }],
-  }));
+  const buttonAnimatedStyle = {
+    transform: [{ scale: getButtonScale() }],
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -348,7 +453,7 @@ export default function CreateMealPlanScreen() {
         <View style={styles.selectedFoodsContainer}>
           {getSelectedFoods().length > 0 ? (
             getSelectedFoods().map((food, index) => (
-              <Animated.View
+              <AnimatedSafeView
                 key={`${food.id}-${index}`}
                 entering={FadeInRight.delay(index * 100).duration(300)}
                 style={styles.selectedFoodItem}
@@ -365,7 +470,7 @@ export default function CreateMealPlanScreen() {
                 >
                   <Feather name="minus" size={16} color="#FF6B00" />
                 </TouchableOpacity>
-              </Animated.View>
+              </AnimatedSafeView>
             ))
           ) : (
             <Text style={styles.emptyText}>
@@ -389,7 +494,7 @@ export default function CreateMealPlanScreen() {
           showsVerticalScrollIndicator={false}
         >
           {foodItems.map((food, index) => (
-            <Animated.View
+            <AnimatedSafeView
               key={food.id}
               entering={FadeIn.delay(index * 50).duration(300)}
               style={styles.foodItem}
@@ -412,7 +517,7 @@ export default function CreateMealPlanScreen() {
               >
                 <Feather name="plus" size={20} color="#FFFFFF" />
               </TouchableOpacity>
-            </Animated.View>
+            </AnimatedSafeView>
           ))}
         </ScrollView>
       )}
@@ -424,7 +529,7 @@ export default function CreateMealPlanScreen() {
           <Text style={styles.totalPrice}>₹{getTotalPrice()}</Text>
         </View>
 
-        <Animated.View style={[buttonAnimatedStyle]}>
+        <AnimatedSafeView style={[buttonAnimatedStyle]}>
           <TouchableOpacity
             style={styles.saveButton}
             onPress={saveMealPlan}
@@ -446,7 +551,7 @@ export default function CreateMealPlanScreen() {
               )}
             </LinearGradient>
           </TouchableOpacity>
-        </Animated.View>
+        </AnimatedSafeView>
       </View>
     </SafeAreaView>
   );

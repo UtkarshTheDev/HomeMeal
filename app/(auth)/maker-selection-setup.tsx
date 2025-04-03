@@ -40,7 +40,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { COLORS } from "@/src/theme/colors";
 import LoadingIndicator from "@/src/components/LoadingIndicator";
 import { useAnimatedSafeValue } from "@/src/hooks/useAnimatedValues";
-import AnimatedSafeView from "@/src/components/AnimatedSafeView";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -124,119 +123,194 @@ export default function MakerSelectionSetupScreen() {
   // Fetch makers from Supabase
   const fetchMakers = async () => {
     setIsLoading(true);
-
     try {
-      // In a real app, you would fetch from Supabase
-      // For now, use mock data
-      const mockMakers: Maker[] = [
+      console.log("Fetching makers from database...");
+
+      // Get makers from Supabase
+      const { data: makersData, error: makersError } = await supabase.from(
+        "makers"
+      ).select(`
+          id,
+          user_id,
+          business_name,
+          bio,
+          specialty,
+          rating,
+          total_ratings,
+          is_verified,
+          location,
+          created_at,
+          users:user_id (
+            image_url
+          )
+        `);
+
+      if (makersError) {
+        throw makersError;
+      }
+
+      // Process makers if data exists
+      if (makersData && makersData.length > 0) {
+        console.log(`Loaded ${makersData.length} makers from database`);
+
+        // Transform the data to match our Maker interface
+        const makers: Maker[] = makersData.map((maker) => ({
+          id: maker.id,
+          user_id: maker.user_id,
+          business_name: maker.business_name,
+          image_url:
+            maker.users && Array.isArray(maker.users) && maker.users[0]
+              ? maker.users[0].image_url
+              : undefined,
+          bio: maker.bio,
+          specialty: maker.specialty,
+          rating: maker.rating || 0,
+          total_ratings: maker.total_ratings || 0,
+          is_verified: maker.is_verified || false,
+          location: maker.location,
+          created_at: maker.created_at,
+          // Calculate distance if we have both user location and maker location
+          distance:
+            userLocation && maker.location
+              ? calculateDistance(
+                  userLocation.latitude,
+                  userLocation.longitude,
+                  maker.location.latitude,
+                  maker.location.longitude
+                )
+              : undefined,
+        }));
+
+        setMakers(makers);
+        setFilteredMakers(makers);
+      } else {
+        console.log("No makers found in database, using fallback data");
+        // Use fallback data if no makers found
+        const fallbackMakers: Maker[] = [
+          {
+            id: "1",
+            user_id: "user-1",
+            business_name: "Homestyle Kitchen",
+            image_url: "https://source.unsplash.com/random/300x300/?chef",
+            bio: "Specializing in authentic home-cooked meals with love.",
+            specialty: "North Indian",
+            rating: 4.7,
+            total_ratings: 120,
+            is_verified: true,
+            location: {
+              latitude: userLocation ? userLocation.latitude + 0.01 : 28.6139,
+              longitude: userLocation ? userLocation.longitude + 0.01 : 77.209,
+            },
+            created_at: new Date().toISOString(),
+            distance: 1.5,
+          },
+          {
+            id: "2",
+            user_id: "user-2",
+            business_name: "Spice Garden",
+            image_url: "https://source.unsplash.com/random/300x300/?cooking",
+            bio: "Fresh ingredients, bold flavors, traditional recipes.",
+            specialty: "South Indian",
+            rating: 4.5,
+            total_ratings: 85,
+            is_verified: true,
+            location: {
+              latitude: userLocation ? userLocation.latitude - 0.01 : 28.6229,
+              longitude: userLocation ? userLocation.longitude - 0.01 : 77.2095,
+            },
+            created_at: new Date().toISOString(),
+            distance: 2.3,
+          },
+          {
+            id: "3",
+            user_id: "user-3",
+            business_name: "Health Bowl",
+            image_url: "https://source.unsplash.com/random/300x300/?food",
+            bio: "Nutritious, delicious, and health-conscious meals.",
+            specialty: "Healthy",
+            rating: 4.8,
+            total_ratings: 92,
+            is_verified: false,
+            location: {
+              latitude: userLocation ? userLocation.latitude + 0.02 : 28.6129,
+              longitude: userLocation ? userLocation.longitude + 0.02 : 77.2195,
+            },
+            created_at: new Date().toISOString(),
+            distance: 3.1,
+          },
+        ];
+
+        // Calculate distance for fallback makers if userLocation is available
+        if (userLocation) {
+          fallbackMakers.forEach((maker) => {
+            maker.distance = calculateDistance(
+              userLocation.latitude,
+              userLocation.longitude,
+              maker.location.latitude,
+              maker.location.longitude
+            );
+          });
+        }
+
+        setMakers(fallbackMakers);
+        setFilteredMakers(fallbackMakers);
+      }
+    } catch (error) {
+      console.error("Error fetching makers:", error);
+      Alert.alert("Error", "Failed to load makers. Please try again.");
+
+      // Use fallback data in case of error
+      const fallbackMakers: Maker[] = [
         {
           id: "1",
-          user_id: "user1",
-          business_name: "Taste of Punjab",
-          image_url: "https://source.unsplash.com/random/400x400/?chef,indian",
-          bio: "Authentic Punjabi cuisine prepared with love and tradition",
+          user_id: "user-1",
+          business_name: "Homestyle Kitchen",
+          image_url: "https://source.unsplash.com/random/300x300/?chef",
+          bio: "Specializing in authentic home-cooked meals with love.",
           specialty: "North Indian",
-          rating: 4.8,
-          total_ratings: 253,
+          rating: 4.7,
+          total_ratings: 120,
           is_verified: true,
           location: {
-            latitude: 28.6139,
-            longitude: 77.209,
+            latitude: userLocation ? userLocation.latitude + 0.01 : 28.6139,
+            longitude: userLocation ? userLocation.longitude + 0.01 : 77.209,
           },
           created_at: new Date().toISOString(),
+          distance: 1.5,
         },
         {
           id: "2",
-          user_id: "user2",
-          business_name: "South Spice",
-          image_url:
-            "https://source.unsplash.com/random/400x400/?chef,south,indian",
-          bio: "Bringing authentic South Indian flavors to your doorstep",
+          user_id: "user-2",
+          business_name: "Spice Garden",
+          image_url: "https://source.unsplash.com/random/300x300/?cooking",
+          bio: "Fresh ingredients, bold flavors, traditional recipes.",
           specialty: "South Indian",
-          rating: 4.6,
-          total_ratings: 187,
-          is_verified: true,
-          location: {
-            latitude: 28.61,
-            longitude: 77.23,
-          },
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: "3",
-          user_id: "user3",
-          business_name: "Green Garden",
-          image_url:
-            "https://source.unsplash.com/random/400x400/?chef,vegetarian",
-          bio: "Healthy, fresh vegetarian meals made with organic ingredients",
-          specialty: "Vegetarian",
-          rating: 4.3,
-          total_ratings: 142,
-          is_verified: false,
-          location: {
-            latitude: 28.62,
-            longitude: 77.215,
-          },
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: "4",
-          user_id: "user4",
-          business_name: "Biryani House",
-          image_url: "https://source.unsplash.com/random/400x400/?chef,biryani",
-          bio: "Authentic dum biryani cooked in traditional style",
-          specialty: "Biryani",
-          rating: 4.9,
-          total_ratings: 315,
-          is_verified: true,
-          location: {
-            latitude: 28.625,
-            longitude: 77.21,
-          },
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: "5",
-          user_id: "user5",
-          business_name: "Continental Delights",
-          image_url:
-            "https://source.unsplash.com/random/400x400/?chef,continental",
-          bio: "European and continental cuisine with a modern twist",
-          specialty: "Continental",
           rating: 4.5,
-          total_ratings: 98,
+          total_ratings: 85,
           is_verified: true,
           location: {
-            latitude: 28.63,
-            longitude: 77.22,
+            latitude: userLocation ? userLocation.latitude - 0.01 : 28.6229,
+            longitude: userLocation ? userLocation.longitude - 0.01 : 77.2095,
           },
           created_at: new Date().toISOString(),
+          distance: 2.3,
         },
       ];
 
-      // Calculate distance if user location is available
+      // Calculate distance for fallback makers if userLocation is available
       if (userLocation) {
-        const makersWithDistance = mockMakers.map((maker) => {
-          const distance = calculateDistance(
+        fallbackMakers.forEach((maker) => {
+          maker.distance = calculateDistance(
             userLocation.latitude,
             userLocation.longitude,
             maker.location.latitude,
             maker.location.longitude
           );
-
-          return {
-            ...maker,
-            distance,
-          };
         });
-
-        setMakers(makersWithDistance);
-      } else {
-        setMakers(mockMakers);
       }
-    } catch (error) {
-      console.error("Error fetching makers:", error);
-      Alert.alert("Error", "Failed to load makers. Please try again.");
+
+      setMakers(fallbackMakers);
+      setFilteredMakers(fallbackMakers);
     } finally {
       setIsLoading(false);
     }

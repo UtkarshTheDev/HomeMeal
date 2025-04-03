@@ -11,6 +11,7 @@ export const ROUTES = {
   LOCATION_SETUP: "/(auth)/location-setup",
   MEAL_CREATION_SETUP: "/(auth)/meal-creation-setup",
   MAKER_SELECTION_SETUP: "/(auth)/maker-selection-setup",
+  MAKER_FOOD_SELECTION_SETUP: "/(auth)/maker-food-selection-setup" as any,
   WALLET_SETUP: "/(auth)/wallet-setup",
 
   // Tab routes

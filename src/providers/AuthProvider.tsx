@@ -23,6 +23,7 @@ interface SetupStatus {
   meal_creation_completed?: boolean;
   maker_selection_completed?: boolean;
   wallet_setup_completed?: boolean;
+  maker_food_selection_completed?: boolean;
 }
 
 // Define user details type
@@ -419,6 +420,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         // Step 5: For customers - maker selection
         if (!setupStatus.maker_selection_completed) {
           return { isComplete: false, route: ROUTES.MAKER_SELECTION_SETUP };
+        }
+      } else if (details.role === "maker") {
+        // Step 4: For makers - food selection setup
+        if (!setupStatus.maker_food_selection_completed) {
+          return {
+            isComplete: false,
+            route: ROUTES.MAKER_FOOD_SELECTION_SETUP,
+          };
         }
       }
 

@@ -30,6 +30,8 @@ import Animated, {
 import { COLORS } from "@/src/theme/colors";
 import { useAnimatedSafeValue } from "@/src/hooks/useAnimatedValues";
 import AnimatedSafeView from "@/src/components/AnimatedSafeView";
+import { useSupabase } from "@/src/hooks/useSupabase";
+import { useAuth } from "@/src/providers/AuthProvider";
 
 // Define meal types with their properties
 const MEAL_TYPES = [
@@ -69,6 +71,8 @@ const MEAL_TYPES = [
 
 export default function MealCreationScreen() {
   const insets = useSafeAreaInsets();
+  const { supabase } = useSupabase();
+  const { user } = useAuth();
 
   // State for loading and meal plan data
   const [isLoading, setIsLoading] = useState(false);
@@ -120,8 +124,8 @@ export default function MealCreationScreen() {
     }
   };
 
-  // Save the meal plan
-  const saveMealPlan = () => {
+  // Save the meal plan to Supabase
+  const saveMealPlan = async () => {
     // Validate input
     if (!mealName.trim()) {
       Alert.alert(
@@ -145,18 +149,52 @@ export default function MealCreationScreen() {
       withTiming(1, { duration: 150 })
     );
 
-    // Normally you would save the data to a database or context here
-    console.log("Saving meal plan:", {
-      name: mealName,
-      mealTypes: selectedMealTypes,
-    });
+    // Set loading state
+    setIsLoading(true);
 
-    // Navigate to the first meal type selection screen
-    if (selectedMealTypes.length > 0) {
-      router.push({
-        pathname: "/meal-type-foods",
-        params: { mealType: selectedMealTypes[0] },
-      });
+    try {
+      // Check if user is authenticated
+      if (!user || !user.id) {
+        Alert.alert(
+          "Authentication Error",
+          "Please log in to create a meal plan"
+        );
+        return;
+      }
+
+      // Create meal plan in Supabase
+      const { data, error } = await supabase
+        .from("meals")
+        .insert({
+          name: mealName,
+          created_by: user.id,
+          meal_types: selectedMealTypes,
+          created_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      console.log("Meal plan created successfully:", data);
+
+      // Navigate to the first meal type selection screen
+      if (selectedMealTypes.length > 0) {
+        router.push({
+          pathname: "/meal-type-foods",
+          params: {
+            mealType: selectedMealTypes[0],
+            mealPlanId: data.id,
+          },
+        });
+      }
+    } catch (error) {
+      console.error("Error saving meal plan:", error);
+      Alert.alert("Error", "Failed to save meal plan. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -193,10 +231,7 @@ export default function MealCreationScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Meal Plan Name Input */}
-        <AnimatedSafeView
-          entering={FadeInDown.duration(400)}
-          style={styles.inputContainer}
-        >
+        <AnimatedSafeView style={styles.inputContainer}>
           <Text style={styles.inputLabel}>Meal Plan Name</Text>
           <TextInput
             value={mealName}
@@ -208,10 +243,7 @@ export default function MealCreationScreen() {
         </AnimatedSafeView>
 
         {/* Meal Types Section */}
-        <AnimatedSafeView
-          entering={FadeInDown.delay(100).duration(400)}
-          style={styles.sectionContainer}
-        >
+        <AnimatedSafeView style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>Select Meal Types</Text>
           <Text style={styles.sectionSubtitle}>
             Choose the meals you want to include in your plan
@@ -224,18 +256,7 @@ export default function MealCreationScreen() {
               const foodCount = selectedFoodsCount[mealType.id] || 0;
 
               return (
-                <AnimatedSafeView
-                  key={mealType.id}
-                  entering={FadeInUp.delay(200 + index * 100).duration(400)}
-                  style={[
-                    styles.mealTypeCard,
-                    isSelected && {
-                      borderColor: mealType.color,
-                      borderWidth: 2,
-                    },
-                  ]}
-                  animatedProps={getMealTypeAnimatedStyle(mealType.id)}
-                >
+                <AnimatedSafeView style={styles.mealTypeCard}>
                   <TouchableOpacity
                     activeOpacity={0.8}
                     onPress={() => toggleMealType(mealType.id)}

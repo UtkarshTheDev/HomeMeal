@@ -43,6 +43,7 @@ import { useAuth } from "@/src/providers/AuthProvider";
 import { COLORS } from "@/src/theme/colors";
 import { useAnimatedSafeValue } from "@/src/hooks/useAnimatedValues";
 import AnimatedSafeView from "@/src/components/AnimatedSafeView";
+import { ROUTES } from "@/src/utils/routes";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CARD_WIDTH = SCREEN_WIDTH * 0.44;
@@ -118,6 +119,8 @@ export default function MealTypeFoodsScreen() {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedFoods, setSelectedFoods] = useState<FoodItem[]>([]);
   const [totalPrice, setTotalPrice] = useState(0);
+  const [foodCategories, setFoodCategories] = useState<string[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Animation values using our safe hook
   const { sharedValue: saveButtonScale } = useAnimatedSafeValue(1);
@@ -155,76 +158,151 @@ export default function MealTypeFoodsScreen() {
     calculateTotalPrice();
   }, [selectedFoods]);
 
+  // Add a function to get the food image URL from Supabase storage
+  const getFoodImageUrl = (foodId: string, fallbackImage?: string): string => {
+    try {
+      // Try to get the image from the food-images bucket
+      const {
+        data: { publicUrl },
+      } = supabase.storage
+        .from("food-images")
+        .getPublicUrl(`catalog/${foodId}/${foodId}.jpg`);
+
+      return publicUrl;
+    } catch (error) {
+      console.log(`Error getting image for food ${foodId}:`, error);
+
+      // First try to use the fallback image provided by the food item
+      if (fallbackImage && fallbackImage.startsWith("http")) {
+        return fallbackImage;
+      }
+
+      // If that fails, use the default food image from the bucket
+      try {
+        const {
+          data: { publicUrl },
+        } = supabase.storage
+          .from("food-images")
+          .getPublicUrl("defaults/default-food.jpg");
+
+        return publicUrl;
+      } catch {
+        // Last resort - use an external placeholder
+        return "https://via.placeholder.com/300x200?text=Food+Image";
+      }
+    }
+  };
+
   // Fetch foods from Supabase
   const fetchFoods = async () => {
     setIsLoading(true);
-
     try {
-      // In a real app, you would fetch foods from Supabase
-      // Mock data for now
-      const mockFoods = [
+      // Get the real food items from Supabase
+      const { data, error } = await supabase
+        .from("food")
+        .select("*")
+        .eq("is_available", true);
+
+      if (error) {
+        throw error;
+      }
+
+      if (data && data.length > 0) {
+        console.log(
+          `Loaded ${data.length} food items for ${mealTypeInfo.name}`
+        );
+
+        // Process food items to use Supabase storage for images
+        const processedFoodItems = data.map((food) => ({
+          ...food,
+          image_url: getFoodImageUrl(food.id, food.image_url),
+        }));
+
+        // Extract unique categories for filters
+        const categories = [
+          "All",
+          ...new Set(
+            processedFoodItems
+              .map((item) => item.category || "Other")
+              .filter(Boolean)
+          ),
+        ];
+        setFoodCategories(categories);
+
+        setFoods(processedFoodItems);
+      } else {
+        console.log("No food items found, using fallback data");
+        // Fallback data if no foods found
+        const fallbackFoods: FoodItem[] = [
+          {
+            id: "fallback-1",
+            name: "Vegetable Curry",
+            price: 120,
+            description: "Fresh vegetables in a flavorful curry sauce",
+            image_url: "https://source.unsplash.com/random/300x200/?curry",
+            is_available: true,
+            category: "Veg",
+          },
+          {
+            id: "fallback-2",
+            name: "Chicken Biryani",
+            price: 180,
+            description: "Fragrant rice with tender chicken pieces",
+            image_url: "https://source.unsplash.com/random/300x200/?biryani",
+            is_available: true,
+            category: "Non-Veg",
+          },
+          {
+            id: "fallback-3",
+            name: "Paneer Tikka",
+            price: 150,
+            description: "Grilled cottage cheese with spices",
+            image_url: "https://source.unsplash.com/random/300x200/?paneer",
+            is_available: true,
+            category: "Veg",
+          },
+          {
+            id: "fallback-4",
+            name: "Dal Makhani",
+            price: 110,
+            description: "Creamy lentil dish simmered with spices",
+            image_url: "https://source.unsplash.com/random/300x200/?dal",
+            is_available: true,
+            category: "Veg",
+          },
+        ];
+
+        setFoods(fallbackFoods);
+        setFoodCategories(["All", "Veg", "Non-Veg"]);
+      }
+    } catch (error) {
+      console.error("Error fetching foods:", error);
+      Alert.alert("Error", "Failed to load food items. Please try again.");
+
+      // Fallback data in case of error
+      const fallbackFoods: FoodItem[] = [
         {
-          id: "1",
-          name: "Masala Dosa",
+          id: "fallback-1",
+          name: "Vegetable Curry",
           price: 120,
-          description: "South Indian crispy crepe filled with spiced potatoes",
-          image_url: "https://source.unsplash.com/random/400x300/?dosa",
+          description: "Fresh vegetables in a flavorful curry sauce",
+          image_url: "https://source.unsplash.com/random/300x200/?curry",
           is_available: true,
-          category: "Vegetarian",
+          category: "Veg",
         },
         {
-          id: "2",
-          name: "Paneer Butter Masala",
-          price: 200,
-          description: "Cottage cheese cubes in a rich tomato gravy",
-          image_url: "https://source.unsplash.com/random/400x300/?paneer",
-          is_available: true,
-          category: "Vegetarian",
-        },
-        {
-          id: "3",
+          id: "fallback-2",
           name: "Chicken Biryani",
-          price: 250,
-          description: "Aromatic rice dish with tender chicken pieces",
-          image_url: "https://source.unsplash.com/random/400x300/?biryani",
+          price: 180,
+          description: "Fragrant rice with tender chicken pieces",
+          image_url: "https://source.unsplash.com/random/300x200/?biryani",
           is_available: true,
-          category: "Non-Vegetarian",
-        },
-        {
-          id: "4",
-          name: "Butter Chicken",
-          price: 280,
-          description: "Chicken cooked in a buttery tomato sauce",
-          image_url:
-            "https://source.unsplash.com/random/400x300/?butterchicken",
-          is_available: true,
-          category: "Non-Vegetarian",
-        },
-        {
-          id: "5",
-          name: "Vegan Buddha Bowl",
-          price: 220,
-          description: "Nutritious bowl with variety of vegetables",
-          image_url: "https://source.unsplash.com/random/400x300/?buddhabowl",
-          is_available: true,
-          category: "Vegan",
-        },
-        {
-          id: "6",
-          name: "Fruit Salad",
-          price: 150,
-          description: "Fresh fruits mix with honey dressing",
-          image_url: "https://source.unsplash.com/random/400x300/?fruitsalad",
-          is_available: true,
-          category: "Healthy",
+          category: "Non-Veg",
         },
       ];
 
-      // Set the fetched foods
-      setFoods(mockFoods);
-    } catch (error) {
-      console.error("Error fetching foods:", error);
-      Alert.alert("Error", "Could not load food items. Please try again.");
+      setFoods(fallbackFoods);
+      setFoodCategories(["All", "Veg", "Non-Veg"]);
     } finally {
       setIsLoading(false);
     }
@@ -307,21 +385,98 @@ export default function MealTypeFoodsScreen() {
   };
 
   // Handle saving the selected foods
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (selectedFoods.length === 0) {
+      Alert.alert("No items selected", "Please select at least one food item.");
+      return;
+    }
+
     // Animate button press
     saveButtonScale.value = withSequence(
       withTiming(0.95, { duration: 100 }),
       withTiming(1, { duration: 150 })
     );
 
-    // Save the selected foods
-    // Code to save to Supabase or state management
-    Alert.alert("Success", "Added items to your meal plan", [
-      {
-        text: "OK",
-        onPress: () => router.back(),
-      },
-    ]);
+    setIsSaving(true);
+
+    try {
+      // Get the meal plan ID from params
+      const mealPlanId = params.mealPlanId as string;
+
+      if (!mealPlanId) {
+        throw new Error("Meal plan ID not found");
+      }
+
+      if (!user || !user.id) {
+        throw new Error("User not authenticated");
+      }
+
+      // Create meal plan items in the database
+      const mealPlanItems = selectedFoods.map((food) => ({
+        meal_plan_id: mealPlanId,
+        food_item_id: food.id,
+        meal_type: mealType,
+        quantity: food.quantity || 1,
+        price: food.price * (food.quantity || 1),
+      }));
+
+      // Insert the selected foods into meal_plan_items table
+      const { error } = await supabase
+        .from("meal_plan_items")
+        .insert(mealPlanItems);
+
+      if (error) {
+        throw error;
+      }
+
+      // Check if there are more meal types to add
+      const { data: mealPlanData } = await supabase
+        .from("meals")
+        .select("meal_types")
+        .eq("id", mealPlanId)
+        .single();
+
+      const mealTypes = mealPlanData?.meal_types || [];
+      const currentIndex = mealTypes.indexOf(mealType);
+      const nextMealType =
+        currentIndex < mealTypes.length - 1
+          ? mealTypes[currentIndex + 1]
+          : null;
+
+      if (nextMealType) {
+        // If there are more meal types, navigate to the next one
+        Alert.alert(
+          "Success",
+          `${mealTypeInfo.name} items added! Continue with the next meal type.`,
+          [
+            {
+              text: "Continue",
+              onPress: () =>
+                router.push({
+                  pathname: "/meal-type-foods",
+                  params: {
+                    mealType: nextMealType,
+                    mealPlanId: mealPlanId,
+                  },
+                }),
+            },
+          ]
+        );
+      } else {
+        // If this was the last meal type, go back to meal plans
+        Alert.alert("Success", "Meal plan completed successfully!", [
+          {
+            text: "OK",
+            onPress: () => router.replace(ROUTES.TAB_MEAL_PLANS),
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error("Error saving meal selections:", error);
+      Alert.alert("Error", "Failed to save your selections. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Filter foods by category
@@ -336,16 +491,16 @@ export default function MealTypeFoodsScreen() {
   const renderCategoryPill = (category: string, index: number) => (
     <AnimatedSafeView
       key={category}
-      entering={FadeInUp.delay(index * 50 + 500).duration(300)}
+      style={[
+        styles.categoryPill,
+        selectedCategory === category && {
+          backgroundColor: mealTypeInfo.color,
+        },
+      ]}
     >
       <TouchableOpacity
         onPress={() => setSelectedCategory(category)}
-        style={[
-          styles.categoryPill,
-          selectedCategory === category && {
-            backgroundColor: mealTypeInfo.color,
-          },
-        ]}
+        style={styles.categoryPillButton}
       >
         <Text
           style={[
@@ -371,8 +526,7 @@ export default function MealTypeFoodsScreen() {
 
     return (
       <AnimatedSafeView
-        entering={FadeInUp.delay(index * 100 + 200).duration(400)}
-        style={styles.foodCardContainer}
+        style={[styles.foodCardContainer, { marginBottom: 16 }]}
       >
         <TouchableOpacity
           activeOpacity={0.8}
@@ -428,8 +582,7 @@ export default function MealTypeFoodsScreen() {
   const renderSelectedFoodItem = ({ item }: { item: FoodItem }) => {
     return (
       <AnimatedSafeView
-        entering={FadeIn.duration(200)}
-        style={styles.selectedItemContainer}
+        style={[styles.selectedItemContainer, { marginRight: 12 }]}
       >
         <View style={styles.selectedItemContent}>
           <Image
@@ -520,9 +673,7 @@ export default function MealTypeFoodsScreen() {
 
       {/* Selected foods */}
       {hasSelectedItems && (
-        <AnimatedSafeView
-          style={[styles.selectedFoodsContainer, selectedFoodsContainerStyle]}
-        >
+        <AnimatedSafeView style={styles.selectedFoodsContainer}>
           <View style={styles.selectedFoodsHeader}>
             <Text style={styles.selectedFoodsTitle}>Selected Items</Text>
             <Text style={styles.selectedFoodsCount}>
@@ -543,7 +694,6 @@ export default function MealTypeFoodsScreen() {
       {/* Save button */}
       {hasSelectedItems && (
         <AnimatedSafeView
-          entering={SlideInUp.duration(300)}
           style={[
             styles.saveButtonContainer,
             { paddingBottom: insets.bottom > 0 ? insets.bottom : 16 },
@@ -815,5 +965,10 @@ const styles = StyleSheet.create({
   categoryText: {
     fontSize: 14,
     fontWeight: "500",
+  },
+  categoryPillButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 50,
   },
 });

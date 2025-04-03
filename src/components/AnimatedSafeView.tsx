@@ -1,43 +1,50 @@
 import React from "react";
 import { View, ViewProps } from "react-native";
-import Animated, { useAnimatedStyle } from "react-native-reanimated";
-
-interface AnimatedSafeViewProps extends ViewProps {
-  children: React.ReactNode;
-  // Simplify our approach - don't try to type the animation props
-  // This avoids type compatibility issues
-  [key: string]: any;
-}
+import Animated, {
+  EntryExitAnimationFunction,
+  LayoutAnimationFunction,
+  BaseAnimationBuilder,
+  AnimatedProps,
+} from "react-native-reanimated";
 
 /**
- * A wrapper component for Animated.View that safely handles layout animations
- * and prevents the "Properties may be overwritten by a layout animation" warning.
- *
- * This version is simplified to avoid type issues with Reanimated's animation props.
+ * Enhanced AnimatedSafeView component that safely supports Reanimated properties
+ * while protecting against layout animation conflicts
  */
-export const AnimatedSafeView: React.FC<AnimatedSafeViewProps> = ({
+interface AnimatedSafeViewProps extends AnimatedProps<ViewProps> {
+  children: React.ReactNode;
+  entering?: EntryExitAnimationFunction | BaseAnimationBuilder;
+  exiting?: EntryExitAnimationFunction | BaseAnimationBuilder;
+  layout?: LayoutAnimationFunction | BaseAnimationBuilder;
+}
+
+const AnimatedSafeView: React.FC<AnimatedSafeViewProps> = ({
   children,
   style,
+  entering,
+  exiting,
+  layout,
   ...props
 }) => {
-  // Create empty animated style to ensure there's always a valid animated style
-  const defaultAnimatedStyle = useAnimatedStyle(() => ({}));
-
-  // Remove animation props from props before passing to View
-  const { entering, exiting, layout, animatedProps, ...otherProps } = props;
-
-  // Use an additional View wrapper to prevent layout animation from overwriting
-  // animated properties like opacity and transform
-  return (
-    <View style={{ overflow: "hidden" }}>
+  // If we have entering/exiting/layout animations, use Animated.View directly
+  if (entering || exiting || layout) {
+    return (
       <Animated.View
-        style={[defaultAnimatedStyle, style]}
+        style={style}
         entering={entering}
         exiting={exiting}
         layout={layout}
-        animatedProps={animatedProps}
-        {...otherProps}
+        {...props}
       >
+        {children}
+      </Animated.View>
+    );
+  }
+
+  // Otherwise, use a wrapper View to protect against layout animation conflicts
+  return (
+    <View>
+      <Animated.View style={style} {...props}>
         {children}
       </Animated.View>
     </View>
