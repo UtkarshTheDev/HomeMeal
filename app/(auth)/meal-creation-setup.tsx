@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Dimensions,
   StyleSheet,
   Pressable,
+  FlatList,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import {
@@ -17,7 +18,11 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { router } from "expo-router";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import {
+  Ionicons,
+  MaterialCommunityIcons,
+  FontAwesome5,
+} from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import Animated, {
   FadeIn,
@@ -34,8 +39,60 @@ import { useAuth } from "@/src/providers/AuthProvider";
 import { ROUTES } from "@/src/utils/routes";
 import LoadingIndicator from "@/src/components/LoadingIndicator";
 import { COLORS } from "@/src/theme/colors";
+import AnimatedSafeView from "@/src/components/AnimatedSafeView";
+import { useAnimatedSafeValue } from "@/src/hooks/useAnimatedValues";
 
 const { width } = Dimensions.get("window");
+
+// Define meal types for display
+const MEAL_TYPES = [
+  {
+    id: "breakfast",
+    name: "Breakfast",
+    icon: "sunny-outline",
+    color: "#FF9500",
+  },
+  {
+    id: "lunch",
+    name: "Lunch",
+    icon: "restaurant-outline",
+    color: "#FF6B00",
+  },
+  {
+    id: "dinner",
+    name: "Dinner",
+    icon: "moon-outline",
+    color: "#5856D6",
+  },
+  {
+    id: "snacks",
+    name: "Snacks",
+    icon: "cafe-outline",
+    color: "#34C759",
+  },
+];
+
+// Days of the week
+const DAYS_OF_WEEK = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
+
+// Interface for meal plan
+interface MealPlan {
+  id: string;
+  name: string;
+  created_by: string;
+  meal_type: string;
+  foods: string[];
+  created_at: string;
+  applicable_days?: string[];
+}
 
 // Animated Pressable component for better user interaction
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -44,12 +101,24 @@ export default function MealCreationSetupScreen() {
   const { supabase } = useSupabase();
   const { user, updateSetupStatus, refreshSession, userDetails } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [isFetchingMealPlans, setIsFetchingMealPlans] = useState(true);
+  const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
   const [actionType, setActionType] = useState<"explore" | "skip" | null>(null);
+  const [selectedMealPlan, setSelectedMealPlan] = useState<MealPlan | null>(
+    null
+  );
+  const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const insets = useSafeAreaInsets();
 
-  // Animation values
-  const exploreButtonScale = useSharedValue(1);
-  const skipButtonScale = useSharedValue(1);
+  // Animation values - use safe hooks
+  const { sharedValue: exploreButtonScale, setValue: setExploreButtonScale } =
+    useAnimatedSafeValue(1);
+  const { sharedValue: skipButtonScale, setValue: setSkipButtonScale } =
+    useAnimatedSafeValue(1);
+  const { sharedValue: createButtonScale, setValue: setCreateButtonScale } =
+    useAnimatedSafeValue(1);
+  const { sharedValue: saveButtonScale, setValue: setSaveButtonScale } =
+    useAnimatedSafeValue(1);
 
   // Animated styles
   const exploreButtonAnimatedStyle = useAnimatedStyle(() => ({
@@ -60,24 +129,70 @@ export default function MealCreationSetupScreen() {
     transform: [{ scale: skipButtonScale.value }],
   }));
 
+  const createButtonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: createButtonScale.value }],
+  }));
+
+  const saveButtonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: saveButtonScale.value }],
+  }));
+
+  // Fetch user's meal plans on mount
+  useEffect(() => {
+    fetchMealPlans();
+  }, []);
+
+  // Fetch meal plans
+  const fetchMealPlans = async () => {
+    if (!user) return;
+
+    setIsFetchingMealPlans(true);
+    try {
+      const { data, error } = await supabase
+        .from("meals")
+        .select("*")
+        .eq("created_by", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      setMealPlans(data || []);
+    } catch (error) {
+      console.error("Error fetching meal plans:", error);
+    } finally {
+      setIsFetchingMealPlans(false);
+    }
+  };
+
   // Handle button press animations
-  const handlePressIn = (buttonType: "explore" | "skip") => {
+  const handlePressIn = (
+    buttonType: "explore" | "skip" | "create" | "save"
+  ) => {
     if (buttonType === "explore") {
-      exploreButtonScale.value = withSpring(0.95);
-    } else {
-      skipButtonScale.value = withSpring(0.95);
+      setExploreButtonScale(0.95);
+    } else if (buttonType === "skip") {
+      setSkipButtonScale(0.95);
+    } else if (buttonType === "create") {
+      setCreateButtonScale(0.95);
+    } else if (buttonType === "save") {
+      setSaveButtonScale(0.95);
     }
   };
 
-  const handlePressOut = (buttonType: "explore" | "skip") => {
+  const handlePressOut = (
+    buttonType: "explore" | "skip" | "create" | "save"
+  ) => {
     if (buttonType === "explore") {
-      exploreButtonScale.value = withSpring(1);
-    } else {
-      skipButtonScale.value = withSpring(1);
+      setExploreButtonScale(1);
+    } else if (buttonType === "skip") {
+      setSkipButtonScale(1);
+    } else if (buttonType === "create") {
+      setCreateButtonScale(1);
+    } else if (buttonType === "save") {
+      setSaveButtonScale(1);
     }
   };
 
-  const handleExploreMeals = async () => {
+  const handleCreateMeal = async () => {
     if (isLoading) return;
 
     setIsLoading(true);
@@ -138,9 +253,161 @@ export default function MealCreationSetupScreen() {
     }
   };
 
+  const toggleDay = (day: string) => {
+    setSelectedDays((prev) =>
+      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]
+    );
+  };
+
+  const saveMealPlanSchedule = async () => {
+    if (!selectedMealPlan || selectedDays.length === 0) {
+      Alert.alert(
+        "Selection Required",
+        "Please select a meal plan and at least one day"
+      );
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Update the meal plan with applicable days
+      const { error } = await supabase
+        .from("meals")
+        .update({ applicable_days: selectedDays })
+        .eq("id", selectedMealPlan.id);
+
+      if (error) throw error;
+
+      // Mark meal creation as completed
+      await updateSetupStatus({
+        meal_creation_completed: true,
+      });
+
+      Alert.alert(
+        "Success",
+        "Your meal plan has been scheduled successfully!",
+        [
+          {
+            text: "Continue",
+            onPress: () => router.replace(ROUTES.MAKER_SELECTION_SETUP),
+          },
+        ]
+      );
+    } catch (error) {
+      console.error("Error saving meal plan schedule:", error);
+      Alert.alert(
+        "Error",
+        "Failed to save meal plan schedule. Please try again."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Render a meal plan card
+  const renderMealPlanCard = ({ item }: { item: MealPlan }) => {
+    const isSelected = selectedMealPlan?.id === item.id;
+    const mealTypeInfo =
+      MEAL_TYPES.find((type) => type.id === item.meal_type) || MEAL_TYPES[0];
+    const mealTypeNames = (item.foods || [])
+      .map((typeId) => MEAL_TYPES.find((t) => t.id === typeId)?.name || "")
+      .filter(Boolean)
+      .join(", ");
+
+    return (
+      <AnimatedSafeView
+        key={item.id}
+        entering={FadeInDown.delay(200).duration(400)}
+        style={[
+          styles.mealPlanCard,
+          isSelected && { borderColor: COLORS.primary, borderWidth: 2 },
+        ]}
+      >
+        <TouchableOpacity
+          style={styles.mealPlanCardContent}
+          onPress={() => setSelectedMealPlan(item)}
+          activeOpacity={0.7}
+        >
+          <View
+            style={[
+              styles.mealTypeIconContainer,
+              { backgroundColor: mealTypeInfo.color + "20" },
+            ]}
+          >
+            <Ionicons
+              name={mealTypeInfo.icon as any}
+              size={24}
+              color={mealTypeInfo.color}
+            />
+          </View>
+
+          <View style={styles.mealPlanDetails}>
+            <Text style={styles.mealPlanName}>{item.name}</Text>
+            <Text style={styles.mealPlanTypes}>{mealTypeNames}</Text>
+            <Text style={styles.mealPlanDate}>
+              Created {new Date(item.created_at).toLocaleDateString()}
+            </Text>
+          </View>
+
+          <View
+            style={[
+              styles.selectionIndicator,
+              isSelected
+                ? { backgroundColor: COLORS.primary }
+                : { borderColor: "#E0E0E0", borderWidth: 1 },
+            ]}
+          >
+            {isSelected && <Ionicons name="checkmark" size={16} color="#FFF" />}
+          </View>
+        </TouchableOpacity>
+      </AnimatedSafeView>
+    );
+  };
+
+  // Render the day selection buttons
+  const renderDaySelectors = () => {
+    return (
+      <View style={styles.daysContainer}>
+        <Text style={styles.daysTitle}>Select Days for This Meal Plan</Text>
+        <View style={styles.daysGrid}>
+          {DAYS_OF_WEEK.map((day) => {
+            const isSelected = selectedDays.includes(day);
+            return (
+              <TouchableOpacity
+                key={day}
+                style={[
+                  styles.dayButton,
+                  isSelected && { backgroundColor: COLORS.primary },
+                ]}
+                onPress={() => toggleDay(day)}
+              >
+                <Text
+                  style={[
+                    styles.dayButtonText,
+                    isSelected && { color: "#FFF" },
+                  ]}
+                >
+                  {day.substring(0, 3)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="dark" />
+
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Meal Plans</Text>
+        <Text style={styles.headerSubtitle}>
+          Create and schedule your meal plans
+        </Text>
+      </View>
 
       <ScrollView
         style={styles.scrollView}
@@ -150,33 +417,47 @@ export default function MealCreationSetupScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <Animated.View
-          entering={FadeInDown.delay(100).duration(700)}
-          style={styles.headerContainer}
-        >
-          <Text style={styles.headerTitle}>Create Meal Plans</Text>
-          <Text style={styles.headerSubtitle}>
-            Plan your weekly meals and get delicious home-cooked food delivered
-            to you
-          </Text>
-        </Animated.View>
+        {/* Existing Meal Plans Section */}
+        <View style={styles.mealPlansSection}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Your Meal Plans</Text>
+            <AnimatedPressable
+              style={[styles.createButton, createButtonAnimatedStyle]}
+              onPress={handleCreateMeal}
+              onPressIn={() => handlePressIn("create")}
+              onPressOut={() => handlePressOut("create")}
+            >
+              <Text style={styles.createButtonText}>Create New</Text>
+              <Ionicons name="add" size={18} color={COLORS.primary} />
+            </AnimatedPressable>
+          </View>
 
-        {/* Illustration */}
-        <Animated.View
-          entering={FadeInDown.delay(300).duration(700)}
-          style={styles.illustrationContainer}
-        >
-          <Image
-            source={{
-              uri: "https://source.unsplash.com/random/600x400/?food,meal,cooking",
-            }}
-            style={styles.illustration}
-            resizeMode="cover"
-          />
-        </Animated.View>
+          {isFetchingMealPlans ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={COLORS.primary} />
+              <Text style={styles.loadingText}>Loading meal plans...</Text>
+            </View>
+          ) : mealPlans.length > 0 ? (
+            <View style={styles.mealPlansList}>
+              {mealPlans.map((item) => renderMealPlanCard({ item }))}
+            </View>
+          ) : (
+            <View style={styles.emptyStateContainer}>
+              <Ionicons name="restaurant-outline" size={60} color="#DDD" />
+              <Text style={styles.emptyStateText}>
+                You haven't created any meal plans yet
+              </Text>
+              <Text style={styles.emptyStateSubtext}>
+                Tap "Create New" to get started
+              </Text>
+            </View>
+          )}
+        </View>
 
-        {/* Features */}
+        {/* Day Selection Section (only show if a meal plan is selected) */}
+        {selectedMealPlan && renderDaySelectors()}
+
+        {/* Information section */}
         <Animated.View
           entering={FadeInDown.delay(500).duration(700)}
           style={styles.featuresContainer}
@@ -246,19 +527,35 @@ export default function MealCreationSetupScreen() {
             )}
           </AnimatedPressable>
 
-          <AnimatedPressable
-            style={[styles.exploreButton, exploreButtonAnimatedStyle]}
-            onPress={handleExploreMeals}
-            onPressIn={() => handlePressIn("explore")}
-            onPressOut={() => handlePressOut("explore")}
-            disabled={isLoading}
-          >
-            {isLoading && actionType === "explore" ? (
-              <LoadingIndicator color={COLORS.white} />
-            ) : (
-              <Text style={styles.exploreButtonText}>Explore Meals</Text>
-            )}
-          </AnimatedPressable>
+          {selectedMealPlan ? (
+            <AnimatedPressable
+              style={[styles.exploreButton, saveButtonAnimatedStyle]}
+              onPress={saveMealPlanSchedule}
+              onPressIn={() => handlePressIn("save")}
+              onPressOut={() => handlePressOut("save")}
+              disabled={isLoading || selectedDays.length === 0}
+            >
+              {isLoading ? (
+                <LoadingIndicator color={COLORS.white} />
+              ) : (
+                <Text style={styles.exploreButtonText}>Save Schedule</Text>
+              )}
+            </AnimatedPressable>
+          ) : (
+            <AnimatedPressable
+              style={[styles.exploreButton, exploreButtonAnimatedStyle]}
+              onPress={handleCreateMeal}
+              onPressIn={() => handlePressIn("explore")}
+              onPressOut={() => handlePressOut("explore")}
+              disabled={isLoading}
+            >
+              {isLoading && actionType === "explore" ? (
+                <LoadingIndicator color={COLORS.white} />
+              ) : (
+                <Text style={styles.exploreButtonText}>Create Meal Plan</Text>
+              )}
+            </AnimatedPressable>
+          )}
         </View>
       </Animated.View>
     </SafeAreaView>
@@ -270,6 +567,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.white,
   },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: COLORS.primary,
+    marginBottom: 4,
+  },
+  headerSubtitle: {
+    fontSize: 16,
+    color: COLORS.textLight,
+  },
   scrollView: {
     flex: 1,
   },
@@ -279,17 +593,6 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     marginBottom: 24,
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: "700",
-    color: COLORS.primary,
-    marginBottom: 8,
-  },
-  headerSubtitle: {
-    fontSize: 16,
-    color: COLORS.textLight,
-    lineHeight: 22,
   },
   illustrationContainer: {
     alignItems: "center",
@@ -394,5 +697,144 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 16,
     fontWeight: "500",
+  },
+  mealPlansSection: {
+    marginBottom: 24,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+  createButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F0F7FF",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  createButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: COLORS.primary,
+    marginRight: 4,
+  },
+  mealPlansList: {
+    marginBottom: 24,
+  },
+  mealPlanCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+    borderColor: "#EAEAEA",
+    borderWidth: 1,
+  },
+  mealPlanCardContent: {
+    flexDirection: "row",
+    padding: 16,
+    alignItems: "center",
+  },
+  mealTypeIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  mealPlanDetails: {
+    flex: 1,
+  },
+  mealPlanName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  mealPlanTypes: {
+    fontSize: 14,
+    color: COLORS.textLight,
+    marginBottom: 4,
+  },
+  mealPlanDate: {
+    fontSize: 12,
+    color: "#9CA3AF",
+  },
+  selectionIndicator: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: COLORS.white,
+  },
+  loadingContainer: {
+    paddingVertical: 32,
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: COLORS.textLight,
+  },
+  emptyStateContainer: {
+    paddingVertical: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyStateText: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: COLORS.textLight,
+    marginTop: 16,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    marginTop: 8,
+  },
+  daysContainer: {
+    marginBottom: 24,
+    backgroundColor: "#F9FAFB",
+    padding: 16,
+    borderRadius: 12,
+  },
+  daysTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.text,
+    marginBottom: 16,
+  },
+  daysGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  dayButton: {
+    width: (width - 72) / 4, // 4 buttons per row with spacing
+    height: 40,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#EAEAEA",
+    marginBottom: 8,
+  },
+  dayButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: COLORS.text,
   },
 });

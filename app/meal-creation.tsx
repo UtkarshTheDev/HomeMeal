@@ -83,14 +83,15 @@ export default function MealCreationScreen() {
   }>({});
 
   // Use our safe animated values
-  const { sharedValue: saveButtonScale } = useAnimatedSafeValue(1);
+  const { sharedValue: saveButtonScale, setValue: setSaveButtonScale } =
+    useAnimatedSafeValue(1);
 
   // Create animated styles for the save button
   const saveButtonAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: saveButtonScale.value }],
   }));
 
-  // Create animated scales for meal type cards
+  // Create animated scales for meal type cards with improved hook
   const mealTypeScales = MEAL_TYPES.reduce((acc, mealType) => {
     acc[mealType.id] = useAnimatedSafeValue<number>(1);
     return acc;
@@ -98,11 +99,12 @@ export default function MealCreationScreen() {
 
   // Handle meal type selection
   const toggleMealType = (mealTypeId: string) => {
-    // Animate the button press effect
-    mealTypeScales[mealTypeId].sharedValue.value = withSequence(
-      withTiming(0.95, { duration: 100 }),
-      withTiming(1, { duration: 150 })
-    );
+    // Animate the button press effect using setValue
+    mealTypeScales[mealTypeId].setValue(0.95);
+    // Then back to normal after a short delay
+    setTimeout(() => {
+      mealTypeScales[mealTypeId].setValue(1);
+    }, 150);
 
     setSelectedMealTypes((prev) => {
       if (prev.includes(mealTypeId)) {
@@ -143,11 +145,11 @@ export default function MealCreationScreen() {
       return;
     }
 
-    // Animate the save button
-    saveButtonScale.value = withSequence(
-      withTiming(0.9, { duration: 100 }),
-      withTiming(1, { duration: 150 })
-    );
+    // Animate the save button using setValue
+    setSaveButtonScale(0.9);
+    setTimeout(() => {
+      setSaveButtonScale(1);
+    }, 150);
 
     // Set loading state
     setIsLoading(true);
@@ -162,19 +164,26 @@ export default function MealCreationScreen() {
         return;
       }
 
+      console.log(
+        "Creating meal plan with selected meal types:",
+        selectedMealTypes
+      );
+
       // Create meal plan in Supabase
       const { data, error } = await supabase
         .from("meals")
         .insert({
           name: mealName,
           created_by: user.id,
-          meal_types: selectedMealTypes,
+          meal_type: selectedMealTypes[0], // Using the first selected meal type for the meal_type field
+          foods: selectedMealTypes, // Store all selected meal types as an array
           created_at: new Date().toISOString(),
         })
         .select("id")
         .single();
 
       if (error) {
+        console.error("Error creating meal plan:", error);
         throw error;
       }
 
@@ -256,7 +265,7 @@ export default function MealCreationScreen() {
               const foodCount = selectedFoodsCount[mealType.id] || 0;
 
               return (
-                <AnimatedSafeView style={styles.mealTypeCard}>
+                <AnimatedSafeView key={mealType.id} style={styles.mealTypeCard}>
                   <TouchableOpacity
                     activeOpacity={0.8}
                     onPress={() => toggleMealType(mealType.id)}

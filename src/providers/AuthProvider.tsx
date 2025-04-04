@@ -91,9 +91,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       // Get current session
       const {
         data: { session: currentSession },
+        error: sessionError,
       } = await supabase.auth.getSession();
 
+      if (sessionError) {
+        console.error("Error getting session:", sessionError);
+        return null;
+      }
+
       if (!currentSession) {
+        console.log("No current session found");
         return null;
       }
 
@@ -101,8 +108,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const { data, error } = await supabase.auth.refreshSession();
 
       if (error) {
+        // Handle specific error cases
+        if (error.message?.includes("Refresh Token Not Found")) {
+          console.log(
+            "Refresh token expired or not found. User needs to sign in again."
+          );
+          // Clear the user state
+          setSession(null);
+          setUser(null);
+          setUserRole(null);
+          setUserDetails(null);
+
+          // We'll let the auth state change handler navigate to sign-in
+          return null;
+        }
+
         console.error("Failed to refresh token:", error);
-        return null;
+        return currentSession; // Return the current session as fallback
       }
 
       if (data?.session) {
@@ -110,7 +132,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         setUser(data.session.user);
         return data.session;
       } else {
-        return null;
+        return currentSession; // Return the current session as fallback
       }
     } catch (error) {
       console.error("Error refreshing token:", error);
@@ -123,6 +145,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     userId: string
   ): Promise<UserDetails | null> => {
     try {
+      if (!userId) {
+        console.error("Invalid user ID provided to fetchUserDetails");
+        return null;
+      }
+
       // Use maybeSingle() instead of single() to handle the case when no user is found
       const { data, error } = await supabase
         .from("users")
@@ -299,175 +326,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!user) return { isComplete: false, route: ROUTES.AUTH_INTRO };
 
     try {
-      // First check if we already have user details
-      let details = userDetails;
+      // Get user details
+      const { data: details, error: fetchError } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
 
-      // If not, fetch them
-      if (!details) {
-        try {
-          details = await fetchUserDetails(user.id);
-        } catch (fetchError) {
-          console.error("Error fetching user details:", fetchError);
-          // If there's a database error (like "column does not exist"), handle gracefully
-          return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
-        }
-
-        // If still no details, handle as a new user
-        if (!details) {
-          console.log(
-            "No user details found in database, creating basic record"
-          );
-
-          // Try to create a basic user record
-          try {
-            // Check if user already exists first to avoid duplicate key error
-            const { count, error: countError } = await supabase
-              .from("users")
-              .select("*", { count: "exact", head: true })
-              .eq("id", user.id);
-
-            if (countError) {
-              console.error("Error checking if user exists:", countError);
-              // If there's a database error, go to role selection
-              return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
-            }
-
-            // Only try to insert if user doesn't exist
-            if (!countError && count === 0) {
-              console.log("Creating new user with ID:", user.id);
-              const { error: insertError } = await supabase
-                .from("users")
-                .insert({
-                  id: user.id,
-                  phone_number: user.phone || "",
-                  setup_status: {},
-                  created_at: new Date().toISOString(),
-                });
-
-              if (insertError) {
-                console.error("Error creating user record:", insertError);
-                // If insert fails, go to role selection
-                return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
-              }
-            } else {
-              console.log("User already exists, not creating new record");
-            }
-
-            // Always try to fetch details again
-            try {
-              details = await fetchUserDetails(user.id);
-            } catch (reFetchError) {
-              console.error("Error re-fetching user details:", reFetchError);
-              // If fetch still fails, go to role selection
-              return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
-            }
-          } catch (createError) {
-            console.error("Error in user creation process:", createError);
-            // If there's any error in creation, go to role selection
-            return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
-          }
-
-          // If still no details after creation attempt, redirect to role selection
-          if (!details) {
-            console.log(
-              "Unable to create or fetch user details, sending to role selection"
-            );
-            return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
-          }
-        }
-
-        // Update state
-        setUserDetails(details);
-        setUserRole(details.role || null);
-      }
-
-      // Log for debugging
-      console.log("User details found, checking onboarding status:", {
-        role: details.role,
-        setupStatus: details.setup_status || {},
-        location: !!details.location,
-        name: !!details.name,
-      });
-
-      // Ensure setup_status exists
-      let setupStatus = details.setup_status || {};
-
-      // Make sure setup_status is stored in the database if it doesn't exist
-      if (!details.setup_status) {
-        try {
-          await supabase
-            .from("users")
-            .update({ setup_status: {} })
-            .eq("id", user.id);
-
-          setupStatus = {};
-        } catch (updateError) {
-          console.error("Error updating setup_status:", updateError);
-          // Continue with empty setup status if update fails
-          setupStatus = {};
-        }
-      }
-
-      // Sequential check for completion of each onboarding step based on setup_status
-
-      // Step 1: Check if role is selected
-      if (!details.role) {
-        await updateSetupStatus({
-          role_selected: false,
-        });
+      if (fetchError || !details) {
+        console.error("Error fetching user details:", fetchError);
         return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
       }
 
-      // If role exists but role_selected flag isn't set, update it
-      if (!setupStatus.role_selected) {
-        await updateSetupStatus({
-          role_selected: true,
-        });
+      // Update state
+      setUserDetails(details);
+      setUserRole(details.role || null);
+
+      // Ensure setup_status exists
+      const setupStatus = details.setup_status || {};
+
+      // Sequential check for completion of each onboarding step
+
+      // Step 1: Check if role is selected
+      if (!details.role || !setupStatus.role_selected) {
+        return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
       }
 
       // Step 2: Check if location is set
-      if (!details.location || !details.address) {
-        await updateSetupStatus({
-          location_set: false,
-        });
+      if (!details.location || !details.address || !setupStatus.location_set) {
         return { isComplete: false, route: ROUTES.LOCATION_SETUP };
       }
 
-      // If location exists but location_set flag isn't set, update it
-      if (!setupStatus.location_set) {
-        await updateSetupStatus({
-          location_set: true,
-        });
-      }
-
       // Step 3: Check if profile is complete
-      if (!details.name) {
-        await updateSetupStatus({
-          profile_completed: false,
-        });
+      if (!details.name || !setupStatus.profile_completed) {
         return { isComplete: false, route: ROUTES.AUTH_PROFILE_SETUP };
-      }
-
-      // If profile is complete but profile_completed flag isn't set, update it
-      if (!setupStatus.profile_completed) {
-        await updateSetupStatus({
-          profile_completed: true,
-        });
       }
 
       // Role-specific steps
       if (details.role === "customer") {
-        // Step 4: For customers - meal creation
         if (!setupStatus.meal_creation_completed) {
           return { isComplete: false, route: ROUTES.MEAL_CREATION_SETUP };
         }
-
-        // Step 5: For customers - maker selection
         if (!setupStatus.maker_selection_completed) {
           return { isComplete: false, route: ROUTES.MAKER_SELECTION_SETUP };
         }
       } else if (details.role === "maker") {
-        // Step 4: For makers - food selection setup
         if (!setupStatus.maker_food_selection_completed) {
           return {
             isComplete: false,
@@ -481,22 +384,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         return { isComplete: false, route: ROUTES.WALLET_SETUP };
       }
 
-      // Create wallet if needed (regardless of completed status)
-      if (details.role) {
-        try {
-          await createUserWallet(user.id);
-        } catch (walletError) {
-          console.error("Error creating wallet:", walletError);
-          // Continue even if wallet creation fails
-        }
-      }
-
-      // User has completed all onboarding steps
-      console.log("User has completed all onboarding steps");
+      // All steps completed
       return { isComplete: true, route: ROUTES.TABS };
     } catch (error) {
       console.error("Error checking onboarding status:", error);
-      // In case of error, direct to role selection instead of the intro screen
       return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
     }
   };

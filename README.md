@@ -17,50 +17,61 @@ HomeMeal App connects three user roles:
 - **Payments**: Razorpay/Cashfree
 - **Notifications**: Firebase Cloud Messaging
 
-## Setup Instructions
+## Quick Start
 
 ### Prerequisites
 
 - Node.js (v16+)
 - npm or yarn
-- Expo CLI
-- Supabase account
+- Expo CLI (`npm install -g expo-cli`)
+- Expo Go app on your mobile device
 
-### Environment Setup
+### Installation Steps
 
-1. Clone the repository
-
-   ```
+1. Clone the repository:
+   ```bash
    git clone <repository-url>
    cd HomeMeal
    ```
 
-2. Install dependencies
-
-   ```
+2. Install dependencies:
+   ```bash
    npm install
    ```
 
-3. Create a Supabase project
-
-   - Go to [Supabase](https://supabase.com) and create a new project
-   - Note your Supabase URL and anon key
-
-4. Set up environment variables
-
+3. Set up environment variables:
    - Copy `.env.example` to `.env`
-   - Fill in your Supabase URL and anon key in the `.env` file
-   - Update `app.json` with your Supabase credentials in the `extra` section
+   - Fill in your Supabase URL and anon key from your Supabase project settings
 
-5. Set up the database
-
-   - Go to the SQL Editor in your Supabase dashboard
-   - Run the SQL statements in the `database-schema.sql` file to create all the required tables and security policies
-
-6. Start the development server
-   ```
+4. Start the development server:
+   ```bash
    npm start
    ```
+
+5. View the app:
+   - Install Expo Go on your mobile device
+   - Scan the QR code shown in the terminal with your device's camera
+   - The app will open in Expo Go
+
+### Backend Setup (Coming Soon)
+Backend setup instructions will be added in future updates. Currently, the app uses Supabase as the backend service.
+
+## User Flow
+
+1. **Authentication**:
+   - Users sign in with their phone number
+   - Verify with OTP
+   - New users proceed through setup flow:
+     - Role Selection (Customer/Maker/Delivery)
+     - Location Setup
+     - Profile Setup
+     - Role-specific Setup
+     - Wallet Setup
+
+2. **Role-specific Features**:
+   - Customers: Browse meals, create meal plans, place orders
+   - Makers: Manage menu, accept orders, track earnings
+   - Delivery Partners: Accept deliveries, manage schedule
 
 ## Project Structure
 

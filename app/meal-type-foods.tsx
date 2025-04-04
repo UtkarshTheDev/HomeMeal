@@ -123,8 +123,12 @@ export default function MealTypeFoodsScreen() {
   const [isSaving, setIsSaving] = useState(false);
 
   // Animation values using our safe hook
-  const { sharedValue: saveButtonScale } = useAnimatedSafeValue(1);
-  const { sharedValue: selectedFoodsHeight } = useAnimatedSafeValue(0);
+  const { sharedValue: saveButtonScale, setValue: setSaveButtonScale } =
+    useAnimatedSafeValue(1);
+
+  const { sharedValue: selectedFoodsHeight, setValue: setSelectedFoodsHeight } =
+    useAnimatedSafeValue(0);
+
   const hasSelectedItems = selectedFoods.length > 0;
 
   // Create animated styles
@@ -139,11 +143,13 @@ export default function MealTypeFoodsScreen() {
   // After food selection changes, update height animation
   useEffect(() => {
     if (hasSelectedItems) {
+      // Use withTiming to animate the height change
       selectedFoodsHeight.value = withTiming(
         Math.min(selectedFoods.length * 80, 240),
         { duration: 300 }
       );
     } else {
+      // Use withTiming to animate the height change to zero
       selectedFoodsHeight.value = withTiming(0, { duration: 250 });
     }
   }, [hasSelectedItems, selectedFoods.length]);
@@ -392,10 +398,10 @@ export default function MealTypeFoodsScreen() {
     }
 
     // Animate button press
-    saveButtonScale.value = withSequence(
-      withTiming(0.95, { duration: 100 }),
-      withTiming(1, { duration: 150 })
-    );
+    setSaveButtonScale(0.95);
+    setTimeout(() => {
+      setSaveButtonScale(1);
+    }, 150);
 
     setIsSaving(true);
 
@@ -411,65 +417,118 @@ export default function MealTypeFoodsScreen() {
         throw new Error("User not authenticated");
       }
 
-      // Create meal plan items in the database
+      // Log selected foods for debugging
+      console.log(
+        `Saving ${selectedFoods.length} foods for meal type: ${mealType}`
+      );
+
+      // First, update the meals table to store the selected foods' info
+      const { error: mealError } = await supabase
+        .from("meals")
+        .update({
+          updated_at: new Date().toISOString(),
+          // Add any other fields that need updating
+        })
+        .eq("id", mealPlanId);
+
+      if (mealError) {
+        console.error("Error updating meal:", mealError);
+        throw mealError;
+      }
+
+      // Create a simpler structure for meal plan items that matches the database schema
       const mealPlanItems = selectedFoods.map((food) => ({
-        meal_plan_id: mealPlanId,
-        food_item_id: food.id,
-        meal_type: mealType,
+        meal_id: mealPlanId,
+        food_id: food.id,
         quantity: food.quantity || 1,
-        price: food.price * (food.quantity || 1),
+        created_at: new Date().toISOString(),
+        user_id: user.id,
+        meal_type: mealType, // Adding meal type to help distinguish items
       }));
 
+      // Log what we're trying to insert for debugging
+      console.log(
+        "Inserting meal plan items with structure:",
+        JSON.stringify(mealPlanItems[0])
+      );
+
       // Insert the selected foods into meal_plan_items table
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("meal_plan_items")
         .insert(mealPlanItems);
 
       if (error) {
+        console.error("Database error when saving selections:", error);
         throw error;
       }
 
+      console.log("Successfully saved meal selections for:", mealType);
+
       // Check if there are more meal types to add
-      const { data: mealPlanData } = await supabase
-        .from("meals")
-        .select("meal_types")
-        .eq("id", mealPlanId)
-        .single();
+      try {
+        const { data: mealPlanData, error: mealFetchError } = await supabase
+          .from("meals")
+          .select("foods")
+          .eq("id", mealPlanId)
+          .single();
 
-      const mealTypes = mealPlanData?.meal_types || [];
-      const currentIndex = mealTypes.indexOf(mealType);
-      const nextMealType =
-        currentIndex < mealTypes.length - 1
-          ? mealTypes[currentIndex + 1]
-          : null;
+        if (mealFetchError) {
+          console.error("Error fetching meal data:", mealFetchError);
+          throw mealFetchError;
+        }
 
-      if (nextMealType) {
-        // If there are more meal types, navigate to the next one
+        const mealTypes = mealPlanData?.foods || [];
+        const currentIndex = mealTypes.indexOf(mealType);
+        const nextMealType =
+          currentIndex < mealTypes.length - 1
+            ? mealTypes[currentIndex + 1]
+            : null;
+
+        console.log("Meal types sequence:", mealTypes);
+        console.log("Current meal type:", mealType, "at index:", currentIndex);
+        console.log("Next meal type to process:", nextMealType);
+
+        if (nextMealType) {
+          // If there are more meal types, navigate to the next one
+          Alert.alert(
+            "Success",
+            `${mealTypeInfo.name} items added! Continue with the next meal type.`,
+            [
+              {
+                text: "Continue",
+                onPress: () =>
+                  router.push({
+                    pathname: "/meal-type-foods",
+                    params: {
+                      mealType: nextMealType,
+                      mealPlanId: mealPlanId,
+                    },
+                  }),
+              },
+            ]
+          );
+        } else {
+          // If this was the last meal type, go back to meal plans
+          Alert.alert("Success", "Meal plan completed successfully!", [
+            {
+              text: "OK",
+              onPress: () => router.replace(ROUTES.TAB_MEAL_PLANS),
+            },
+          ]);
+        }
+      } catch (sequenceError) {
+        console.error("Error processing meal sequence:", sequenceError);
+        // Even if the sequence processing fails, we've still saved this meal type's foods
         Alert.alert(
-          "Success",
-          `${mealTypeInfo.name} items added! Continue with the next meal type.`,
+          "Partial Success",
+          `${mealTypeInfo.name} items were saved, but we encountered an issue with the next steps. Please try again.`,
           [
             {
-              text: "Continue",
-              onPress: () =>
-                router.push({
-                  pathname: "/meal-type-foods",
-                  params: {
-                    mealType: nextMealType,
-                    mealPlanId: mealPlanId,
-                  },
-                }),
+              text: "OK",
+              onPress: () => router.replace(ROUTES.TAB_MEAL_PLANS),
             },
           ]
         );
-      } else {
-        // If this was the last meal type, go back to meal plans
-        Alert.alert("Success", "Meal plan completed successfully!", [
-          {
-            text: "OK",
-            onPress: () => router.replace(ROUTES.TAB_MEAL_PLANS),
-          },
-        ]);
       }
     } catch (error) {
       console.error("Error saving meal selections:", error);
@@ -526,6 +585,7 @@ export default function MealTypeFoodsScreen() {
 
     return (
       <AnimatedSafeView
+        key={item.id}
         style={[styles.foodCardContainer, { marginBottom: 16 }]}
       >
         <TouchableOpacity
@@ -582,6 +642,7 @@ export default function MealTypeFoodsScreen() {
   const renderSelectedFoodItem = ({ item }: { item: FoodItem }) => {
     return (
       <AnimatedSafeView
+        key={item.id}
         style={[styles.selectedItemContainer, { marginRight: 12 }]}
       >
         <View style={styles.selectedItemContent}>

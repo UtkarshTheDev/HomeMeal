@@ -48,7 +48,6 @@ export default function VerifyScreen() {
     startResendTimer();
   }, []);
 
-  // Effect to automatically verify OTP when all digits are entered
   useEffect(() => {
     const otpCode = otp.join("");
     if (otpCode.length === OTP_LENGTH && !autoVerifyAttempted) {
@@ -57,28 +56,23 @@ export default function VerifyScreen() {
     }
   }, [otp]);
 
-  // Add this effect to handle navigation after verification is successful
   useEffect(() => {
     if (verificationSuccess) {
-      // Add a delay to ensure the component is fully mounted
-      const timer = setTimeout(() => {
+      const timer = setTimeout(async () => {
         try {
-          console.log("Navigation to role selection screen");
-          router.replace(ROUTES.AUTH_ROLE_SELECTION);
+          const { checkOnboardingStatus } = useAuth();
+          const { isComplete, route } = await checkOnboardingStatus();
+          
+          if (route) {
+            console.log("Navigating to:", route);
+            router.replace(route);
+          } else {
+            console.log("No route determined, defaulting to role selection");
+            router.replace(ROUTES.AUTH_ROLE_SELECTION);
+          }
         } catch (error) {
           console.error("Navigation error:", error);
-          // Retry once more with a longer delay
-          setTimeout(() => {
-            try {
-              router.replace(ROUTES.AUTH_ROLE_SELECTION);
-            } catch (retryError) {
-              console.error("Retry navigation error:", retryError);
-              Alert.alert(
-                "Navigation Error",
-                "Unable to proceed. Please restart the app and try again."
-              );
-            }
-          }, 1000);
+          router.replace(ROUTES.AUTH_ROLE_SELECTION);
         }
       }, 500);
 
@@ -121,7 +115,6 @@ export default function VerifyScreen() {
   const handleVerify = async () => {
     if (loading) return;
 
-    // Convert otp array to string if needed
     const otpCode = typeof otp === "string" ? otp : otp.join("");
 
     if (otpCode.length < 6) {
@@ -134,7 +127,6 @@ export default function VerifyScreen() {
     setError("");
 
     try {
-      // Verify the OTP with Supabase
       const { data, error } = await supabase.auth.verifyOtp({
         phone: phoneNumber,
         token: otpCode,
@@ -142,9 +134,6 @@ export default function VerifyScreen() {
       });
 
       if (error) {
-        console.error("OTP verification error:", error);
-
-        // Check if it's an expired token error
         if (
           error.message.includes("token is expired") ||
           error.message.includes("invalid token") ||
@@ -154,7 +143,6 @@ export default function VerifyScreen() {
           setLoading(false);
           setVerifying(false);
 
-          // Automatically trigger resend after a short delay
           setTimeout(() => {
             if (canResend) {
               resendOtp();
@@ -171,78 +159,50 @@ export default function VerifyScreen() {
         throw error;
       }
 
-      // Get the user ID from the authentication result
       const userId = data?.user?.id;
       if (!userId) {
         throw new Error("Authentication successful but no user ID returned");
       }
 
-      // Check if the user already exists in the database
       const { data: existingUser, error: checkError } = await supabase
         .from("users")
-        .select("id, setup_status, role")
+        .select("*")
         .eq("id", userId)
         .maybeSingle();
 
-      if (!checkError && existingUser) {
-        console.log("User already exists in database:", existingUser.id);
-
-        // Initialize setup_status if it doesn't exist for existing users
-        if (!existingUser.setup_status) {
-          const { error: updateError } = await supabase
-            .from("users")
-            .update({ setup_status: {} })
-            .eq("id", userId);
-
-          if (updateError) {
-            console.error("Error initializing setup_status:", updateError);
-          } else {
-            console.log("Initialized setup_status for existing user");
-          }
-        }
-
-        // Let the AuthProvider handle onboarding flow routing
-        // based on existing user's setup status
-        setLoading(false);
-        setVerifying(false);
-        setVerificationSuccess(true);
-      } else {
-        // This is a new user - create a record in the users table
-        console.log("Creating new user with ID:", userId);
-
-        try {
-          // Insert a new user record with basic information
-          const { error: insertError } = await supabase.from("users").insert({
+      if (!existingUser) {
+        const { error: insertError } = await supabase
+          .from("users")
+          .insert({
             id: userId,
             phone_number: phoneNumber,
-            setup_status: {}, // Initialize with empty setup_status
+            location: null,
+            role: null,
+            setup_status: {
+              role_selected: false,
+              location_set: false,
+              profile_completed: false,
+              meal_creation_completed: false,
+              maker_selection_completed: false,
+              wallet_setup_completed: false,
+              maker_food_selection_completed: false
+            },
             created_at: new Date().toISOString(),
           });
 
-          if (insertError) {
-            // Only log this as an error if it's not a duplicate key error
-            if (insertError.code !== "23505") {
-              console.error("Error creating user record:", insertError);
-            } else {
-              console.log(
-                "User already exists (detected by duplicate key error)"
-              );
-            }
-          } else {
-            console.log("User record created successfully");
-          }
-        } catch (insertErr) {
-          console.error("Exception creating user record:", insertErr);
-          // Continue execution - auth is successful
+        if (insertError && insertError.code !== "23505") {
+          console.error("Error creating user record:", insertError);
         }
 
-        // For new users, always start with role selection
         setLoading(false);
         setVerifying(false);
-        setVerificationSuccess(true);
+        router.replace(ROUTES.AUTH_ROLE_SELECTION);
+        return;
       }
 
-      // The useEffect will handle navigation after verification is complete
+      setLoading(false);
+      setVerifying(false);
+      setVerificationSuccess(true);
     } catch (error: any) {
       console.error("Verification error:", error);
       setError(error.message || "Failed to verify code. Please try again.");
@@ -259,7 +219,6 @@ export default function VerifyScreen() {
     setAutoVerifyAttempted(false);
 
     try {
-      // Clean the phone number
       const cleanedPhone = phoneNumber.replace(/[^\d+]/g, "");
 
       const { error } = await supabase.auth.signInWithOtp({
@@ -268,7 +227,6 @@ export default function VerifyScreen() {
 
       if (error) throw error;
       Alert.alert("Success", "New verification code sent!");
-      // Clear existing OTP fields
       setOtp(Array(OTP_LENGTH).fill(""));
       inputRefs.current[0]?.focus();
       startResendTimer();
@@ -352,7 +310,6 @@ export default function VerifyScreen() {
           entering={FadeInUp.delay(1200).duration(1000)}
           className="space-y-6"
         >
-          {/* Manual Verify Button */}
           <TouchableOpacity
             onPress={handleVerify}
             disabled={loading || otp.join("").length !== OTP_LENGTH}
