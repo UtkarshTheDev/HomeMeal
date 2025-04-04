@@ -180,7 +180,7 @@ export default function VerifyScreen() {
       // Check if the user already exists in the database
       const { data: existingUser, error: checkError } = await supabase
         .from("users")
-        .select("id, setup_status")
+        .select("id, setup_status, role")
         .eq("id", userId)
         .maybeSingle();
 
@@ -200,6 +200,12 @@ export default function VerifyScreen() {
             console.log("Initialized setup_status for existing user");
           }
         }
+
+        // Let the AuthProvider handle onboarding flow routing
+        // based on existing user's setup status
+        setLoading(false);
+        setVerifying(false);
+        setVerificationSuccess(true);
       } else {
         // This is a new user - create a record in the users table
         console.log("Creating new user with ID:", userId);
@@ -229,15 +235,14 @@ export default function VerifyScreen() {
           console.error("Exception creating user record:", insertErr);
           // Continue execution - auth is successful
         }
+
+        // For new users, always start with role selection
+        setLoading(false);
+        setVerifying(false);
+        setVerificationSuccess(true);
       }
 
-      // FIXED: Use a more reliable approach to navigate after verification
-      // Set a flag that verification is complete and navigate in useEffect
-      setLoading(false);
-      setVerifying(false);
-
-      // Store in state that verification was successful
-      setVerificationSuccess(true);
+      // The useEffect will handle navigation after verification is complete
     } catch (error: any) {
       console.error("Verification error:", error);
       setError(error.message || "Failed to verify code. Please try again.");

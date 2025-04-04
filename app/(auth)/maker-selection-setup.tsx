@@ -120,197 +120,173 @@ export default function MakerSelectionSetupScreen() {
     }
   };
 
-  // Fetch makers from Supabase
+  // Distance calculation helper function
+  const calculateDistance = (
+    lat1?: number,
+    lon1?: number,
+    lat2?: number,
+    lon2?: number
+  ): number => {
+    if (!lat1 || !lon1 || !lat2 || !lon2) return 999; // Default large distance if coordinates are missing
+
+    const R = 6371; // Radius of the earth in km
+    const dLat = deg2rad(lat2 - lat1);
+    const dLon = deg2rad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(deg2rad(lat1)) *
+        Math.cos(deg2rad(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const d = R * c; // Distance in km
+    return Number(d.toFixed(1));
+  };
+
+  // Helper to convert degrees to radians
+  const deg2rad = (deg: number): number => {
+    return deg * (Math.PI / 180);
+  };
+
+  // Get fallback makers for when no data is available from the database
+  const getFallbackMakers = (): Maker[] => {
+    const fallbackMakers: Maker[] = [
+      {
+        id: "fallback-1",
+        user_id: "user-1",
+        business_name: "Homestyle Kitchen",
+        image_url: "https://source.unsplash.com/random/300x300/?chef",
+        bio: "Specializing in authentic home-cooked meals with love.",
+        specialty: "North Indian",
+        rating: 4.7,
+        total_ratings: 120,
+        is_verified: false,
+        location: {
+          latitude: userLocation ? userLocation.latitude + 0.01 : 28.6139,
+          longitude: userLocation ? userLocation.longitude + 0.01 : 77.209,
+        },
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: "fallback-2",
+        user_id: "user-2",
+        business_name: "Spice Garden",
+        image_url: "https://source.unsplash.com/random/300x300/?cooking",
+        bio: "Fresh ingredients, bold flavors, traditional recipes.",
+        specialty: "South Indian",
+        rating: 4.5,
+        total_ratings: 85,
+        is_verified: false,
+        location: {
+          latitude: userLocation ? userLocation.latitude - 0.01 : 28.6229,
+          longitude: userLocation ? userLocation.longitude - 0.01 : 77.2095,
+        },
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: "fallback-3",
+        user_id: "user-3",
+        business_name: "Health Bowl",
+        image_url: "https://source.unsplash.com/random/300x300/?food",
+        bio: "Nutritious, delicious, and health-conscious meals.",
+        specialty: "Healthy",
+        rating: 4.8,
+        total_ratings: 92,
+        is_verified: false,
+        location: {
+          latitude: userLocation ? userLocation.latitude + 0.02 : 28.6129,
+          longitude: userLocation ? userLocation.longitude + 0.02 : 77.2195,
+        },
+        created_at: new Date().toISOString(),
+      },
+    ];
+
+    // Calculate distance for fallback makers if userLocation is available
+    if (userLocation) {
+      return fallbackMakers.map((maker) => ({
+        ...maker,
+        distance: calculateDistance(
+          userLocation.latitude,
+          userLocation.longitude,
+          maker.location.latitude,
+          maker.location.longitude
+        ),
+      }));
+    }
+
+    return fallbackMakers;
+  };
+
+  // Fetch makers from the database
   const fetchMakers = async () => {
     setIsLoading(true);
     try {
-      console.log("Fetching makers from database...");
-
-      // Get makers from Supabase
-      const { data: makersData, error: makersError } = await supabase.from(
-        "makers"
-      ).select(`
-          id,
-          user_id,
-          business_name,
-          bio,
-          specialty,
-          rating,
-          total_ratings,
-          is_verified,
-          location,
-          created_at,
+      // Query makers with their associated users' info
+      const { data, error } = await supabase
+        .from("makers")
+        .select(
+          `
+          *,
           users:user_id (
+            name,
+            phone_number,
             image_url
           )
-        `);
+        `
+        )
+        .limit(50); // No is_verified filter to avoid errors
 
-      if (makersError) {
-        throw makersError;
+      if (error) {
+        console.error("Error fetching makers:", error);
+        setMakers(getFallbackMakers());
+        setFilteredMakers(getFallbackMakers());
+        return;
       }
 
-      // Process makers if data exists
-      if (makersData && makersData.length > 0) {
-        console.log(`Loaded ${makersData.length} makers from database`);
+      if (data && data.length > 0) {
+        // Process and calculate distance
+        const processedMakers = data.map((maker) => {
+          // For each maker, extract user data and combine with maker data
+          const makerData: Maker = {
+            id: maker.id,
+            user_id: maker.user_id,
+            business_name:
+              maker.business_name || maker.users?.name || "Home Chef",
+            bio: maker.bio,
+            specialty: maker.specialty,
+            rating: maker.rating || 0,
+            total_ratings: maker.total_ratings || 0,
+            location: maker.location,
+            created_at: maker.created_at,
+            // Use user's image if available
+            image_url: maker.users?.image_url || null,
+            is_verified: false, // Default to false since column doesn't exist
+          };
 
-        // Transform the data to match our Maker interface
-        const makers: Maker[] = makersData.map((maker) => ({
-          id: maker.id,
-          user_id: maker.user_id,
-          business_name: maker.business_name,
-          image_url:
-            maker.users && Array.isArray(maker.users) && maker.users[0]
-              ? maker.users[0].image_url
-              : undefined,
-          bio: maker.bio,
-          specialty: maker.specialty,
-          rating: maker.rating || 0,
-          total_ratings: maker.total_ratings || 0,
-          is_verified: maker.is_verified || false,
-          location: maker.location,
-          created_at: maker.created_at,
-          // Calculate distance if we have both user location and maker location
-          distance:
-            userLocation && maker.location
-              ? calculateDistance(
-                  userLocation.latitude,
-                  userLocation.longitude,
-                  maker.location.latitude,
-                  maker.location.longitude
-                )
-              : undefined,
-        }));
-
-        setMakers(makers);
-        setFilteredMakers(makers);
-      } else {
-        console.log("No makers found in database, using fallback data");
-        // Use fallback data if no makers found
-        const fallbackMakers: Maker[] = [
-          {
-            id: "1",
-            user_id: "user-1",
-            business_name: "Homestyle Kitchen",
-            image_url: "https://source.unsplash.com/random/300x300/?chef",
-            bio: "Specializing in authentic home-cooked meals with love.",
-            specialty: "North Indian",
-            rating: 4.7,
-            total_ratings: 120,
-            is_verified: true,
-            location: {
-              latitude: userLocation ? userLocation.latitude + 0.01 : 28.6139,
-              longitude: userLocation ? userLocation.longitude + 0.01 : 77.209,
-            },
-            created_at: new Date().toISOString(),
-            distance: 1.5,
-          },
-          {
-            id: "2",
-            user_id: "user-2",
-            business_name: "Spice Garden",
-            image_url: "https://source.unsplash.com/random/300x300/?cooking",
-            bio: "Fresh ingredients, bold flavors, traditional recipes.",
-            specialty: "South Indian",
-            rating: 4.5,
-            total_ratings: 85,
-            is_verified: true,
-            location: {
-              latitude: userLocation ? userLocation.latitude - 0.01 : 28.6229,
-              longitude: userLocation ? userLocation.longitude - 0.01 : 77.2095,
-            },
-            created_at: new Date().toISOString(),
-            distance: 2.3,
-          },
-          {
-            id: "3",
-            user_id: "user-3",
-            business_name: "Health Bowl",
-            image_url: "https://source.unsplash.com/random/300x300/?food",
-            bio: "Nutritious, delicious, and health-conscious meals.",
-            specialty: "Healthy",
-            rating: 4.8,
-            total_ratings: 92,
-            is_verified: false,
-            location: {
-              latitude: userLocation ? userLocation.latitude + 0.02 : 28.6129,
-              longitude: userLocation ? userLocation.longitude + 0.02 : 77.2195,
-            },
-            created_at: new Date().toISOString(),
-            distance: 3.1,
-          },
-        ];
-
-        // Calculate distance for fallback makers if userLocation is available
-        if (userLocation) {
-          fallbackMakers.forEach((maker) => {
-            maker.distance = calculateDistance(
+          // Calculate distance if user location is available
+          if (userLocation && maker.location) {
+            makerData.distance = calculateDistance(
               userLocation.latitude,
               userLocation.longitude,
               maker.location.latitude,
               maker.location.longitude
             );
-          });
-        }
+          }
 
-        setMakers(fallbackMakers);
-        setFilteredMakers(fallbackMakers);
+          return makerData;
+        });
+
+        setMakers(processedMakers);
+        setFilteredMakers(processedMakers);
+      } else {
+        // Use fallback data if no real data is available
+        setMakers(getFallbackMakers());
+        setFilteredMakers(getFallbackMakers());
       }
     } catch (error) {
-      console.error("Error fetching makers:", error);
-      Alert.alert("Error", "Failed to load makers. Please try again.");
-
-      // Use fallback data in case of error
-      const fallbackMakers: Maker[] = [
-        {
-          id: "1",
-          user_id: "user-1",
-          business_name: "Homestyle Kitchen",
-          image_url: "https://source.unsplash.com/random/300x300/?chef",
-          bio: "Specializing in authentic home-cooked meals with love.",
-          specialty: "North Indian",
-          rating: 4.7,
-          total_ratings: 120,
-          is_verified: true,
-          location: {
-            latitude: userLocation ? userLocation.latitude + 0.01 : 28.6139,
-            longitude: userLocation ? userLocation.longitude + 0.01 : 77.209,
-          },
-          created_at: new Date().toISOString(),
-          distance: 1.5,
-        },
-        {
-          id: "2",
-          user_id: "user-2",
-          business_name: "Spice Garden",
-          image_url: "https://source.unsplash.com/random/300x300/?cooking",
-          bio: "Fresh ingredients, bold flavors, traditional recipes.",
-          specialty: "South Indian",
-          rating: 4.5,
-          total_ratings: 85,
-          is_verified: true,
-          location: {
-            latitude: userLocation ? userLocation.latitude - 0.01 : 28.6229,
-            longitude: userLocation ? userLocation.longitude - 0.01 : 77.2095,
-          },
-          created_at: new Date().toISOString(),
-          distance: 2.3,
-        },
-      ];
-
-      // Calculate distance for fallback makers if userLocation is available
-      if (userLocation) {
-        fallbackMakers.forEach((maker) => {
-          maker.distance = calculateDistance(
-            userLocation.latitude,
-            userLocation.longitude,
-            maker.location.latitude,
-            maker.location.longitude
-          );
-        });
-      }
-
-      setMakers(fallbackMakers);
-      setFilteredMakers(fallbackMakers);
+      console.error("Error in fetchMakers:", error);
+      setMakers(getFallbackMakers());
+      setFilteredMakers(getFallbackMakers());
     } finally {
       setIsLoading(false);
     }
@@ -355,36 +331,6 @@ export default function MakerSelectionSetupScreen() {
     }
 
     setFilteredMakers(filtered);
-  };
-
-  // Calculate distance between two coordinates
-  const calculateDistance = (
-    lat1?: number,
-    lon1?: number,
-    lat2?: number,
-    lon2?: number
-  ): number => {
-    if (!lat1 || !lon1 || !lat2 || !lon2) return 0;
-
-    // Haversine formula to calculate distance between two points
-    const R = 6371; // Radius of the earth in km
-    const dLat = deg2rad(lat2 - lat1);
-    const dLon = deg2rad(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(deg2rad(lat1)) *
-        Math.cos(deg2rad(lat2)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const d = R * c; // Distance in km
-
-    return Math.round(d * 10) / 10; // Round to 1 decimal place
-  };
-
-  // Convert degrees to radians
-  const deg2rad = (deg: number): number => {
-    return deg * (Math.PI / 180);
   };
 
   // Handle filter selection

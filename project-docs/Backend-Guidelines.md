@@ -157,9 +157,19 @@ id (UUID, primary key)
 
 user_id (UUID, foreign key to users.id)
 
+business_name (varchar, nullable)
+
+bio (text, nullable) - Chef's bio/description for customer display
+
 rating (numeric)
 
+total_ratings (integer)
+
 location (json: latitude, longitude)
+
+is_verified (boolean, default false) - Whether the maker is verified by admin
+
+specialty (varchar, nullable) - Chef's specialty/cuisine type
 
 strike_count (integer)
 

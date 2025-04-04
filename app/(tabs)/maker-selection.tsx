@@ -107,40 +107,58 @@ export default function MakerSelectionScreen() {
     }
   };
 
-  // Fetch makers from Supabase
+  // Fetch makers from the database
   const fetchMakers = async () => {
     setIsLoading(true);
     try {
+      // Query makers table
       const { data, error } = await supabase
         .from("makers")
-        .select("*")
-        .eq("is_verified", true);
+        .select(
+          `
+          *,
+          users:user_id (
+            name,
+            phone_number,
+            image_url
+          )
+        `
+        )
+        // Don't filter by is_verified since it doesn't exist
+        .limit(50);
 
-      if (error) {
-        console.error("Error fetching makers:", error);
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        // Process and calculate distance
+        const processedMakers = data.map((maker) => {
+          // Calculate distance if we have user location and maker location
+          const distance =
+            userLocation && maker.location
+              ? calculateDistance(
+                  userLocation?.latitude,
+                  userLocation?.longitude,
+                  maker.location?.latitude,
+                  maker.location?.longitude
+                )
+              : undefined;
+
+          return {
+            ...maker,
+            distance,
+          };
+        });
+
+        setMakers(processedMakers);
+        setFilteredMakers(processedMakers);
+      } else {
+        // Use empty array if no makers found
         setMakers([]);
         setFilteredMakers([]);
-        return;
       }
-
-      // Calculate distance if user location is available
-      let processedMakers = data || [];
-      if (userLocation) {
-        processedMakers = processedMakers.map((maker) => ({
-          ...maker,
-          distance: calculateDistance(
-            userLocation.latitude,
-            userLocation.longitude,
-            maker.location?.latitude,
-            maker.location?.longitude
-          ),
-        }));
-      }
-
-      setMakers(processedMakers);
-      setFilteredMakers(processedMakers);
     } catch (error) {
       console.error("Error fetching makers:", error);
+      // Use empty array in case of error
       setMakers([]);
       setFilteredMakers([]);
     } finally {
@@ -348,8 +366,8 @@ export default function MakerSelectionScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
+    <SafeAreaView style={[styles.container, { backgroundColor: "white" }]}>
+      <StatusBar style="dark" />
 
       {/* Header */}
       <View style={styles.headerContainer}>
@@ -518,7 +536,7 @@ export default function MakerSelectionScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "white",
   },
   headerContainer: {
     paddingHorizontal: 20,

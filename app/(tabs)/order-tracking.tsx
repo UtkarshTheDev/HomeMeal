@@ -100,38 +100,47 @@ export default function OrderTrackingScreen() {
     }
   }, [activeOrder]);
 
-  // Fetch the user's active order (most recent non-delivered order)
+  // Fetch the active order for the user
   const fetchActiveOrder = async () => {
-    if (!user) return;
-
     setIsLoading(true);
+
     try {
-      // Query for the most recent active order
+      if (!user) return;
+
+      // Query to get the active order with maker and delivery details
       const { data, error } = await supabase
         .from("orders")
         .select(
           `
           *,
-          maker_details:maker_id(business_name, profile_image_url, phone),
-          delivery_boy_details:delivery_boy_id(name, profile_image_url, phone, vehicle_type)
+          maker_details:makers!maker_id(
+            id,
+            user_id,
+            users:user_id(name, phone_number, image_url),
+            business_name
+          ),
+          delivery_details:delivery_boy_id(
+            id, 
+            users!user_id(name, phone_number, image_url)
+          )
         `
         )
         .eq("user_id", user.id)
-        .not("status", "in", '("delivered","cancelled")')
+        .eq("status", "in_progress")
         .order("created_at", { ascending: false })
-        .limit(1);
+        .limit(1)
+        .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error fetching active order:", error);
+        return;
+      }
 
-      if (data && data.length > 0) {
-        setActiveOrder(data[0]);
+      if (data) {
+        setActiveOrder(data);
       }
     } catch (error) {
-      console.error("Error fetching active order:", error);
-      Alert.alert(
-        "Error",
-        "Failed to load your active order. Please try again."
-      );
+      console.error("Exception fetching active order:", error);
     } finally {
       setIsLoading(false);
     }
@@ -430,7 +439,7 @@ export default function OrderTrackingScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: "white" }]}>
       <StatusBar style="dark" />
 
       <View style={styles.header}>
@@ -518,7 +527,7 @@ export default function OrderTrackingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "white",
   },
   loadingContainer: {
     flex: 1,

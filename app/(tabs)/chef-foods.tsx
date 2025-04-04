@@ -9,6 +9,8 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
+  SafeAreaView,
+  StyleSheet,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { FontAwesome, MaterialIcons } from "@expo/vector-icons";
@@ -224,8 +226,13 @@ export default function ChefFoodsScreen() {
   }
 
   return (
-    <View className="flex-1 bg-white">
+    <SafeAreaView style={[styles.container, { backgroundColor: "white" }]}>
       <StatusBar style="dark" />
+
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>My Foods</Text>
+      </View>
 
       <View className="px-4 pt-12 pb-4 bg-white">
         <Text className="text-2xl font-bold text-text-primary mb-2">
@@ -383,6 +390,22 @@ export default function ChefFoodsScreen() {
           </View>
         }
       />
-    </View>
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "white",
+  },
+  header: {
+    padding: 20,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#333333",
+  },
+  // ... rest of the styles ...
+});

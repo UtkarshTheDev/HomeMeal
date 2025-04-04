@@ -326,6 +326,30 @@ Created role-specific dashboards using bottom tab navigation with distinct tabs 
 _Status: [✓] DONE_
 Implemented food selection screens including FoodItem component, ChefFoodCard, and the chef-foods.tsx screen. Added functionality for makers to browse, search, filter, and select foods from the catalog. Updated authentication to correctly map UI "Chef" role to database "maker" role. Enhanced image handling with robust fallback mechanisms using utility functions in imageHelpers.ts, ensuring proper display of food images from the admin-managed catalog.
 
+### Step 12.1: Enhanced Maker Profile with Bio Field
+
+- **Task:** Add a bio field for makers to describe themselves and their cooking style.
+- **How to Do It:**
+  1. Add a new column named `bio` of type TEXT to the makers table.
+  2. Update the profile setup screen to include a bio input field only for users selecting the maker role.
+  3. Implement storage and retrieval of bio information for maker profiles.
+  4. Display the bio information in the maker details screen for customers.
+
+_Status: [✓] DONE_
+Added `bio` column to the makers table. Implemented a modern, styled text input in the profile setup screen that conditionally appears only for users selecting the maker role. Updated the saveProfile function to store the bio in the makers table. Added display of bio information in maker profile views. Created documentation in Maker-Bio-Implementation.md explaining the implementation details.
+
+### Step 12.2: Food Images Storage Integration
+
+- **Task:** Link food images to specific foods in the database using Supabase storage bucket.
+- **How to Do It:**
+  1. Create a Supabase storage bucket for food images.
+  2. Implement image upload to store food images in the bucket.
+  3. Store the Supabase storage URL in the food's image_url field.
+  4. Update image retrieval to fetch images from the Supabase storage bucket.
+
+_Status: [✓] DONE_
+Created a structured approach for storing food images in Supabase storage with a consistent naming convention. Implemented utility functions for uploading and retrieving food images. Updated food creation and editing screens to use the Supabase storage bucket. Documented the implementation in Food-Images-Storage.md with code examples and migration steps for existing data.
+
 ---
 
 ## Phase 6: Order Management System

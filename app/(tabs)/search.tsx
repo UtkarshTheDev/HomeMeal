@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   ScrollView,
+  SafeAreaView,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { FontAwesome, MaterialIcons } from "@expo/vector-icons";
@@ -166,8 +167,12 @@ export default function SearchScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: "white" }]}>
       <StatusBar style="dark" />
+
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Search</Text>
+      </View>
 
       <View style={styles.header}>
         <Text style={styles.title}>Search Foods</Text>
@@ -368,14 +373,14 @@ export default function SearchScreen() {
           </View>
         }
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "white",
   },
   loadingContainer: {
     flex: 1,
@@ -389,12 +394,12 @@ const styles = StyleSheet.create({
     color: "#666666",
   },
   header: {
-    paddingHorizontal: 16,
-    paddingTop: 60,
-    paddingBottom: 16,
-    backgroundColor: "#FFFFFF",
-    borderBottomWidth: 1,
-    borderBottomColor: "#F1F1F1",
+    padding: 20,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#333333",
   },
   title: {
     fontSize: 24,

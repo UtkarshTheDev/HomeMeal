@@ -7,6 +7,7 @@ import {
   FlatList,
   ScrollView,
   Alert,
+  StyleSheet,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -152,14 +153,15 @@ export default function OrdersScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-white">
+    <SafeAreaView style={[styles.container, { backgroundColor: "white" }]}>
       <StatusBar style="dark" />
 
-      <View className="px-5 pt-2 pb-4">
-        <Text className="text-2xl font-bold text-text-primary mb-2">
-          Your Orders
-        </Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Your Orders</Text>
+      </View>
 
+      <View className="px-5 pt-2 pb-4">
         {/* Tabs */}
         <View className="flex-row bg-gray-100 rounded-xl p-1 mt-2">
           {["Ongoing", "Past"].map((tab) => (
@@ -297,3 +299,18 @@ export default function OrdersScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "white",
+  },
+  header: {
+    padding: 20,
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "text-primary",
+  },
+});

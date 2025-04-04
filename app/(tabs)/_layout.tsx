@@ -19,6 +19,12 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
   const { userRole, isLoading } = useAuth();
 
+  // Common options for all tab screens
+  const commonScreenOptions = {
+    headerStyle: { backgroundColor: "#FFFFFF" },
+    headerShown: false,
+  };
+
   return (
     <Tabs
       screenOptions={{
@@ -30,6 +36,7 @@ export default function TabLayout() {
               height: 60,
               paddingBottom: 10,
               paddingTop: 5,
+              backgroundColor: "#FFFFFF", // Explicitly set white background
             },
         headerShown: false,
       }}
@@ -39,6 +46,7 @@ export default function TabLayout() {
         options={{
           title: "Home",
           tabBarIcon: ({ color }) => <TabBarIcon name="home" color={color} />,
+          ...commonScreenOptions,
         }}
       />
 
@@ -47,6 +55,7 @@ export default function TabLayout() {
         options={{
           title: "Search",
           tabBarIcon: ({ color }) => <TabBarIcon name="search" color={color} />,
+          ...commonScreenOptions,
         }}
       />
 
@@ -60,6 +69,7 @@ export default function TabLayout() {
           ),
           // Only show this tab for chef/maker role users
           href: userRole === "maker" ? "/chef-foods" : null,
+          ...commonScreenOptions,
         }}
       />
 
@@ -73,9 +83,11 @@ export default function TabLayout() {
           ),
           // Only show this tab for customer role users
           href: userRole === "customer" ? "/meal-plans" : null,
+          ...commonScreenOptions,
         }}
       />
 
+      {/* Show 'Create Plan' tab only for customers */}
       <Tabs.Screen
         name="create-meal-plan"
         options={{
@@ -83,6 +95,9 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => (
             <TabBarIcon name="plus-square" color={color} />
           ),
+          // Only show this tab for customer role users
+          href: userRole === "customer" ? "/create-meal-plan" : null,
+          ...commonScreenOptions,
         }}
       />
 
@@ -91,6 +106,7 @@ export default function TabLayout() {
         options={{
           title: "Orders",
           tabBarIcon: ({ color }) => <TabBarIcon name="list" color={color} />,
+          ...commonScreenOptions,
         }}
       />
 
@@ -99,6 +115,7 @@ export default function TabLayout() {
         options={{
           title: "Profile",
           tabBarIcon: ({ color }) => <TabBarIcon name="user" color={color} />,
+          ...commonScreenOptions,
         }}
       />
     </Tabs>

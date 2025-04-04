@@ -378,7 +378,7 @@ export default function CreateMealPlanScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: "white" }]}>
       <StatusBar style="dark" />
 
       <View style={styles.header}>
@@ -560,7 +560,7 @@ export default function CreateMealPlanScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "white",
   },
   header: {
     paddingHorizontal: 20,

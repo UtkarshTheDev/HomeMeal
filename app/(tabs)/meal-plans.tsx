@@ -277,14 +277,23 @@ export default function MealPlansScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: "white" }]}>
       <StatusBar style="dark" />
 
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Meal Plans</Text>
-        <Text style={styles.headerSubtitle}>Manage your weekly meal plans</Text>
-      </View>
+      <Animated.View
+        entering={FadeInUp.duration(500)}
+        style={[styles.header, { paddingTop: insets.top > 0 ? 0 : 20 }]}
+      >
+        <LinearGradient
+          colors={["#FF6B00", "#FFAD00"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.headerGradient}
+        >
+          <Text style={styles.headerTitle}>Your Meal Plans</Text>
+        </LinearGradient>
+      </Animated.View>
 
       {isLoading ? (
         <View style={styles.loadingContainer}>
@@ -336,7 +345,7 @@ export default function MealPlansScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: "white",
   },
   header: {
     paddingHorizontal: 20,
@@ -544,5 +553,10 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",
+  },
+  headerGradient: {
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 16,
   },
 });

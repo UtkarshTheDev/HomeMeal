@@ -7,6 +7,8 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  SafeAreaView,
+  StyleSheet,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { router } from "expo-router";
@@ -159,163 +161,173 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView className="flex-1 bg-white">
+    <SafeAreaView style={[styles.container, { backgroundColor: "white" }]}>
       <StatusBar style="dark" />
 
-      <View className="pt-12 pb-6 px-5 bg-primary rounded-b-3xl">
-        <Text className="text-white text-2xl font-bold mb-6">My Profile</Text>
+      <ScrollView className="flex-1 bg-white">
+        <View className="pt-12 pb-6 px-5 bg-primary rounded-b-3xl">
+          <Text className="text-white text-2xl font-bold mb-6">My Profile</Text>
 
-        <View className="items-center">
-          <View className="relative mb-4">
-            {updatingProfile ? (
-              <View className="w-28 h-28 rounded-full bg-gray-200 justify-center items-center">
-                <ActivityIndicator color="#ffffff" />
-              </View>
-            ) : (
-              <>
-                <Image
-                  source={
-                    userData.profileImage
-                      ? { uri: userData.profileImage }
-                      : require("@/assets/images/logo.png")
-                  }
-                  className="w-28 h-28 rounded-full bg-white"
-                />
-                <TouchableOpacity
-                  onPress={pickImage}
-                  className="absolute bottom-0 right-0 bg-white w-8 h-8 rounded-full justify-center items-center border border-gray-200"
-                >
-                  <FontAwesome name="camera" size={16} color="#FF6B00" />
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-          <Text className="text-white text-xl font-bold mb-1">
-            {userData.name || "Set Your Name"}
-          </Text>
-          <Text className="text-white opacity-80 mb-2">
-            {userData.role === "customer"
-              ? "Customer"
-              : userData.role === "maker"
-              ? "Home Chef"
-              : "Delivery Partner"}
-          </Text>
-        </View>
-      </View>
-
-      <View className="p-5">
-        <View className="bg-gray-50 rounded-xl p-5 mb-6">
-          <Text className="text-text-secondary mb-4 uppercase text-xs font-bold">
-            Account Information
-          </Text>
-
-          <View className="mb-4">
-            <Text className="text-text-tertiary text-sm mb-1">Name</Text>
-            <Text className="text-text-primary text-base">
-              {userData.name || "Not set"}
+          <View className="items-center">
+            <View className="relative mb-4">
+              {updatingProfile ? (
+                <View className="w-28 h-28 rounded-full bg-gray-200 justify-center items-center">
+                  <ActivityIndicator color="#ffffff" />
+                </View>
+              ) : (
+                <>
+                  <Image
+                    source={
+                      userData.profileImage
+                        ? { uri: userData.profileImage }
+                        : require("@/assets/images/logo.png")
+                    }
+                    className="w-28 h-28 rounded-full bg-white"
+                  />
+                  <TouchableOpacity
+                    onPress={pickImage}
+                    className="absolute bottom-0 right-0 bg-white w-8 h-8 rounded-full justify-center items-center border border-gray-200"
+                  >
+                    <FontAwesome name="camera" size={16} color="#FF6B00" />
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+            <Text className="text-white text-xl font-bold mb-1">
+              {userData.name || "Set Your Name"}
             </Text>
-          </View>
-
-          <View className="mb-4">
-            <Text className="text-text-tertiary text-sm mb-1">
-              Phone Number
-            </Text>
-            <Text className="text-text-primary text-base">
-              {userData.phone}
-            </Text>
-          </View>
-
-          <View className="mb-4">
-            <Text className="text-text-tertiary text-sm mb-1">Email</Text>
-            <Text className="text-text-primary text-base">
-              {userData.email || "Not set"}
+            <Text className="text-white opacity-80 mb-2">
+              {userData.role === "customer"
+                ? "Customer"
+                : userData.role === "maker"
+                ? "Home Chef"
+                : "Delivery Partner"}
             </Text>
           </View>
         </View>
 
-        <View className="mb-5">
-          <TouchableOpacity
-            className="flex-row items-center p-4 bg-gray-50 rounded-xl mb-3"
-            onPress={() =>
-              Alert.alert("Coming Soon", "This feature is coming soon!")
-            }
-          >
-            <FontAwesome name="credit-card" size={20} color="#333" />
-            <Text className="text-text-primary text-base ml-3">
-              Payment Methods
+        <View className="p-5">
+          <View className="bg-gray-50 rounded-xl p-5 mb-6">
+            <Text className="text-text-secondary mb-4 uppercase text-xs font-bold">
+              Account Information
             </Text>
-            <FontAwesome
-              name="chevron-right"
-              size={16}
-              color="#999"
-              style={{ marginLeft: "auto" }}
-            />
-          </TouchableOpacity>
+
+            <View className="mb-4">
+              <Text className="text-text-tertiary text-sm mb-1">Name</Text>
+              <Text className="text-text-primary text-base">
+                {userData.name || "Not set"}
+              </Text>
+            </View>
+
+            <View className="mb-4">
+              <Text className="text-text-tertiary text-sm mb-1">
+                Phone Number
+              </Text>
+              <Text className="text-text-primary text-base">
+                {userData.phone}
+              </Text>
+            </View>
+
+            <View className="mb-4">
+              <Text className="text-text-tertiary text-sm mb-1">Email</Text>
+              <Text className="text-text-primary text-base">
+                {userData.email || "Not set"}
+              </Text>
+            </View>
+          </View>
+
+          <View className="mb-5">
+            <TouchableOpacity
+              className="flex-row items-center p-4 bg-gray-50 rounded-xl mb-3"
+              onPress={() =>
+                Alert.alert("Coming Soon", "This feature is coming soon!")
+              }
+            >
+              <FontAwesome name="credit-card" size={20} color="#333" />
+              <Text className="text-text-primary text-base ml-3">
+                Payment Methods
+              </Text>
+              <FontAwesome
+                name="chevron-right"
+                size={16}
+                color="#999"
+                style={{ marginLeft: "auto" }}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              className="flex-row items-center p-4 bg-gray-50 rounded-xl mb-3"
+              onPress={() =>
+                Alert.alert("Coming Soon", "This feature is coming soon!")
+              }
+            >
+              <FontAwesome name="heart" size={20} color="#333" />
+              <Text className="text-text-primary text-base ml-3">
+                Favorite Meals
+              </Text>
+              <FontAwesome
+                name="chevron-right"
+                size={16}
+                color="#999"
+                style={{ marginLeft: "auto" }}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              className="flex-row items-center p-4 bg-gray-50 rounded-xl mb-3"
+              onPress={() =>
+                Alert.alert("Coming Soon", "This feature is coming soon!")
+              }
+            >
+              <FontAwesome name="cog" size={20} color="#333" />
+              <Text className="text-text-primary text-base ml-3">Settings</Text>
+              <FontAwesome
+                name="chevron-right"
+                size={16}
+                color="#999"
+                style={{ marginLeft: "auto" }}
+              />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              className="flex-row items-center p-4 bg-gray-50 rounded-xl"
+              onPress={() =>
+                Alert.alert("Coming Soon", "This feature is coming soon!")
+              }
+            >
+              <FontAwesome name="question-circle" size={20} color="#333" />
+              <Text className="text-text-primary text-base ml-3">
+                Help & Support
+              </Text>
+              <FontAwesome
+                name="chevron-right"
+                size={16}
+                color="#999"
+                style={{ marginLeft: "auto" }}
+              />
+            </TouchableOpacity>
+          </View>
 
           <TouchableOpacity
-            className="flex-row items-center p-4 bg-gray-50 rounded-xl mb-3"
-            onPress={() =>
-              Alert.alert("Coming Soon", "This feature is coming soon!")
-            }
+            className="bg-red-50 py-4 rounded-xl items-center"
+            onPress={handleSignOut}
           >
-            <FontAwesome name="heart" size={20} color="#333" />
-            <Text className="text-text-primary text-base ml-3">
-              Favorite Meals
-            </Text>
-            <FontAwesome
-              name="chevron-right"
-              size={16}
-              color="#999"
-              style={{ marginLeft: "auto" }}
-            />
+            <Text className="text-red-500 font-bold">Sign Out</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            className="flex-row items-center p-4 bg-gray-50 rounded-xl mb-3"
-            onPress={() =>
-              Alert.alert("Coming Soon", "This feature is coming soon!")
-            }
-          >
-            <FontAwesome name="cog" size={20} color="#333" />
-            <Text className="text-text-primary text-base ml-3">Settings</Text>
-            <FontAwesome
-              name="chevron-right"
-              size={16}
-              color="#999"
-              style={{ marginLeft: "auto" }}
-            />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            className="flex-row items-center p-4 bg-gray-50 rounded-xl"
-            onPress={() =>
-              Alert.alert("Coming Soon", "This feature is coming soon!")
-            }
-          >
-            <FontAwesome name="question-circle" size={20} color="#333" />
-            <Text className="text-text-primary text-base ml-3">
-              Help & Support
-            </Text>
-            <FontAwesome
-              name="chevron-right"
-              size={16}
-              color="#999"
-              style={{ marginLeft: "auto" }}
-            />
-          </TouchableOpacity>
+          <Text className="text-text-tertiary text-center text-xs mt-6">
+            HomeMeal v1.0.0
+          </Text>
         </View>
-
-        <TouchableOpacity
-          className="bg-red-50 py-4 rounded-xl items-center"
-          onPress={handleSignOut}
-        >
-          <Text className="text-red-500 font-bold">Sign Out</Text>
-        </TouchableOpacity>
-
-        <Text className="text-text-tertiary text-center text-xs mt-6">
-          HomeMeal v1.0.0
-        </Text>
-      </View>
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "white",
+  },
+  // ... rest of the styles ...
+});

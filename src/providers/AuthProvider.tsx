@@ -118,27 +118,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
-  // Function to fetch user details including role
+  // Fetch user details from the users table
   const fetchUserDetails = async (
     userId: string
   ): Promise<UserDetails | null> => {
     try {
+      // Use maybeSingle() instead of single() to handle the case when no user is found
       const { data, error } = await supabase
         .from("users")
         .select("*")
         .eq("id", userId)
-        .single();
+        .maybeSingle();
 
       if (error) {
         console.error("Error fetching user details:", error);
         return null;
       }
 
-      // Ensure setup_status exists and is an object
-      if (!data.setup_status) {
-        data.setup_status = {};
+      // If no data is found, return null instead of throwing an error
+      if (!data) {
+        console.log("No user found with ID:", userId);
+        return null;
       }
 
+      // Type cast the data to UserDetails
       return data as UserDetails;
     } catch (error) {
       console.error("Exception fetching user details:", error);
@@ -301,7 +304,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // If not, fetch them
       if (!details) {
-        details = await fetchUserDetails(user.id);
+        try {
+          details = await fetchUserDetails(user.id);
+        } catch (fetchError) {
+          console.error("Error fetching user details:", fetchError);
+          // If there's a database error (like "column does not exist"), handle gracefully
+          return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
+        }
 
         // If still no details, handle as a new user
         if (!details) {
@@ -311,21 +320,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
           // Try to create a basic user record
           try {
-            const { error: insertError } = await supabase.from("users").insert({
-              id: user.id,
-              phone_number: user.phone || "",
-              setup_status: {},
-              created_at: new Date().toISOString(),
-            });
+            // Check if user already exists first to avoid duplicate key error
+            const { count, error: countError } = await supabase
+              .from("users")
+              .select("*", { count: "exact", head: true })
+              .eq("id", user.id);
 
-            // Whether insert succeeded or it was a duplicate key error, try to fetch again
-            if (!insertError || insertError.code === "23505") {
-              details = await fetchUserDetails(user.id);
+            if (countError) {
+              console.error("Error checking if user exists:", countError);
+              // If there's a database error, go to role selection
+              return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
+            }
+
+            // Only try to insert if user doesn't exist
+            if (!countError && count === 0) {
+              console.log("Creating new user with ID:", user.id);
+              const { error: insertError } = await supabase
+                .from("users")
+                .insert({
+                  id: user.id,
+                  phone_number: user.phone || "",
+                  setup_status: {},
+                  created_at: new Date().toISOString(),
+                });
+
+              if (insertError) {
+                console.error("Error creating user record:", insertError);
+                // If insert fails, go to role selection
+                return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
+              }
             } else {
-              console.error("Error creating user record:", insertError);
+              console.log("User already exists, not creating new record");
+            }
+
+            // Always try to fetch details again
+            try {
+              details = await fetchUserDetails(user.id);
+            } catch (reFetchError) {
+              console.error("Error re-fetching user details:", reFetchError);
+              // If fetch still fails, go to role selection
+              return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
             }
           } catch (createError) {
-            console.error("Error creating user record:", createError);
+            console.error("Error in user creation process:", createError);
+            // If there's any error in creation, go to role selection
+            return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
           }
 
           // If still no details after creation attempt, redirect to role selection
@@ -355,12 +394,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // Make sure setup_status is stored in the database if it doesn't exist
       if (!details.setup_status) {
-        await supabase
-          .from("users")
-          .update({ setup_status: {} })
-          .eq("id", user.id);
+        try {
+          await supabase
+            .from("users")
+            .update({ setup_status: {} })
+            .eq("id", user.id);
 
-        setupStatus = {};
+          setupStatus = {};
+        } catch (updateError) {
+          console.error("Error updating setup_status:", updateError);
+          // Continue with empty setup status if update fails
+          setupStatus = {};
+        }
       }
 
       // Sequential check for completion of each onboarding step based on setup_status
@@ -438,7 +483,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // Create wallet if needed (regardless of completed status)
       if (details.role) {
-        await createUserWallet(user.id);
+        try {
+          await createUserWallet(user.id);
+        } catch (walletError) {
+          console.error("Error creating wallet:", walletError);
+          // Continue even if wallet creation fails
+        }
       }
 
       // User has completed all onboarding steps

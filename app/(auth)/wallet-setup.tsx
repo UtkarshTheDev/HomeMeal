@@ -43,7 +43,7 @@ const PAYMENT_METHODS = [
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000];
 
 // Developer cheat code
-const DEV_CHEAT_CODE = "homemeal2024";
+const DEV_CHEAT_CODE = "homemeal2025";
 
 export default function WalletSetupScreen() {
   const { user, updateSetupStatus } = useAuth();
