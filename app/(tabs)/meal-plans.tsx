@@ -41,25 +41,53 @@ interface MealPlan {
   name: string;
   weekdays: string[];
   created_at: string;
-  total_price: number;
-  meal_items: {
-    breakfast: number;
-    lunch: number;
-    dinner: number;
+  created_by: string;
+  foods: string[];
+  meal_type: string;
+  meal_items?: {
+    [key: string]: number;
   };
   thumbnail_url?: string;
 }
 
-// Define weekday options with icons
+// Define weekday options with icons and full names
 const weekdayOptions = [
-  { id: "monday", name: "Mon", icon: "calendar-outline" },
-  { id: "tuesday", name: "Tue", icon: "calendar-outline" },
-  { id: "wednesday", name: "Wed", icon: "calendar-outline" },
-  { id: "thursday", name: "Thu", icon: "calendar-outline" },
-  { id: "friday", name: "Fri", icon: "calendar-outline" },
-  { id: "saturday", name: "Sat", icon: "calendar-outline" },
-  { id: "sunday", name: "Sun", icon: "calendar-outline" },
+  {
+    id: "monday",
+    name: "Mon",
+    fullName: "Monday",
+    icon: "calendar-monday-outline",
+  },
+  { id: "tuesday", name: "Tue", fullName: "Tuesday", icon: "calendar-outline" },
+  {
+    id: "wednesday",
+    name: "Wed",
+    fullName: "Wednesday",
+    icon: "calendar-outline",
+  },
+  {
+    id: "thursday",
+    name: "Thu",
+    fullName: "Thursday",
+    icon: "calendar-outline",
+  },
+  { id: "friday", name: "Fri", fullName: "Friday", icon: "calendar-outline" },
+  {
+    id: "saturday",
+    name: "Sat",
+    fullName: "Saturday",
+    icon: "calendar-outline",
+  },
+  { id: "sunday", name: "Sun", fullName: "Sunday", icon: "calendar-outline" },
 ];
+
+// Meal type icons and colors mapping
+const mealTypeInfo = {
+  breakfast: { icon: "sunny-outline", color: "#FF9500" },
+  lunch: { icon: "restaurant-outline", color: "#FF6B00" },
+  dinner: { icon: "moon-outline", color: "#5856D6" },
+  snacks: { icon: "cafe-outline", color: "#34C759" },
+};
 
 export default function MealPlansScreen() {
   const { supabase } = useSupabase();
@@ -67,9 +95,19 @@ export default function MealPlansScreen() {
   const insets = useSafeAreaInsets();
   const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedPlan, setSelectedPlan] = useState<MealPlan | null>(null);
+  const [showDetails, setShowDetails] = useState(false);
+  const [mealItemCounts, setMealItemCounts] = useState<
+    Record<string, Record<string, number>>
+  >({});
+  const [editingWeekdays, setEditingWeekdays] = useState<boolean>(false);
+  const [selectedPlanWeekdays, setSelectedPlanWeekdays] = useState<string[]>(
+    []
+  );
 
   // Animation values
   const addButtonScale = useSharedValue(1);
+  const detailsSheetY = useSharedValue(1000);
 
   // Fetch meal plans when component mounts
   useEffect(() => {
@@ -82,17 +120,48 @@ export default function MealPlansScreen() {
 
     setIsLoading(true);
     try {
+      // Fetch meals from the meals table
       const { data, error } = await supabase
-        .from("meal_plans")
+        .from("meals")
         .select("*")
-        .eq("user_id", user.id)
+        .eq("created_by", user.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
 
-      // Transform data if needed
+      // Format the meal plans data
       const formattedMealPlans: MealPlan[] = data || [];
+
       setMealPlans(formattedMealPlans);
+
+      // Fetch meal item counts for each meal plan
+      await Promise.all(
+        formattedMealPlans.map(async (plan) => {
+          try {
+            const { data: itemsData, error: itemsError } = await supabase
+              .from("meal_plan_items")
+              .select("meal_type, food_id")
+              .eq("meal_id", plan.id);
+
+            if (itemsError) throw itemsError;
+
+            // Count items by meal type
+            const counts: Record<string, number> = {};
+            itemsData?.forEach((item) => {
+              const mealType = item.meal_type || "other";
+              counts[mealType] = (counts[mealType] || 0) + 1;
+            });
+
+            // Update the meal item counts
+            setMealItemCounts((prev) => ({
+              ...prev,
+              [plan.id]: counts,
+            }));
+          } catch (countError) {
+            console.error("Error fetching meal item counts:", countError);
+          }
+        })
+      );
     } catch (error) {
       console.error("Error fetching meal plans:", error);
       Alert.alert("Error", "Could not load your meal plans. Please try again.");
@@ -113,16 +182,193 @@ export default function MealPlansScreen() {
     router.push(ROUTES.MEAL_CREATION as any);
   };
 
+  // Handle weekday selection for meal plan
+  const toggleWeekday = (weekdayId: string) => {
+    setSelectedPlanWeekdays((prev) => {
+      if (prev.includes(weekdayId)) {
+        // Prevent deselecting all days
+        if (prev.length <= 1) {
+          return prev;
+        }
+        // If already selected, remove it
+        return prev.filter((id) => id !== weekdayId);
+      } else {
+        // If not selected, add it
+        return [...prev, weekdayId];
+      }
+    });
+  };
+
+  // Save weekday selections to database
+  const saveWeekdaySelections = async () => {
+    if (!selectedPlan) return;
+
+    setIsLoading(true);
+
+    try {
+      const { error } = await supabase
+        .from("meals")
+        .update({ weekdays: selectedPlanWeekdays })
+        .eq("id", selectedPlan.id);
+
+      if (error) throw error;
+
+      // Update local state
+      setMealPlans((prevPlans) =>
+        prevPlans.map((plan) =>
+          plan.id === selectedPlan.id
+            ? { ...plan, weekdays: selectedPlanWeekdays }
+            : plan
+        )
+      );
+
+      // Update the selected plan in the details view
+      setSelectedPlan({
+        ...selectedPlan,
+        weekdays: selectedPlanWeekdays,
+      });
+
+      setEditingWeekdays(false);
+      Alert.alert("Success", "Meal plan days updated successfully");
+    } catch (error) {
+      console.error("Error updating meal plan days:", error);
+      Alert.alert(
+        "Error",
+        "Failed to update meal plan days. Please try again."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // View meal plan details
-  const handleViewMealPlan = (mealPlan: MealPlan) => {
-    // In a real app, navigate to a detail page with the meal plan ID
-    Alert.alert("View Meal Plan", `Viewing details for ${mealPlan.name}`);
+  const handleViewMealPlan = async (mealPlan: MealPlan) => {
+    setSelectedPlan(mealPlan);
+    setSelectedPlanWeekdays(mealPlan.weekdays || []);
+    setShowDetails(true);
+    setEditingWeekdays(false);
+
+    // Animate details sheet entry
+    detailsSheetY.value = withTiming(0, { duration: 300 });
+
+    // Fetch food items for this meal plan if needed
+    if (!mealItemCounts[mealPlan.id]) {
+      try {
+        const { data, error } = await supabase
+          .from("meal_plan_items")
+          .select("meal_type, food_id")
+          .eq("meal_id", mealPlan.id);
+
+        if (error) throw error;
+
+        // Count items by meal type
+        const counts: Record<string, number> = {};
+        data?.forEach((item) => {
+          const mealType = item.meal_type || "other";
+          counts[mealType] = (counts[mealType] || 0) + 1;
+        });
+
+        // Update the meal item counts
+        setMealItemCounts((prev) => ({
+          ...prev,
+          [mealPlan.id]: counts,
+        }));
+      } catch (error) {
+        console.error("Error fetching meal plan items:", error);
+      }
+    }
+  };
+
+  // Close meal plan details
+  const handleCloseDetails = () => {
+    // Animate details sheet exit
+    detailsSheetY.value = withTiming(1000, { duration: 300 });
+
+    // Wait for animation to complete before hiding
+    setTimeout(() => {
+      setShowDetails(false);
+      setSelectedPlan(null);
+    }, 300);
+  };
+
+  // Delete meal plan
+  const handleDeleteMealPlan = async (mealPlanId: string) => {
+    Alert.alert(
+      "Delete Meal Plan",
+      "Are you sure you want to delete this meal plan?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setIsLoading(true);
+
+              // First delete meal plan items
+              const { error: itemsError } = await supabase
+                .from("meal_plan_items")
+                .delete()
+                .eq("meal_id", mealPlanId);
+
+              if (itemsError) throw itemsError;
+
+              // Then delete the meal plan
+              const { error } = await supabase
+                .from("meals")
+                .delete()
+                .eq("id", mealPlanId);
+
+              if (error) throw error;
+
+              // Close details and refresh meal plans
+              handleCloseDetails();
+              fetchMealPlans();
+
+              Alert.alert("Success", "Meal plan deleted successfully");
+            } catch (error) {
+              console.error("Error deleting meal plan:", error);
+              Alert.alert(
+                "Error",
+                "Failed to delete meal plan. Please try again."
+              );
+            } finally {
+              setIsLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Toggle weekday editing mode
+  const toggleEditWeekdays = () => {
+    if (editingWeekdays && selectedPlanWeekdays.length > 0) {
+      // Save changes if we're exiting edit mode
+      saveWeekdaySelections();
+    } else {
+      setEditingWeekdays(!editingWeekdays);
+    }
   };
 
   // Animated styles
   const addButtonAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: addButtonScale.value }],
   }));
+
+  const detailsSheetAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: detailsSheetY.value }],
+  }));
+
+  // Format date for display
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
 
   // Render meal plan card
   const renderMealPlanCard = ({
@@ -131,79 +377,80 @@ export default function MealPlansScreen() {
   }: {
     item: MealPlan;
     index: number;
-  }) => (
-    <Animated.View
-      entering={FadeInRight.delay(index * 100 + 200).duration(400)}
-      style={styles.mealPlanCard}
-    >
-      <TouchableOpacity
-        activeOpacity={0.7}
-        onPress={() => handleViewMealPlan(item)}
-        style={styles.mealPlanCardContent}
+  }) => {
+    // Get meal item counts for this plan
+    const counts = mealItemCounts[item.id] || {};
+
+    // Generate a placeholder thumbnail based on meal type
+    const mainMealType = item.meal_type || "breakfast";
+    const mainColor =
+      mealTypeInfo[mainMealType as keyof typeof mealTypeInfo]?.color ||
+      "#FF9500";
+
+    return (
+      <Animated.View
+        entering={FadeInRight.delay(index * 100 + 200).duration(400)}
+        style={styles.mealPlanCard}
       >
-        {/* Meal Plan Image */}
-        <View style={styles.mealPlanImageContainer}>
-          {item.thumbnail_url ? (
-            <Image
-              source={{ uri: item.thumbnail_url }}
-              style={styles.mealPlanImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.mealPlanImagePlaceholder}>
-              <MaterialCommunityIcons
-                name="food"
-                size={40}
-                color={COLORS.primary}
+        <TouchableOpacity
+          activeOpacity={0.7}
+          onPress={() => handleViewMealPlan(item)}
+          style={styles.mealPlanCardContent}
+        >
+          {/* Meal Plan Image */}
+          <View style={styles.mealPlanImageContainer}>
+            {item.thumbnail_url ? (
+              <Image
+                source={{ uri: item.thumbnail_url }}
+                style={styles.mealPlanImage}
+                resizeMode="cover"
               />
-            </View>
-          )}
-        </View>
-
-        {/* Meal Plan Details */}
-        <View style={styles.mealPlanDetails}>
-          <View>
-            <Text style={styles.mealPlanName}>{item.name}</Text>
-
-            {/* Meal items count */}
-            <View style={styles.mealItemsContainer}>
-              <View style={styles.mealItemCount}>
-                <Ionicons
-                  name="sunny-outline"
-                  size={14}
-                  color={COLORS.primary}
+            ) : (
+              <LinearGradient
+                colors={[mainColor + "40", mainColor + "20"]}
+                style={styles.mealPlanImagePlaceholder}
+              >
+                <MaterialCommunityIcons
+                  name="food"
+                  size={40}
+                  color={mainColor}
                 />
-                <Text style={styles.mealItemCountText}>
-                  {item.meal_items?.breakfast || 0}
-                </Text>
-              </View>
-              <View style={styles.mealItemCount}>
-                <Ionicons
-                  name="restaurant-outline"
-                  size={14}
-                  color={COLORS.primary}
-                />
-                <Text style={styles.mealItemCountText}>
-                  {item.meal_items?.lunch || 0}
-                </Text>
-              </View>
-              <View style={styles.mealItemCount}>
-                <Ionicons
-                  name="moon-outline"
-                  size={14}
-                  color={COLORS.primary}
-                />
-                <Text style={styles.mealItemCountText}>
-                  {item.meal_items?.dinner || 0}
-                </Text>
-              </View>
-            </View>
+              </LinearGradient>
+            )}
           </View>
 
-          {/* Price and weekdays */}
-          <View style={styles.mealPlanFooter}>
-            <Text style={styles.mealPlanPrice}>₹{item.total_price || 0}</Text>
+          {/* Meal Plan Details */}
+          <View style={styles.mealPlanDetails}>
+            <View>
+              <Text style={styles.mealPlanName}>{item.name}</Text>
+              <Text style={styles.mealPlanDate}>
+                {formatDate(item.created_at)}
+              </Text>
 
+              {/* Meal items count */}
+              <View style={styles.mealItemsContainer}>
+                {item.foods?.map((mealType) => {
+                  const typeInfo =
+                    mealTypeInfo[mealType as keyof typeof mealTypeInfo];
+                  if (!typeInfo) return null;
+
+                  return (
+                    <View key={mealType} style={styles.mealItemCount}>
+                      <Ionicons
+                        name={typeInfo.icon as any}
+                        size={14}
+                        color={typeInfo.color}
+                      />
+                      <Text style={styles.mealItemCountText}>
+                        {counts[mealType] || 0} items
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Weekdays */}
             <View style={styles.weekdaysContainer}>
               {weekdayOptions.slice(0, 3).map((day) => (
                 <View
@@ -211,7 +458,10 @@ export default function MealPlansScreen() {
                   style={[
                     styles.weekdayBadge,
                     item.weekdays?.includes(day.id)
-                      ? styles.activeWeekdayBadge
+                      ? {
+                          ...styles.activeWeekdayBadge,
+                          backgroundColor: mainColor + "20",
+                        }
                       : styles.inactiveWeekdayBadge,
                   ]}
                 >
@@ -219,7 +469,7 @@ export default function MealPlansScreen() {
                     style={[
                       styles.weekdayText,
                       item.weekdays?.includes(day.id)
-                        ? styles.activeWeekdayText
+                        ? { ...styles.activeWeekdayText, color: mainColor }
                         : styles.inactiveWeekdayText,
                     ]}
                   >
@@ -236,10 +486,184 @@ export default function MealPlansScreen() {
               )}
             </View>
           </View>
-        </View>
-      </TouchableOpacity>
-    </Animated.View>
-  );
+        </TouchableOpacity>
+      </Animated.View>
+    );
+  };
+
+  // Render the meal plan details sheet
+  const renderMealPlanDetails = () => {
+    if (!selectedPlan) return null;
+
+    const mainMealType = selectedPlan.meal_type || "breakfast";
+    const mainColor =
+      mealTypeInfo[mainMealType as keyof typeof mealTypeInfo]?.color ||
+      "#FF9500";
+    const counts = mealItemCounts[selectedPlan.id] || {};
+
+    return (
+      <Animated.View
+        style={[styles.detailsSheetContainer, detailsSheetAnimatedStyle]}
+      >
+        <View style={styles.detailsSheetHandle} />
+
+        <ScrollView
+          style={styles.detailsScrollView}
+          contentContainerStyle={styles.detailsContentContainer}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header with close button */}
+          <View style={styles.detailsHeader}>
+            <Text style={styles.detailsTitle}>{selectedPlan.name}</Text>
+            <TouchableOpacity
+              onPress={handleCloseDetails}
+              style={styles.closeButton}
+            >
+              <Ionicons name="close" size={24} color="#6B7280" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Creation date */}
+          <Text style={styles.detailsDate}>
+            Created on {formatDate(selectedPlan.created_at)}
+          </Text>
+
+          {/* Weekdays section */}
+          <View style={styles.detailsSection}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.detailsSectionTitle}>Available Days</Text>
+              <TouchableOpacity
+                onPress={toggleEditWeekdays}
+                style={styles.editButton}
+              >
+                <Text style={styles.editButtonText}>
+                  {editingWeekdays ? "Save" : "Edit"}
+                </Text>
+                <Ionicons
+                  name={editingWeekdays ? "checkmark" : "pencil"}
+                  size={16}
+                  color={mainColor}
+                />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.detailsWeekdaysContainer}>
+              {weekdayOptions.map((day) => {
+                const isActive = selectedPlanWeekdays.includes(day.id);
+                return (
+                  <TouchableOpacity
+                    key={day.id}
+                    style={[
+                      styles.detailsWeekdayBadge,
+                      isActive
+                        ? {
+                            ...styles.detailsActiveWeekday,
+                            backgroundColor: mainColor + "20",
+                          }
+                        : styles.detailsInactiveWeekday,
+                      editingWeekdays && {
+                        borderWidth: 1,
+                        borderColor: isActive ? mainColor : "#E5E7EB",
+                      },
+                    ]}
+                    onPress={() => editingWeekdays && toggleWeekday(day.id)}
+                    activeOpacity={editingWeekdays ? 0.7 : 1}
+                    disabled={!editingWeekdays}
+                  >
+                    <Text
+                      style={[
+                        styles.detailsWeekdayText,
+                        isActive
+                          ? {
+                              ...styles.detailsActiveWeekdayText,
+                              color: mainColor,
+                            }
+                          : styles.detailsInactiveWeekdayText,
+                      ]}
+                    >
+                      {editingWeekdays ? day.fullName : day.name}
+                    </Text>
+                    {editingWeekdays && isActive && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={16}
+                        color={mainColor}
+                        style={styles.checkIcon}
+                      />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Meal types section */}
+          <View style={styles.detailsSection}>
+            <Text style={styles.detailsSectionTitle}>Included Meals</Text>
+            <View style={styles.detailsMealTypesContainer}>
+              {selectedPlan.foods?.map((mealType) => {
+                const typeInfo =
+                  mealTypeInfo[mealType as keyof typeof mealTypeInfo];
+                if (!typeInfo) return null;
+
+                return (
+                  <View key={mealType} style={styles.detailsMealTypeCard}>
+                    <View
+                      style={[
+                        styles.detailsMealTypeIcon,
+                        { backgroundColor: typeInfo.color + "20" },
+                      ]}
+                    >
+                      <Ionicons
+                        name={typeInfo.icon as any}
+                        size={24}
+                        color={typeInfo.color}
+                      />
+                    </View>
+                    <View style={styles.detailsMealTypeInfo}>
+                      <Text style={styles.detailsMealTypeName}>
+                        {mealType.charAt(0).toUpperCase() + mealType.slice(1)}
+                      </Text>
+                      <Text style={styles.detailsMealTypeCount}>
+                        {counts[mealType] || 0} items
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          </View>
+
+          {/* Actions */}
+          <View style={styles.detailsActionsContainer}>
+            <TouchableOpacity
+              style={[styles.detailsActionButton, styles.detailsEditButton]}
+              activeOpacity={0.7}
+              onPress={() => {
+                handleCloseDetails();
+                router.push({
+                  pathname: "/meal-creation",
+                  params: { editPlanId: selectedPlan.id },
+                });
+              }}
+            >
+              <Ionicons name="create-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.detailsActionButtonText}>Edit Plan</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.detailsActionButton, styles.detailsDeleteButton]}
+              activeOpacity={0.7}
+              onPress={() => handleDeleteMealPlan(selectedPlan.id)}
+            >
+              <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.detailsActionButtonText}>Delete Plan</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </Animated.View>
+    );
+  };
 
   // Render empty state
   const renderEmptyState = () => (
@@ -338,6 +762,9 @@ export default function MealPlansScreen() {
           </TouchableOpacity>
         </Animated.View>
       )}
+
+      {/* Meal Plan Details Sheet */}
+      {showDetails && renderMealPlanDetails()}
     </SafeAreaView>
   );
 }
@@ -558,5 +985,187 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 16,
+  },
+  mealPlanDate: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginBottom: 8,
+  },
+
+  // Detail sheet styles
+  detailsSheetContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
+    maxHeight: "90%",
+    paddingBottom: 30,
+  },
+  detailsSheetHandle: {
+    width: 40,
+    height: 5,
+    backgroundColor: "#E5E7EB",
+    borderRadius: 2.5,
+    alignSelf: "center",
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  detailsScrollView: {
+    maxHeight: "100%",
+  },
+  detailsContentContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  detailsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+    marginTop: 10,
+  },
+  detailsTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: COLORS.text,
+    flex: 1,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  detailsDate: {
+    fontSize: 14,
+    color: "#6B7280",
+    marginBottom: 24,
+  },
+  detailsSection: {
+    marginBottom: 24,
+  },
+  detailsSectionTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.text,
+    marginBottom: 12,
+  },
+  detailsWeekdaysContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  detailsWeekdayBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  detailsActiveWeekday: {
+    backgroundColor: COLORS.primary + "20",
+  },
+  detailsInactiveWeekday: {
+    backgroundColor: "#F3F4F6",
+  },
+  detailsWeekdayText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  detailsActiveWeekdayText: {
+    color: COLORS.primary,
+  },
+  detailsInactiveWeekdayText: {
+    color: "#9CA3AF",
+  },
+  detailsMealTypesContainer: {
+    gap: 12,
+  },
+  detailsMealTypeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 16,
+  },
+  detailsMealTypeIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 16,
+  },
+  detailsMealTypeInfo: {
+    flex: 1,
+  },
+  detailsMealTypeName: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.text,
+    marginBottom: 4,
+  },
+  detailsMealTypeCount: {
+    fontSize: 14,
+    color: "#6B7280",
+  },
+  detailsActionsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 24,
+    gap: 12,
+  },
+  detailsActionButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  detailsEditButton: {
+    backgroundColor: COLORS.primary,
+  },
+  detailsDeleteButton: {
+    backgroundColor: "#EF4444",
+  },
+  detailsActionButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    marginLeft: 8,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  editButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F9FAFB",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  editButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: COLORS.primary,
+    marginRight: 4,
+  },
+  checkIcon: {
+    marginLeft: 4,
   },
 });

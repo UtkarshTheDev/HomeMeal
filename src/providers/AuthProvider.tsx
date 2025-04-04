@@ -364,9 +364,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // Role-specific steps
       if (details.role === "customer") {
+        // For customers, check if they need to view meal plans
         if (!setupStatus.meal_creation_completed) {
-          return { isComplete: false, route: ROUTES.MEAL_CREATION_SETUP };
+          return { isComplete: false, route: ROUTES.TAB_MEAL_PLANS };
         }
+
         if (!setupStatus.maker_selection_completed) {
           return { isComplete: false, route: ROUTES.MAKER_SELECTION_SETUP };
         }
@@ -489,49 +491,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     // Create a flag to prevent navigation if component is unmounted
     let isMounted = true;
+    let navigationTimeout: NodeJS.Timeout;
 
     const handleAuthStateChange = async () => {
       // Don't do anything while initializing or if splash animation isn't complete
       if (isInitializing || !splashAnimationComplete) return;
 
-      setIsLoading(true);
-
-      // Only show loading screen if operation takes longer than 300ms
-      // This prevents flickering for quick operations
-      const loadingTimer = setTimeout(() => {
-        if (isMounted) {
-          setShouldShowLoadingScreen(true);
-        }
-      }, 300);
+      // Show loading screen immediately for any auth state change
+      // This prevents flickering or flash of content
+      if (isMounted) {
+        setIsLoading(true);
+        setShouldShowLoadingScreen(true);
+      }
 
       try {
         if (session && user) {
-          // User is signed in - check onboarding status but don't navigate yet
+          // Get user details first, before any navigation
+          const details = await fetchUserDetails(user.id);
+          if (isMounted && details) {
+            setUserDetails(details);
+            setUserRole(details.role || null);
+          }
+
+          // Check if user is new or needs to complete onboarding
           const { isComplete, route } = await checkOnboardingStatus();
 
-          // Only navigate if component is still mounted
+          // Only navigate if component is still mounted and we have a route
           if (isMounted && route) {
-            // Use as any to handle TypeScript error with router.replace
-            router.replace(route as any);
+            // Add a small delay to prevent navigation flashes
+            navigationTimeout = setTimeout(() => {
+              if (isMounted) {
+                // Use as any to handle TypeScript error with router.replace
+                router.replace(route as any);
+              }
+            }, 500);
           }
         } else if (isMounted) {
-          // User is not signed in - navigate to auth intro
-          router.replace(ROUTES.AUTH_INTRO as any);
+          // User is not signed in - navigate to auth intro after a slight delay
+          navigationTimeout = setTimeout(() => {
+            if (isMounted) {
+              router.replace(ROUTES.AUTH_INTRO as any);
+            }
+          }, 300);
         }
       } finally {
-        clearTimeout(loadingTimer);
         if (isMounted) {
-          setShouldShowLoadingScreen(false);
-          setIsLoading(false);
+          // Slight delay to ensure loading screen doesn't flash off too quickly
+          setTimeout(() => {
+            if (isMounted) {
+              setShouldShowLoadingScreen(false);
+              setIsLoading(false);
+            }
+          }, 600); // Longer delay to ensure smooth transitions
         }
       }
     };
 
     handleAuthStateChange();
 
-    // Cleanup function to prevent state updates after unmounting
+    // Cleanup function to prevent state updates and navigation after unmounting
     return () => {
       isMounted = false;
+      if (navigationTimeout) {
+        clearTimeout(navigationTimeout);
+      }
     };
   }, [session, isInitializing, splashAnimationComplete]);
 

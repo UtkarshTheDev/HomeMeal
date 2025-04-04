@@ -1,3 +1,7 @@
+/**
+ * Types related to food items and meal planning
+ */
+
 // Food category types
 export type FoodCategory =
   | "breakfast"
@@ -19,21 +23,59 @@ export type DietaryTag =
   | "keto"
   | "paleo";
 
-// Food item definition
+/**
+ * Represents a food item in the system
+ */
 export interface FoodItem {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   price: number;
-  category: FoodCategory;
-  image_url: string | null;
-  dietary_tags: DietaryTag[];
-  ingredients: string[];
-  preparation_time: number; // in minutes
+  category?: string | FoodCategory;
+  image_url?: string | null;
+  dietary_tags?: DietaryTag[];
+  ingredients?: string[];
+  preparation_time?: number; // in minutes
   is_available: boolean;
+  created_at?: string;
+  created_by?: string; // admin user id
+  updated_at?: string;
+  quantity?: number; // For meal planning
+}
+
+/**
+ * Represents a meal plan with selected food items
+ */
+export interface MealPlan {
+  id?: string;
+  name: string;
+  created_by: string;
+  meal_type: string;
+  foods: string[];
   created_at: string;
-  created_by: string; // admin user id
-  updated_at: string;
+  updated_at?: string;
+  applicable_days?: string[];
+}
+
+/**
+ * Represents a meal plan item (food in a specific meal plan)
+ */
+export interface MealPlanItem {
+  id?: string;
+  meal_id: string;
+  food_id: string;
+  quantity: number;
+  created_at: string;
+  user_id: string;
+  meal_type?: string;
+}
+
+/**
+ * Structure for AI generated meal plan
+ */
+export interface AIMealPlanRequest {
+  userPreferences: string;
+  mealTypes: string[];
 }
 
 // Chef's selected food item (links chef to food)

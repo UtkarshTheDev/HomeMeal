@@ -37,6 +37,7 @@ import Animated, {
   Easing,
   BounceIn,
   ZoomIn,
+  useSharedValue,
 } from "react-native-reanimated";
 import { useSupabase } from "@/src/hooks/useSupabase";
 import { useAuth } from "@/src/providers/AuthProvider";
@@ -132,12 +133,13 @@ export default function MealTypeFoodsScreen() {
   const hasSelectedItems = selectedFoods.length > 0;
 
   // Create animated styles
-  const saveButtonStyle = useAnimatedStyle(() => ({
+  const saveButtonAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: saveButtonScale.value }],
   }));
 
-  const selectedFoodsContainerStyle = useAnimatedStyle(() => ({
-    height: selectedFoodsHeight.value,
+  const selectedFoodsOpacity = useSharedValue(hasSelectedItems ? 1 : 0);
+  const selectedFoodsAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: selectedFoodsOpacity.value,
   }));
 
   // After food selection changes, update height animation
@@ -323,216 +325,154 @@ export default function MealTypeFoodsScreen() {
     setTotalPrice(total);
   };
 
-  // Add a food to the meal
+  // Add food to selected foods list
   const addFood = (food: FoodItem) => {
-    // Check if food is already selected
+    // Check if the food is already selected
     const existingIndex = selectedFoods.findIndex(
       (item) => item.id === food.id
     );
 
-    if (existingIndex >= 0) {
-      // Increment quantity if already selected
-      const updatedFoods = [...selectedFoods];
-      updatedFoods[existingIndex] = {
-        ...updatedFoods[existingIndex],
-        quantity: (updatedFoods[existingIndex].quantity || 1) + 1,
-      };
-      setSelectedFoods(updatedFoods);
+    if (existingIndex !== -1) {
+      // Food already selected - increment quantity
+      incrementQuantity(food.id);
     } else {
-      // Add new food with quantity 1
+      // Add food with quantity of 1
       setSelectedFoods([...selectedFoods, { ...food, quantity: 1 }]);
-
-      // Animate the selected foods container height
-      if (selectedFoods.length === 0) {
-        selectedFoodsHeight.value = withTiming(140, { duration: 300 });
-      }
-
-      // Scroll to top to show selected foods
-      setTimeout(() => {
-        // No need to scroll as we're using a different layout now
-        setIsLoading(true);
-
-        // Simulate loading delay (in a real app, this would be an API call)
-        const loadingTimeout = setTimeout(() => {
-          setIsLoading(false);
-        }, 500);
-
-        return () => clearTimeout(loadingTimeout);
-      }, 100);
     }
   };
 
-  // Remove a food from the meal
-  const removeFood = (foodId: string) => {
-    const existingIndex = selectedFoods.findIndex((item) => item.id === foodId);
+  // Increment quantity of a selected food
+  const incrementQuantity = (foodId: string) => {
+    setSelectedFoods(
+      selectedFoods.map((item) =>
+        item.id === foodId
+          ? { ...item, quantity: (item.quantity || 1) + 1 }
+          : item
+      )
+    );
+  };
 
-    if (existingIndex >= 0) {
-      const updatedFoods = [...selectedFoods];
-      const currentQuantity = updatedFoods[existingIndex].quantity || 1;
-
-      if (currentQuantity > 1) {
-        // Decrement quantity
-        updatedFoods[existingIndex] = {
-          ...updatedFoods[existingIndex],
-          quantity: currentQuantity - 1,
-        };
-        setSelectedFoods(updatedFoods);
-      } else {
-        // Remove the food
-        updatedFoods.splice(existingIndex, 1);
-        setSelectedFoods(updatedFoods);
-
-        // Animate the selected foods container height
-        if (updatedFoods.length === 0) {
-          selectedFoodsHeight.value = withTiming(0, { duration: 300 });
+  // Decrement quantity of a selected food
+  const decrementQuantity = (foodId: string) => {
+    setSelectedFoods(
+      selectedFoods.map((item) => {
+        if (item.id === foodId) {
+          const newQuantity = (item.quantity || 1) - 1;
+          if (newQuantity < 1) {
+            return item; // Don't go below 1
+          }
+          return { ...item, quantity: newQuantity };
         }
-      }
-    }
+        return item;
+      })
+    );
+  };
+
+  // Remove food from selected list
+  const removeFromSelected = (foodId: string) => {
+    setSelectedFoods(selectedFoods.filter((item) => item.id !== foodId));
   };
 
   // Handle saving the selected foods
   const handleSave = async () => {
     if (selectedFoods.length === 0) {
-      Alert.alert("No items selected", "Please select at least one food item.");
+      Alert.alert("No items selected", "Please select at least one food item");
       return;
     }
 
-    // Animate button press
-    setSaveButtonScale(0.95);
-    setTimeout(() => {
-      setSaveButtonScale(1);
-    }, 150);
-
+    // Start loading animation
     setIsSaving(true);
+    setSaveButtonScale(0.95);
 
     try {
-      // Get the meal plan ID from params
-      const mealPlanId = params.mealPlanId as string;
+      console.log(`Saving ${selectedFoods.length} selected food items`);
 
-      if (!mealPlanId) {
-        throw new Error("Meal plan ID not found");
+      // Get meal ID and type from route params
+      const { mealId, mealType } = params || {};
+
+      if (!mealId) {
+        throw new Error("Meal ID is missing");
       }
 
-      if (!user || !user.id) {
-        throw new Error("User not authenticated");
+      if (!mealType) {
+        throw new Error("Meal type is missing");
       }
 
-      // Log selected foods for debugging
-      console.log(
-        `Saving ${selectedFoods.length} foods for meal type: ${mealType}`
-      );
+      // First, get the current meal data
+      const { data: mealData, error: fetchError } = await supabase
+        .from("meals")
+        .select("foods, meal_type")
+        .eq("id", mealId)
+        .single();
 
-      // First, update the meals table to store the selected foods' info
-      const { error: mealError } = await supabase
+      if (fetchError) {
+        console.error("Error fetching meal data:", fetchError);
+        throw fetchError;
+      }
+
+      // Create an array of food IDs to update in the meal
+      const selectedFoodIds = selectedFoods.map((food) => food.id);
+
+      console.log("Updating meal with selected food IDs:", selectedFoodIds);
+
+      // Update the meal with the selected foods
+      const { error: updateError } = await supabase
         .from("meals")
         .update({
           updated_at: new Date().toISOString(),
-          // Add any other fields that need updating
+          foods: selectedFoodIds, // Update the foods array with selected food IDs
         })
-        .eq("id", mealPlanId);
+        .eq("id", mealId);
 
-      if (mealError) {
-        console.error("Error updating meal:", mealError);
-        throw mealError;
+      if (updateError) {
+        console.error("Error updating meal:", updateError);
+        throw updateError;
       }
 
-      // Create a simpler structure for meal plan items that matches the database schema
-      const mealPlanItems = selectedFoods.map((food) => ({
-        meal_id: mealPlanId,
-        food_id: food.id,
-        quantity: food.quantity || 1,
-        created_at: new Date().toISOString(),
-        user_id: user.id,
-        meal_type: mealType, // Adding meal type to help distinguish items
-      }));
-
-      // Log what we're trying to insert for debugging
-      console.log(
-        "Inserting meal plan items with structure:",
-        JSON.stringify(mealPlanItems[0])
+      // Success! Animate the save button
+      setSaveButtonScale(
+        withSequence(
+          withSpring(1.1, { damping: 2 }),
+          withSpring(1, { damping: 20 })
+        )
       );
 
-      // Insert the selected foods into meal_plan_items table
-      const { data, error } = await supabase
-        .from("meal_plan_items")
-        .insert(mealPlanItems);
+      // Check if there are other meal types in the meal_plans table for this meal
+      const { data: mealPlanData, error: mealPlanError } = await supabase
+        .from("meal_plans")
+        .select("meal_id")
+        .eq("meal_id", mealId)
+        .single();
 
-      if (error) {
-        console.error("Database error when saving selections:", error);
-        throw error;
+      if (mealPlanError && mealPlanError.code !== "PGRST116") {
+        console.error("Error fetching meal plan data:", mealPlanError);
+        // Continue with navigation even if there's an error
       }
 
-      console.log("Successfully saved meal selections for:", mealType);
-
-      // Check if there are more meal types to add
-      try {
-        const { data: mealPlanData, error: mealFetchError } = await supabase
-          .from("meals")
-          .select("foods")
-          .eq("id", mealPlanId)
-          .single();
-
-        if (mealFetchError) {
-          console.error("Error fetching meal data:", mealFetchError);
-          throw mealFetchError;
-        }
-
-        const mealTypes = mealPlanData?.foods || [];
-        const currentIndex = mealTypes.indexOf(mealType);
-        const nextMealType =
-          currentIndex < mealTypes.length - 1
-            ? mealTypes[currentIndex + 1]
-            : null;
-
-        console.log("Meal types sequence:", mealTypes);
-        console.log("Current meal type:", mealType, "at index:", currentIndex);
-        console.log("Next meal type to process:", nextMealType);
-
-        if (nextMealType) {
-          // If there are more meal types, navigate to the next one
-          Alert.alert(
-            "Success",
-            `${mealTypeInfo.name} items added! Continue with the next meal type.`,
-            [
-              {
-                text: "Continue",
-                onPress: () =>
-                  router.push({
-                    pathname: "/meal-type-foods",
-                    params: {
-                      mealType: nextMealType,
-                      mealPlanId: mealPlanId,
-                    },
-                  }),
-              },
-            ]
-          );
-        } else {
-          // If this was the last meal type, go back to meal plans
-          Alert.alert("Success", "Meal plan completed successfully!", [
-            {
-              text: "OK",
-              onPress: () => router.replace(ROUTES.TAB_MEAL_PLANS),
+      // Show success message
+      Alert.alert(
+        "Success",
+        `Added ${
+          selectedFoods.length
+        } food items to your ${mealTypeInfo.name.toLowerCase()}`,
+        [
+          {
+            text: "OK",
+            onPress: () => {
+              // Navigate back to meal creation page
+              router.back();
             },
-          ]);
-        }
-      } catch (sequenceError) {
-        console.error("Error processing meal sequence:", sequenceError);
-        // Even if the sequence processing fails, we've still saved this meal type's foods
-        Alert.alert(
-          "Partial Success",
-          `${mealTypeInfo.name} items were saved, but we encountered an issue with the next steps. Please try again.`,
-          [
-            {
-              text: "OK",
-              onPress: () => router.replace(ROUTES.TAB_MEAL_PLANS),
-            },
-          ]
-        );
-      }
+          },
+        ]
+      );
     } catch (error) {
-      console.error("Error saving meal selections:", error);
-      Alert.alert("Error", "Failed to save your selections. Please try again.");
+      console.error("Failed to save meal items:", error);
+      Alert.alert(
+        "Error",
+        "Failed to save your food selection. Please try again."
+      );
+      // Reset the button scale on error
+      setSaveButtonScale(1);
     } finally {
       setIsSaving(false);
     }
@@ -590,7 +530,9 @@ export default function MealTypeFoodsScreen() {
       >
         <TouchableOpacity
           activeOpacity={0.8}
-          onPress={() => (isSelected ? removeFood(item.id) : addFood(item))}
+          onPress={() =>
+            isSelected ? removeFromSelected(item.id) : addFood(item)
+          }
           style={[
             styles.foodCard,
             isSelected && { borderColor: mealTypeInfo.color },
@@ -641,31 +583,40 @@ export default function MealTypeFoodsScreen() {
   // Render a selected food item
   const renderSelectedFoodItem = ({ item }: { item: FoodItem }) => {
     return (
-      <AnimatedSafeView
-        key={item.id}
-        style={[styles.selectedItemContainer, { marginRight: 12 }]}
-      >
-        <View style={styles.selectedItemContent}>
-          <Image
-            source={{ uri: item.image_url }}
-            style={styles.selectedItemImage}
-            resizeMode="cover"
-          />
-          <View style={styles.selectedItemDetails}>
-            <Text style={styles.selectedItemName} numberOfLines={1}>
-              {item.name}
-            </Text>
-            <Text style={styles.selectedItemPrice}>₹{item.price}</Text>
-          </View>
-
+      <View style={styles.selectedItemContainer}>
+        <Image
+          source={{ uri: item.image_url }}
+          style={styles.selectedItemImage}
+          resizeMode="cover"
+        />
+        <View style={styles.selectedItemDetails}>
+          <Text style={styles.selectedItemName} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <Text style={styles.selectedItemPrice}>₹{item.price}</Text>
+        </View>
+        <View style={styles.selectedItemActions}>
           <TouchableOpacity
-            onPress={() => removeFood(item.id)}
-            style={styles.removeItemButton}
+            style={styles.quantityButton}
+            onPress={() => decrementQuantity(item.id)}
           >
-            <Ionicons name="close" size={16} color="#FFF" />
+            <Ionicons name="remove" size={16} color="#6B7280" />
+          </TouchableOpacity>
+          <Text style={styles.quantityText}>{item.quantity || 1}</Text>
+          <TouchableOpacity
+            style={styles.quantityButton}
+            onPress={() => incrementQuantity(item.id)}
+          >
+            <Ionicons name="add" size={16} color="#6B7280" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.removeButton}
+            onPress={() => removeFromSelected(item.id)}
+          >
+            <Ionicons name="close-circle" size={20} color="#EF4444" />
           </TouchableOpacity>
         </View>
-      </AnimatedSafeView>
+      </View>
     );
   };
 
@@ -674,106 +625,149 @@ export default function MealTypeFoodsScreen() {
       <StatusBar style="dark" />
 
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backButton}
-        >
-          <Ionicons name="arrow-back" size={22} color="#333" />
-        </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          <Ionicons
-            name={mealTypeInfo.icon as any}
-            size={22}
-            color={mealTypeInfo.color}
-            style={{ marginRight: 8 }}
-          />
-          <Text style={styles.headerTitle}>{mealTypeInfo.name} Foods</Text>
-        </View>
-        <View style={styles.placeholderView} />
-      </View>
+      <LinearGradient
+        colors={[mealTypeInfo.color + "50", mealTypeInfo.color + "20"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerGradient}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+          >
+            <Ionicons name="arrow-back" size={24} color={COLORS.text} />
+          </TouchableOpacity>
 
-      {/* Main content */}
-      <View style={styles.content}>
-        {/* Category filters */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoriesContainer}
-        >
-          {FOOD_CATEGORIES.map((category, index) =>
-            renderCategoryPill(category, index)
-          )}
-        </ScrollView>
-
-        {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={mealTypeInfo.color} />
-            <Text style={styles.loadingText}>Loading foods...</Text>
+          <View style={styles.headerTitleContainer}>
+            <View style={styles.mealTypeIconContainer}>
+              <Ionicons
+                name={mealTypeInfo.icon as any}
+                size={24}
+                color={mealTypeInfo.color}
+              />
+            </View>
+            <Text style={styles.headerTitle}>{mealTypeInfo.name} Items</Text>
           </View>
-        ) : (
+
+          <View style={styles.headerPlaceholder} />
+        </View>
+      </LinearGradient>
+
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={mealTypeInfo.color} />
+          <Text style={styles.loadingText}>
+            Loading {mealTypeInfo.name.toLowerCase()} items...
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.contentContainer}>
+          {/* Food Categories */}
+          <View style={styles.categoriesContainer}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoriesScrollContent}
+            >
+              {foodCategories.map((category, index) =>
+                renderCategoryPill(category, index)
+              )}
+            </ScrollView>
+          </View>
+
+          {/* Food Items */}
           <FlatList
             data={getFilteredFoods()}
             renderItem={renderFoodCard}
             keyExtractor={(item) => item.id}
-            numColumns={2}
+            contentContainerStyle={styles.foodsList}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.foodsContainer}
-            columnWrapperStyle={styles.foodsColumnWrapper}
+            numColumns={2}
             ListEmptyComponent={
-              <View style={styles.emptyContainer}>
+              <View style={styles.emptyListContainer}>
                 <Ionicons name="restaurant-outline" size={60} color="#D1D5DB" />
-                <Text style={styles.emptyText}>
-                  No foods found for this category
+                <Text style={styles.emptyListText}>
+                  No food items found in this category
                 </Text>
               </View>
             }
           />
-        )}
-      </View>
 
-      {/* Selected foods */}
-      {hasSelectedItems && (
-        <AnimatedSafeView style={styles.selectedFoodsContainer}>
-          <View style={styles.selectedFoodsHeader}>
-            <Text style={styles.selectedFoodsTitle}>Selected Items</Text>
-            <Text style={styles.selectedFoodsCount}>
-              {selectedFoods.length} item(s)
-            </Text>
-          </View>
+          {/* Selected foods */}
+          {hasSelectedItems && (
+            <AnimatedSafeView
+              style={[
+                styles.selectedFoodsContainer,
+                selectedFoodsAnimatedStyle,
+              ]}
+            >
+              <View style={styles.selectedFoodsHeader}>
+                <Text style={styles.selectedFoodsTitle}>Selected Items</Text>
+                <Text style={styles.selectedFoodsCount}>
+                  {selectedFoods.length} item(s)
+                </Text>
+              </View>
 
-          <FlatList
-            data={selectedFoods}
-            renderItem={renderSelectedFoodItem}
-            keyExtractor={(item) => item.id}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.selectedFoodsList}
-          />
-        </AnimatedSafeView>
+              <FlatList
+                data={selectedFoods}
+                renderItem={renderSelectedFoodItem}
+                keyExtractor={(item) => item.id}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.selectedFoodsList}
+              />
+            </AnimatedSafeView>
+          )}
+        </View>
       )}
 
-      {/* Save button */}
-      {hasSelectedItems && (
-        <AnimatedSafeView
-          style={[
-            styles.saveButtonContainer,
-            { paddingBottom: insets.bottom > 0 ? insets.bottom : 16 },
-            saveButtonStyle,
-          ]}
+      {/* Bottom bar with total and save button */}
+      {!isLoading && (
+        <LinearGradient
+          colors={["rgba(255,255,255,0.8)", "rgba(255,255,255,0.97)"]}
+          style={styles.bottomGradient}
         >
-          <TouchableOpacity
-            onPress={handleSave}
-            activeOpacity={0.8}
-            style={[styles.saveButton, { backgroundColor: mealTypeInfo.color }]}
-          >
-            <Text style={styles.saveButtonText}>Add to Meal Plan</Text>
-            <View style={styles.totalPriceContainer}>
-              <Text style={styles.totalPriceText}>
-                ₹{totalPrice.toFixed(0)}
+          <View style={styles.bottomBar}>
+            <View style={styles.totalContainer}>
+              <Text style={styles.totalLabel}>Total:</Text>
+              <Text style={[styles.totalPrice, { color: mealTypeInfo.color }]}>
+                ₹{totalPrice}
               </Text>
             </View>
-          </TouchableOpacity>
-        </AnimatedSafeView>
+
+            <AnimatedSafeView
+              style={[styles.saveButtonContainer, saveButtonAnimatedStyle]}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.saveButton,
+                  {
+                    backgroundColor: hasSelectedItems
+                      ? mealTypeInfo.color
+                      : "#D1D5DB",
+                  },
+                ]}
+                onPress={handleSave}
+                disabled={isSaving || !hasSelectedItems}
+              >
+                {isSaving ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Text style={styles.saveButtonText}>
+                      Add to {mealTypeInfo.name}
+                    </Text>
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={20}
+                      color="#FFFFFF"
+                    />
+                  </>
+                )}
+              </TouchableOpacity>
+            </AnimatedSafeView>
+          </View>
+        </LinearGradient>
       )}
     </SafeAreaView>
   );
@@ -782,62 +776,142 @@ export default function MealTypeFoodsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.white,
+    backgroundColor: "#FFFFFF",
+  },
+  headerGradient: {
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
-    justifyContent: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
   headerTitleContainer: {
     flexDirection: "row",
     alignItems: "center",
   },
+  mealTypeIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
   headerTitle: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#333",
+    color: COLORS.text,
   },
-  placeholderView: {
+  headerPlaceholder: {
     width: 40,
   },
-  content: {
+  contentContainer: {
     flex: 1,
+    paddingHorizontal: 16,
   },
   categoriesContainer: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  categoriesScrollContent: {
+    paddingRight: 20,
+  },
+  categoryPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 8,
+    backgroundColor: "#F3F4F6",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  categoryPillButton: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  categoryText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#6B7280",
+  },
+  foodsList: {
+    paddingTop: 8,
+    paddingBottom: 150, // Extra padding for bottom UI elements
+  },
+  emptyListContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 50,
+  },
+  emptyListText: {
+    fontSize: 16,
+    color: "#9CA3AF",
+    marginTop: 16,
+    textAlign: "center",
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    fontSize: 16,
+    color: "#6B7280",
+    marginTop: 16,
   },
   foodCardContainer: {
-    marginBottom: 12,
+    width: "48%",
+    margin: "1%",
+    marginBottom: 16,
   },
   foodCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
     overflow: "hidden",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 5,
+    shadowRadius: 4,
     elevation: 2,
   },
   foodImageContainer: {
-    width: "100%",
     height: 120,
-    position: "relative",
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    overflow: "hidden",
   },
   foodImage: {
     width: "100%",
@@ -847,189 +921,186 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    top: 0,
     bottom: 0,
+    height: 60,
   },
   foodPriceContainer: {
     position: "absolute",
-    bottom: 8,
-    left: 8,
+    top: 8,
     right: 8,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   foodPrice: {
-    fontSize: 16,
+    fontSize: 12,
     fontWeight: "700",
-    color: COLORS.white,
+    color: "#FFFFFF",
   },
   foodDetailsContainer: {
-    padding: 12,
-    flex: 1,
-    justifyContent: "space-between",
+    padding: 10,
   },
   foodName: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
     color: COLORS.text,
     marginBottom: 4,
   },
   foodDescription: {
     fontSize: 12,
-    color: COLORS.textLight,
-  },
-  foodsContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  foodsColumnWrapper: {
-    justifyContent: "space-between",
-  },
-  emptyContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 64,
-  },
-  emptyText: {
-    color: "#9CA3AF",
-    marginTop: 16,
-    textAlign: "center",
-  },
-  selectedFoodsContainer: {
-    padding: 20,
-  },
-  selectedFoodsHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  selectedFoodsTitle: {
-    fontSize: 16,
-    fontWeight: "500",
-    color: "#333",
-  },
-  selectedFoodsCount: {
-    fontSize: 14,
-    color: COLORS.primary,
-  },
-  selectedFoodsList: {
-    paddingRight: 20,
-  },
-  selectedItemContainer: {
-    marginRight: 12,
-  },
-  selectedItemContent: {
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
-    overflow: "hidden",
-    width: 120,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  selectedItemImage: {
-    width: "100%",
-    height: "100%",
-  },
-  selectedItemDetails: {
-    padding: 8,
-  },
-  selectedItemName: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  selectedItemPrice: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: COLORS.primary,
-  },
-  removeItemButton: {
-    position: "absolute",
-    top: -4,
-    right: -4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  saveButtonContainer: {
-    position: "absolute",
-    bottom: 24,
-    left: 20,
-    right: 20,
-  },
-  saveButton: {
-    borderRadius: 12,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-  },
-  saveButtonText: {
-    color: COLORS.white,
-    fontWeight: "700",
-    fontSize: 16,
-  },
-  totalPriceContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  totalPriceText: {
-    color: COLORS.white,
-    fontWeight: "700",
-    fontSize: 16,
-  },
-  loadingContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 64,
-  },
-  loadingText: {
     color: "#6B7280",
-    marginTop: 16,
   },
   selectedIndicator: {
     position: "absolute",
     top: 8,
-    right: 8,
+    left: 8,
     width: 24,
     height: 24,
     borderRadius: 12,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
   },
-  categoryPill: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 50,
-    marginRight: 12,
+  selectedFoodsContainer: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    bottom: 90,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 5,
+    maxHeight: 240,
   },
-  categoryText: {
+  selectedFoodsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  selectedFoodsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: COLORS.text,
+  },
+  selectedFoodsCount: {
     fontSize: 14,
+    color: COLORS.primary,
     fontWeight: "500",
   },
-  categoryPillButton: {
+  selectedFoodsList: {
+    paddingBottom: 8,
+  },
+  selectedItemContainer: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    marginBottom: 8,
+    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  selectedItemImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    marginRight: 12,
+  },
+  selectedItemDetails: {
+    flex: 1,
+  },
+  selectedItemName: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: COLORS.text,
+    marginBottom: 2,
+  },
+  selectedItemPrice: {
+    fontSize: 12,
+    color: COLORS.primary,
+    fontWeight: "500",
+  },
+  selectedItemActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  quantityButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quantityText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: COLORS.text,
+    marginHorizontal: 8,
+    minWidth: 20,
+    textAlign: "center",
+  },
+  removeButton: {
+    marginLeft: 12,
+    padding: 4,
+  },
+  bottomGradient: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 90,
+  },
+  bottomBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 50,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    backgroundColor: "transparent",
+  },
+  totalContainer: {
+    alignItems: "flex-start",
+  },
+  totalLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    marginBottom: 4,
+  },
+  totalPrice: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: COLORS.primary,
+  },
+  saveButtonContainer: {
+    flex: 1,
+    maxWidth: 200,
+    marginLeft: 16,
+  },
+  saveButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  saveButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#FFFFFF",
+    marginRight: 8,
   },
 });

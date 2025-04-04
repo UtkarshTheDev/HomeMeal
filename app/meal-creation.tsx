@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -9,13 +9,14 @@ import {
   StyleSheet,
   Pressable,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import {
   SafeAreaView,
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import Animated, {
   FadeIn,
@@ -32,6 +33,10 @@ import { useAnimatedSafeValue } from "@/src/hooks/useAnimatedValues";
 import AnimatedSafeView from "@/src/components/AnimatedSafeView";
 import { useSupabase } from "@/src/hooks/useSupabase";
 import { useAuth } from "@/src/providers/AuthProvider";
+import AIMealPlanDialog from "@/src/components/AIMealPlanDialog";
+import { FoodItem } from "@/src/types/food";
+import { LinearGradient } from "expo-linear-gradient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Define meal types with their properties
 const MEAL_TYPES = [
@@ -69,26 +74,66 @@ const MEAL_TYPES = [
   },
 ];
 
+// Define weekdays for selection
+const WEEKDAYS = [
+  { id: "monday", name: "M", fullName: "Monday" },
+  { id: "tuesday", name: "T", fullName: "Tuesday" },
+  { id: "wednesday", name: "W", fullName: "Wednesday" },
+  { id: "thursday", name: "T", fullName: "Thursday" },
+  { id: "friday", name: "F", fullName: "Friday" },
+  { id: "saturday", name: "S", fullName: "Saturday" },
+  { id: "sunday", name: "S", fullName: "Sunday" },
+];
+
+// Key for storing AI-generated meal plan in AsyncStorage
+const AI_MEAL_PLAN_STORAGE_KEY = "ai_meal_plan_data";
+
 export default function MealCreationScreen() {
   const insets = useSafeAreaInsets();
   const { supabase } = useSupabase();
-  const { user } = useAuth();
+  const { user, updateSetupStatus } = useAuth();
+  const params = useLocalSearchParams();
+
+  // Get parameters from navigation, if any
+  const updatedMealType = params.updatedMealType as string | undefined;
+  const itemsCount = params.itemsCount
+    ? parseInt(params.itemsCount as string)
+    : 0;
+  const totalPrice = params.totalPrice
+    ? parseInt(params.totalPrice as string)
+    : 0;
 
   // State for loading and meal plan data
   const [isLoading, setIsLoading] = useState(false);
   const [mealName, setMealName] = useState("");
   const [selectedMealTypes, setSelectedMealTypes] = useState<string[]>([]);
+  const [selectedWeekdays, setSelectedWeekdays] = useState<string[]>([]);
   const [selectedFoodsCount, setSelectedFoodsCount] = useState<{
     [key: string]: number;
   }>({});
+  const [availableFoods, setAvailableFoods] = useState<FoodItem[]>([]);
+  const [showAIDialog, setShowAIDialog] = useState(false);
+  const [isFetchingFoods, setIsFetchingFoods] = useState(false);
+
+  // Store AI-generated meal plan data
+  const [aiGeneratedFoodsByMealType, setAiGeneratedFoodsByMealType] = useState<
+    Record<string, FoodItem[]>
+  >({});
 
   // Use our safe animated values
   const { sharedValue: saveButtonScale, setValue: setSaveButtonScale } =
     useAnimatedSafeValue(1);
 
-  // Create animated styles for the save button
+  const { sharedValue: aiButtonScale, setValue: setAIButtonScale } =
+    useAnimatedSafeValue(1);
+
+  // Create animated styles for the buttons
   const saveButtonAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: saveButtonScale.value }],
+  }));
+
+  const aiButtonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: aiButtonScale.value }],
   }));
 
   // Create animated scales for meal type cards with improved hook
@@ -96,6 +141,110 @@ export default function MealCreationScreen() {
     acc[mealType.id] = useAnimatedSafeValue<number>(1);
     return acc;
   }, {} as { [key: string]: ReturnType<typeof useAnimatedSafeValue<number>> });
+
+  // Create animated scales for weekday buttons
+  const weekdayScales = WEEKDAYS.reduce((acc, day) => {
+    acc[day.id] = useAnimatedSafeValue<number>(1);
+    return acc;
+  }, {} as { [key: string]: ReturnType<typeof useAnimatedSafeValue<number>> });
+
+  // Update food counts from params if coming back from meal-type-foods
+  useEffect(() => {
+    if (updatedMealType && itemsCount > 0) {
+      setSelectedFoodsCount((prev) => ({
+        ...prev,
+        [updatedMealType]: itemsCount,
+      }));
+    }
+  }, [updatedMealType, itemsCount]);
+
+  // Fetch available foods when component mounts
+  useEffect(() => {
+    fetchAvailableFoods();
+    // Clear any previously stored AI meal plan data
+    AsyncStorage.removeItem(AI_MEAL_PLAN_STORAGE_KEY);
+
+    // Default to all weekdays selected
+    setSelectedWeekdays(WEEKDAYS.map((day) => day.id));
+  }, []);
+
+  // Fetch available foods from Supabase
+  const fetchAvailableFoods = async () => {
+    setIsFetchingFoods(true);
+    try {
+      const { data, error } = await supabase
+        .from("food")
+        .select("*")
+        .eq("is_available", true);
+
+      if (error) {
+        throw error;
+      }
+
+      if (data && data.length > 0) {
+        setAvailableFoods(data);
+      } else {
+        // Set fallback data if no foods found
+        setAvailableFoods([
+          {
+            id: "fallback-1",
+            name: "Vegetable Curry",
+            price: 120,
+            description: "Fresh vegetables in a flavorful curry sauce",
+            image_url: "https://source.unsplash.com/random/300x200/?curry",
+            is_available: true,
+            category: "Veg",
+          },
+          {
+            id: "fallback-2",
+            name: "Chicken Biryani",
+            price: 180,
+            description: "Fragrant rice with tender chicken pieces",
+            image_url: "https://source.unsplash.com/random/300x200/?biryani",
+            is_available: true,
+            category: "Non-Veg",
+          },
+          {
+            id: "fallback-3",
+            name: "Paneer Tikka",
+            price: 150,
+            description: "Grilled cottage cheese with spices",
+            image_url: "https://source.unsplash.com/random/300x200/?paneer",
+            is_available: true,
+            category: "Veg",
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error("Error fetching available foods:", error);
+    } finally {
+      setIsFetchingFoods(false);
+    }
+  };
+
+  // Handle weekday selection
+  const toggleWeekday = (weekdayId: string) => {
+    // Animate the button press effect using setValue
+    weekdayScales[weekdayId].setValue(0.9);
+    // Then back to normal after a short delay
+    setTimeout(() => {
+      weekdayScales[weekdayId].setValue(1);
+    }, 150);
+
+    setSelectedWeekdays((prev) => {
+      if (prev.includes(weekdayId)) {
+        // Prevent deselecting all days
+        if (prev.length <= 1) {
+          return prev;
+        }
+        // If already selected, remove it
+        return prev.filter((id) => id !== weekdayId);
+      } else {
+        // If not selected, add it
+        return [...prev, weekdayId];
+      }
+    });
+  };
 
   // Handle meal type selection
   const toggleMealType = (mealTypeId: string) => {
@@ -145,6 +294,11 @@ export default function MealCreationScreen() {
       return;
     }
 
+    if (selectedWeekdays.length === 0) {
+      Alert.alert("Missing Information", "Please select at least one weekday");
+      return;
+    }
+
     // Animate the save button using setValue
     setSaveButtonScale(0.9);
     setTimeout(() => {
@@ -164,30 +318,73 @@ export default function MealCreationScreen() {
         return;
       }
 
-      console.log(
-        "Creating meal plan with selected meal types:",
-        selectedMealTypes
-      );
+      console.log("Creating meal with selected meal types:", selectedMealTypes);
+      console.log("Selected weekdays:", selectedWeekdays);
 
-      // Create meal plan in Supabase
-      const { data, error } = await supabase
+      // According to Backend-Guidelines.md:
+      // 1. First create a meal in the meals table
+      // 2. Then create a meal_plan in the meal_plans table that references the meal
+
+      // Step 1: Create meal in the meals table
+      const { data: mealData, error: mealError } = await supabase
         .from("meals")
         .insert({
           name: mealName,
           created_by: user.id,
-          meal_type: selectedMealTypes[0], // Using the first selected meal type for the meal_type field
-          foods: selectedMealTypes, // Store all selected meal types as an array
+          meal_type: selectedMealTypes[0], // Store the first selected meal type
+          foods: [], // Initialize with empty array, will be updated in meal-type-foods
           created_at: new Date().toISOString(),
         })
         .select("id")
         .single();
 
-      if (error) {
-        console.error("Error creating meal plan:", error);
-        throw error;
+      if (mealError) {
+        console.error("Error creating meal:", mealError);
+        throw mealError;
       }
 
-      console.log("Meal plan created successfully:", data);
+      console.log("Meal created successfully:", mealData);
+
+      // Step 2: Create meal plan in the meal_plans table
+      const { error: mealPlanError } = await supabase
+        .from("meal_plans")
+        .insert({
+          user_id: user.id,
+          meal_id: mealData.id,
+          applicable_days: selectedWeekdays, // Store selected weekdays
+          created_at: new Date().toISOString(),
+        });
+
+      if (mealPlanError) {
+        console.error("Error creating meal plan:", mealPlanError);
+        throw mealPlanError;
+      }
+
+      // Store AI-generated food selections in AsyncStorage if available
+      if (Object.keys(aiGeneratedFoodsByMealType).length > 0) {
+        try {
+          await AsyncStorage.setItem(
+            AI_MEAL_PLAN_STORAGE_KEY,
+            JSON.stringify({
+              mealPlanId: mealData.id,
+              selectedFoodsByMealType: aiGeneratedFoodsByMealType,
+            })
+          );
+          console.log("AI meal plan data stored in AsyncStorage");
+        } catch (storageError) {
+          console.error("Error storing AI meal plan data:", storageError);
+          // Continue even if storage fails
+        }
+      }
+
+      // Update the user's setup status if this is their first meal plan
+      const updateResult = await updateSetupStatus({
+        meal_creation_completed: true,
+      });
+
+      if (!updateResult) {
+        console.warn("Failed to update meal creation setup status");
+      }
 
       // Navigate to the first meal type selection screen
       if (selectedMealTypes.length > 0) {
@@ -195,7 +392,11 @@ export default function MealCreationScreen() {
           pathname: "/meal-type-foods",
           params: {
             mealType: selectedMealTypes[0],
-            mealPlanId: data.id,
+            mealId: mealData.id,
+            isAiGenerated:
+              Object.keys(aiGeneratedFoodsByMealType).length > 0
+                ? "true"
+                : "false",
           },
         });
       }
@@ -206,6 +407,64 @@ export default function MealCreationScreen() {
       setIsLoading(false);
     }
   };
+
+  // Handle AI button press
+  const handleAIButtonPress = () => {
+    // Animate the AI button
+    setAIButtonScale(0.9);
+    setTimeout(() => {
+      setAIButtonScale(1);
+    }, 150);
+
+    // Show AI dialog
+    setShowAIDialog(true);
+  };
+
+  // Handle accepting AI-generated meal plan
+  const handleAcceptAIMealPlan = ({
+    selectedMealTypes: aiSelectedMealTypes,
+    selectedFoodsByMealType,
+  }: {
+    selectedMealTypes: string[];
+    selectedFoodsByMealType: Record<string, FoodItem[]>;
+  }) => {
+    // Update selected meal types
+    setSelectedMealTypes(aiSelectedMealTypes);
+
+    // Store AI-generated foods for later use
+    setAiGeneratedFoodsByMealType(selectedFoodsByMealType);
+
+    // Update selected foods count
+    const newCounts: { [key: string]: number } = {};
+    Object.entries(selectedFoodsByMealType).forEach(([mealType, foods]) => {
+      newCounts[mealType] = foods.length;
+    });
+    setSelectedFoodsCount(newCounts);
+
+    // Set a default name if none is provided
+    if (!mealName.trim()) {
+      const currentDate = new Date();
+      const formattedDate = `${currentDate.getDate()}/${
+        currentDate.getMonth() + 1
+      }/${currentDate.getFullYear()}`;
+      setMealName(`AI Meal Plan - ${formattedDate}`);
+    }
+
+    // Show success message
+    Alert.alert(
+      "AI Meal Plan Generated",
+      "Your AI-generated meal plan is ready! Click Continue to proceed with creating your meal.",
+      [{ text: "OK" }]
+    );
+  };
+
+  // Create animated styles for each weekday button
+  const getWeekdayAnimatedStyle = (weekdayId: string) =>
+    useAnimatedStyle(() => ({
+      transform: [
+        { scale: weekdayScales[weekdayId].sharedValue.value as number },
+      ],
+    }));
 
   // Create animated styles for each meal type card
   const getMealTypeAnimatedStyle = (mealTypeId: string) =>
@@ -225,7 +484,7 @@ export default function MealCreationScreen() {
           onPress={() => router.back()}
           style={styles.backButton}
         >
-          <Ionicons name="arrow-back" size={22} color="#333" />
+          <Ionicons name="arrow-back" size={24} color={COLORS.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Create Meal Plan</Text>
         <View style={styles.headerPlaceholder} />
@@ -239,8 +498,38 @@ export default function MealCreationScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        {/* AI Meal Plan Button */}
+        <AnimatedSafeView
+          entering={FadeInDown.delay(300).duration(500)}
+          style={[styles.aiButtonContainer, aiButtonAnimatedStyle]}
+        >
+          <TouchableOpacity
+            style={styles.aiButton}
+            onPress={handleAIButtonPress}
+            activeOpacity={0.8}
+          >
+            <LinearGradient
+              colors={["#6366F1", "#8B5CF6"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.aiButtonGradient}
+            >
+              <Ionicons
+                name="flash"
+                size={22}
+                color="#FFF"
+                style={{ marginRight: 8 }}
+              />
+              <Text style={styles.aiButtonText}>Generate with AI</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </AnimatedSafeView>
+
         {/* Meal Plan Name Input */}
-        <AnimatedSafeView style={styles.inputContainer}>
+        <AnimatedSafeView
+          entering={FadeInDown.delay(400).duration(500)}
+          style={styles.inputContainer}
+        >
           <Text style={styles.inputLabel}>Meal Plan Name</Text>
           <TextInput
             value={mealName}
@@ -251,8 +540,52 @@ export default function MealCreationScreen() {
           />
         </AnimatedSafeView>
 
+        {/* Weekday Selection */}
+        <AnimatedSafeView
+          entering={FadeInDown.delay(500).duration(500)}
+          style={styles.sectionContainer}
+        >
+          <Text style={styles.sectionTitle}>Weekdays</Text>
+          <Text style={styles.sectionSubtitle}>
+            Select days when this meal plan applies
+          </Text>
+
+          <View style={styles.weekdaysContainer}>
+            {WEEKDAYS.map((day) => {
+              const isSelected = selectedWeekdays.includes(day.id);
+              return (
+                <AnimatedSafeView
+                  key={day.id}
+                  style={[
+                    styles.weekdayButton,
+                    isSelected && styles.weekdayButtonSelected,
+                  ]}
+                >
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => toggleWeekday(day.id)}
+                    style={styles.weekdayButtonTouchable}
+                  >
+                    <Text
+                      style={[
+                        styles.weekdayText,
+                        isSelected && styles.weekdayTextSelected,
+                      ]}
+                    >
+                      {day.name}
+                    </Text>
+                  </TouchableOpacity>
+                </AnimatedSafeView>
+              );
+            })}
+          </View>
+        </AnimatedSafeView>
+
         {/* Meal Types Section */}
-        <AnimatedSafeView style={styles.sectionContainer}>
+        <AnimatedSafeView
+          entering={FadeInDown.delay(600).duration(500)}
+          style={styles.sectionContainer}
+        >
           <Text style={styles.sectionTitle}>Select Meal Types</Text>
           <Text style={styles.sectionSubtitle}>
             Choose the meals you want to include in your plan
@@ -265,7 +598,17 @@ export default function MealCreationScreen() {
               const foodCount = selectedFoodsCount[mealType.id] || 0;
 
               return (
-                <AnimatedSafeView key={mealType.id} style={styles.mealTypeCard}>
+                <AnimatedSafeView
+                  entering={FadeInDown.delay(700 + index * 100).duration(500)}
+                  key={mealType.id}
+                  style={[
+                    styles.mealTypeCard,
+                    isSelected && {
+                      borderColor: mealType.color,
+                      borderWidth: 2,
+                    },
+                  ]}
+                >
                   <TouchableOpacity
                     activeOpacity={0.8}
                     onPress={() => toggleMealType(mealType.id)}
@@ -335,6 +678,7 @@ export default function MealCreationScreen() {
 
       {/* Save Button */}
       <AnimatedSafeView
+        entering={SlideInUp.delay(800).duration(500)}
         style={[
           styles.saveButtonContainer,
           { bottom: insets.bottom + 20 },
@@ -345,11 +689,31 @@ export default function MealCreationScreen() {
           activeOpacity={0.8}
           onPress={saveMealPlan}
           style={styles.saveButton}
+          disabled={isLoading}
         >
-          <Text style={styles.saveButtonText}>Continue</Text>
-          <Ionicons name="arrow-forward" size={20} color="#FFF" />
+          {isLoading ? (
+            <ActivityIndicator color="#FFFFFF" size="small" />
+          ) : (
+            <>
+              <Text style={styles.saveButtonText}>Continue</Text>
+              <Ionicons name="arrow-forward" size={20} color="#FFF" />
+            </>
+          )}
         </TouchableOpacity>
       </AnimatedSafeView>
+
+      {/* AI Meal Plan Dialog */}
+      <AIMealPlanDialog
+        visible={showAIDialog}
+        onClose={() => setShowAIDialog(false)}
+        onAccept={handleAcceptAIMealPlan}
+        availableFoods={availableFoods}
+        selectedMealTypes={
+          selectedMealTypes.length > 0
+            ? selectedMealTypes
+            : MEAL_TYPES.map((t) => t.id)
+        }
+      />
     </SafeAreaView>
   );
 }
@@ -392,6 +756,30 @@ const styles = StyleSheet.create({
   contentContainer: {
     paddingTop: 24,
     paddingHorizontal: 20,
+  },
+  aiButtonContainer: {
+    marginBottom: 24,
+  },
+  aiButton: {
+    width: "100%",
+    overflow: "hidden",
+    borderRadius: 12,
+    shadowColor: "#6366F1",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  aiButtonGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+  },
+  aiButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFF",
   },
   inputContainer: {
     marginBottom: 24,
@@ -523,5 +911,36 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#FFF",
     marginRight: 8,
+  },
+  weekdaysContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 24,
+  },
+  weekdayButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 4,
+  },
+  weekdayButtonSelected: {
+    backgroundColor: COLORS.primary,
+  },
+  weekdayButtonTouchable: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  weekdayText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  weekdayTextSelected: {
+    color: "#FFFFFF",
   },
 });

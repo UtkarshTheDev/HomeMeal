@@ -48,10 +48,18 @@ export default function IntroScreen() {
   const router = useRouter();
 
   const renderItem: ListRenderItem<SlideItem> = ({ item }) => (
-    <View style={{ width, alignItems: "center", padding: 20 }}>
+    <View
+      style={{
+        width,
+        alignItems: "center",
+        padding: 20,
+        display: "flex",
+        justifyContent: "center",
+      }}
+    >
       <Image
         source={item.image}
-        style={{ width: width * 0.8, height: width * 0.8 }}
+        style={{ width: width * 0.8, height: width }}
         resizeMode="contain"
       />
       <Text
