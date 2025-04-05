@@ -44,12 +44,45 @@ const disableSupabaseVerboseLogs = () => {
 disableSupabaseVerboseLogs();
 
 // Get the Supabase URL and anon key from environment variables
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseUrl =
+  process.env.EXPO_PUBLIC_SUPABASE_URL ||
+  Constants.expoConfig?.extra?.supabaseUrl;
+const supabaseAnonKey =
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+  Constants.expoConfig?.extra?.supabaseAnonKey;
+
+// Log configuration status for debugging (only in dev)
+if (__DEV__) {
+  console.log("🔑 Supabase Config Status:", {
+    hasUrl: Boolean(supabaseUrl),
+    hasKey: Boolean(supabaseAnonKey),
+    urlSource: process.env.EXPO_PUBLIC_SUPABASE_URL
+      ? "env"
+      : Constants.expoConfig?.extra?.supabaseUrl
+      ? "Constants"
+      : "none",
+    keySource: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
+      ? "env"
+      : Constants.expoConfig?.extra?.supabaseAnonKey
+      ? "Constants"
+      : "none",
+    url: supabaseUrl ? supabaseUrl.substring(0, 15) + "..." : "undefined",
+    keyPrefix: supabaseAnonKey
+      ? supabaseAnonKey.substring(0, 10) + "..."
+      : "undefined",
+    constants: Constants.expoConfig?.extra ? "Available" : "Not Available",
+  });
+}
 
 // Check if Supabase is configured
 export const isSupabaseConfigured = () => {
-  return Boolean(supabaseUrl && supabaseAnonKey);
+  const configured = Boolean(supabaseUrl && supabaseAnonKey);
+  if (!configured && __DEV__) {
+    console.error(
+      "⚠️ Supabase is not properly configured! URL and/or API key is missing."
+    );
+  }
+  return configured;
 };
 
 // Create custom storage implementation that falls back to AsyncStorage if SecureStore fails
@@ -121,10 +154,10 @@ const customStorage = {
   },
 };
 
-// Initialize Supabase client with more robust session handling
+// Initialize Supabase client with more robust session handling and network timeout handling
 export const supabase = createClient(
-  supabaseUrl || "https://your-supabase-url.supabase.co",
-  supabaseAnonKey || "your-anon-key",
+  supabaseUrl || "https://placeholder-url.supabase.co",
+  supabaseAnonKey || "placeholder-key",
   {
     auth: {
       storage: customStorage,
@@ -139,7 +172,100 @@ export const supabase = createClient(
     },
     global: {
       headers: {
-        "X-Client-Info": "HomeMeal App",
+        "X-Client-Info": `HomeMeal App (${Platform.OS})`,
+        // Ensure API key is always included in headers
+        apikey: supabaseAnonKey || "",
+        Authorization: `Bearer ${supabaseAnonKey || ""}`,
+      },
+      // Add network request options for better reliability
+      fetch: (url, options) => {
+        // Add request timeout
+        const fetchWithTimeout = (
+          resource: string | URL | Request,
+          init?: RequestInit,
+          timeout = 15000
+        ) => {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+          // Ensure API key headers are always included
+          const headers = {
+            ...init?.headers,
+            apikey: supabaseAnonKey || "",
+            Authorization: `Bearer ${supabaseAnonKey || ""}`,
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          };
+
+          const promise = fetch(resource, {
+            ...init,
+            headers,
+            signal: controller.signal,
+          });
+
+          // Clear timeout on request completion
+          promise.finally(() => clearTimeout(timeoutId));
+          return promise;
+        };
+
+        // Add custom retry logic
+        return new Promise((resolve, reject) => {
+          const maxRetries = 3;
+          let retryCount = 0;
+          let lastError = null;
+
+          const attemptFetch = () => {
+            // Ensure we're using the latest API key value (in case it was updated)
+            const currentKey = supabaseAnonKey || "";
+
+            fetchWithTimeout(url, {
+              ...options,
+              headers: {
+                ...options?.headers,
+                apikey: currentKey,
+                Authorization: `Bearer ${currentKey}`,
+                "Cache-Control": "no-cache", // Avoid cache issues
+                Pragma: "no-cache",
+              },
+            })
+              .then(resolve)
+              .catch((error) => {
+                lastError = error;
+
+                // Log API key errors specifically
+                if (error.message?.includes("No API key found")) {
+                  console.error(
+                    "🔑 API Key Error:",
+                    error.message,
+                    "Key available:",
+                    Boolean(currentKey)
+                  );
+                }
+
+                // Determine if error is retriable (network error, 408, 429, 5xx)
+                const isRetriable =
+                  error.name === "AbortError" || // Timeout
+                  (error.message &&
+                    error.message.includes("Network request failed")) ||
+                  (error.response &&
+                    (error.response.status === 408 ||
+                      error.response.status === 429 ||
+                      (error.response.status >= 500 &&
+                        error.response.status < 600)));
+
+                if (isRetriable && retryCount < maxRetries) {
+                  retryCount++;
+                  // Exponential backoff
+                  const delay = Math.min(1000 * Math.pow(2, retryCount), 10000);
+                  setTimeout(attemptFetch, delay);
+                } else {
+                  reject(lastError);
+                }
+              });
+          };
+
+          attemptFetch();
+        });
       },
     },
   }
@@ -169,13 +295,129 @@ export const checkExistingSession = async (): Promise<boolean> => {
 // Helper to get the current user
 export const getCurrentUser = async () => {
   try {
+    // Try to refresh the session first
+    try {
+      const { data: refreshData, error: refreshError } =
+        await supabase.auth.refreshSession();
+      if (refreshData.session) {
+        console.log("Session refreshed successfully");
+      } else if (refreshError) {
+        console.log("Session refresh failed:", refreshError.message);
+      }
+    } catch (refreshErr) {
+      console.error("Error during session refresh:", refreshErr);
+    }
+
+    // Now get the user with the refreshed session
     const { data, error } = await supabase.auth.getUser();
     if (error) {
-      throw error;
+      console.error("Error getting current user:", error.message);
+      return null;
     }
+
+    if (!data.user) {
+      console.log("No user found after auth check");
+      return null;
+    }
+
     return data.user;
   } catch (error) {
-    console.error("Error getting current user:", error);
+    console.error("Exception getting current user:", error);
     return null;
+  }
+};
+
+// Helper to validate user session with more details and retry logic
+export const validateSession = async (
+  retryCount = 0
+): Promise<{
+  valid: boolean;
+  error: string | null;
+  user: any | null;
+  session?: any;
+}> => {
+  const MAX_RETRIES = 2;
+
+  try {
+    // First try to refresh the session before validating
+    try {
+      const { data: refreshData, error: refreshError } =
+        await supabase.auth.refreshSession();
+      if (refreshData.session) {
+        console.log("Session refreshed successfully during validation");
+      } else if (refreshError) {
+        console.log(
+          "Session refresh failed during validation:",
+          refreshError.message
+        );
+      }
+    } catch (refreshErr) {
+      console.warn("Error during session refresh in validation:", refreshErr);
+    }
+
+    // Check if we have a session after refresh attempt
+    const { data: sessionData, error: sessionError } =
+      await supabase.auth.getSession();
+
+    if (sessionError) {
+      console.error("Session validation error:", sessionError.message);
+      return { valid: false, error: sessionError.message, user: null };
+    }
+
+    if (!sessionData.session) {
+      console.log("No active session found during validation");
+
+      // If we haven't exceeded max retries, try again after a delay
+      if (retryCount < MAX_RETRIES) {
+        console.log(`Retrying session validation (attempt ${retryCount + 1})`);
+        // Wait for a moment to allow session storage to stabilize
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        return validateSession(retryCount + 1);
+      }
+
+      return { valid: false, error: "No active session", user: null };
+    }
+
+    // Session exists, check if it's valid by getting the user
+    const { data, error } = await supabase.auth.getUser();
+
+    if (error) {
+      console.error("User validation error:", error.message);
+
+      // If there's an error related to claims and we haven't exceeded retries
+      if (error.message.includes("claim") && retryCount < MAX_RETRIES) {
+        console.log(`Retrying after claim error (attempt ${retryCount + 1})`);
+        // Wait a bit longer for session to be fully established
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        return validateSession(retryCount + 1);
+      }
+
+      return { valid: false, error: error.message, user: null };
+    }
+
+    if (!data.user) {
+      console.log("Session exists but no user found");
+      return { valid: false, error: "No user found", user: null };
+    }
+
+    // We have a valid session and user
+    console.log("Session validated successfully, user ID:", data.user.id);
+    return {
+      valid: true,
+      error: null,
+      user: data.user,
+      session: sessionData.session,
+    };
+  } catch (error) {
+    console.error("Exception during session validation:", error);
+
+    // If we haven't exceeded max retries, try again
+    if (retryCount < MAX_RETRIES) {
+      console.log(`Retrying after error (attempt ${retryCount + 1})`);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      return validateSession(retryCount + 1);
+    }
+
+    return { valid: false, error: "Exception during validation", user: null };
   }
 };

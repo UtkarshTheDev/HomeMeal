@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -24,6 +24,7 @@ import Animated, {
   interpolateColor,
 } from "react-native-reanimated";
 import { supabase } from "@/src/utils/supabaseClient";
+import { validateSession } from "@/src/utils/supabaseClient";
 import { ROUTES } from "@/src/utils/routes";
 import { FontAwesome5, MaterialIcons, Feather } from "@expo/vector-icons";
 import { useAuth } from "@/src/providers/AuthProvider";
@@ -35,10 +36,58 @@ type UIRole = "customer" | "chef" | "delivery_boy";
 type DBRole = "customer" | "maker" | "delivery_boy";
 
 export default function RoleSelectionScreen() {
-  const { updateSetupStatus } = useAuth();
+  const { updateSetupStatus, refreshSession } = useAuth();
   const [selectedRole, setSelectedRole] = useState<UIRole | null>(null);
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Validate session when component loads
+  useEffect(() => {
+    async function checkSession() {
+      try {
+        console.log("Role selection screen: Validating session on load");
+        setInitialLoading(true);
+
+        // First try to refresh the session
+        await refreshSession();
+
+        // Then validate it
+        const { valid, user, error: validationError } = await validateSession();
+
+        if (!valid || !user) {
+          console.error(
+            "Session invalid in role selection screen:",
+            validationError
+          );
+
+          // Show error and navigate to auth intro
+          Alert.alert(
+            "Authentication Error",
+            "Your session appears to be invalid. Please sign in again.",
+            [
+              {
+                text: "Sign In",
+                onPress: () => {
+                  router.replace(ROUTES.AUTH_INTRO);
+                },
+              },
+            ]
+          );
+        } else {
+          console.log(
+            "Session validated successfully in role selection screen"
+          );
+        }
+      } catch (err) {
+        console.error("Error validating session on role selection load:", err);
+      } finally {
+        setInitialLoading(false);
+      }
+    }
+
+    checkSession();
+  }, []);
 
   // Convert UI role to database role
   const mapUIRoleToDBRole = (uiRole: UIRole): DBRole => {
@@ -53,14 +102,36 @@ export default function RoleSelectionScreen() {
     }
 
     setLoading(true);
+    setError(null);
 
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData?.user) {
-        throw new Error("No authenticated user found");
+      // Use the enhanced session validation
+      const { valid, user, error: validationError } = await validateSession();
+
+      if (!valid || !user) {
+        console.error(
+          "Authentication error in role selection:",
+          validationError
+        );
+
+        // Show error to user
+        Alert.alert(
+          "Authentication Error",
+          "Your session appears to have expired. Please sign in again.",
+          [
+            {
+              text: "Sign In",
+              onPress: () => {
+                router.replace(ROUTES.AUTH_INTRO);
+              },
+            },
+          ]
+        );
+        return;
       }
 
-      const userId = userData.user.id;
+      const userId = user.id;
+      console.log("Setting role for user:", userId);
 
       // Map UI role to database role
       const dbRole = mapUIRoleToDBRole(selectedRole);
@@ -74,15 +145,20 @@ export default function RoleSelectionScreen() {
         .eq("id", userId);
 
       if (userUpdateError) {
+        console.error("Error updating user role:", userUpdateError);
         setError("Error updating user role. Please try again.");
         setLoading(false);
         return;
       }
 
       // Update the setup status to mark role selection as complete
-      await updateSetupStatus({
+      const setupUpdateResult = await updateSetupStatus({
         role_selected: true,
       });
+
+      if (!setupUpdateResult) {
+        console.error("Failed to update setup status");
+      }
 
       // Create role-specific entries based on the selected role
       if (selectedRole === "chef") {
@@ -461,114 +537,125 @@ export default function RoleSelectionScreen() {
     <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
       <StatusBar style="dark" />
 
-      {/* Header Section */}
-      <Animated.View
-        entering={FadeInUp.duration(800)}
-        style={{
-          paddingTop: 60,
-          paddingHorizontal: 20,
-          paddingBottom: 12,
-        }}
-      >
-        <Text
-          style={{
-            fontSize: 32,
-            fontWeight: "bold",
-            color: "#1A1A1A",
-            marginBottom: 8,
-          }}
-        >
-          Join HomeMeal
-        </Text>
-        <Text
-          style={{
-            fontSize: 16,
-            color: "#757575",
-            letterSpacing: 0.2,
-          }}
-        >
-          How would you like to use our platform?
-        </Text>
-      </Animated.View>
-
-      {/* Role Cards */}
-      <View style={{ flex: 1, paddingHorizontal: 20 }}>
-        <Animated.ScrollView
-          showsVerticalScrollIndicator={false}
-          style={{ paddingTop: 12, paddingBottom: 16 }}
-        >
-          {roleCards.map(renderRoleCard)}
-        </Animated.ScrollView>
-      </View>
-
-      {/* Continue Button */}
-      <Animated.View
-        entering={FadeIn.delay(500).duration(800)}
-        style={{
-          paddingHorizontal: 20,
-          paddingBottom: 32,
-          paddingTop: 8,
-        }}
-      >
-        <TouchableOpacity
-          onPress={handleRoleSelection}
-          disabled={!selectedRole || loading}
-          activeOpacity={0.9}
-          style={{
-            borderRadius: 12,
-            overflow: "hidden",
-            shadowColor: selectedRole
-              ? roleCards.find((card) => card.role === selectedRole)
-                  ?.shadowColor
-              : "rgba(0, 0, 0, 0.1)",
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 1,
-            shadowRadius: 12,
-            elevation: 5,
-          }}
-        >
-          <LinearGradient
-            colors={
-              selectedRole
-                ? roleCards.find((card) => card.role === selectedRole)
-                    ?.gradient || ["#FF3366", "#FF6B95"]
-                : (["#A1A1AA", "#71717A"] as [string, string])
-            }
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
+      {initialLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#FF6B00" />
+          <Text style={{ marginTop: 12, color: "#757575" }}>
+            Preparing your account...
+          </Text>
+        </View>
+      ) : (
+        <>
+          {/* Header Section */}
+          <Animated.View
+            entering={FadeInUp.duration(800)}
             style={{
-              paddingVertical: 16,
-              paddingHorizontal: 24,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "center",
-              opacity: !selectedRole || loading ? 0.8 : 1,
+              paddingTop: 60,
+              paddingHorizontal: 20,
+              paddingBottom: 12,
             }}
           >
-            {loading ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Text
-                  style={{
-                    color: "#FFFFFF",
-                    fontSize: 18,
-                    fontWeight: "600",
-                    marginRight: 8,
-                  }}
-                >
-                  {selectedRole ? "Continue" : "Select a Role"}
-                </Text>
-                <Feather
-                  name={selectedRole ? "arrow-right" : "log-in"}
-                  size={20}
-                  color="#FFFFFF"
-                />
-              </>
-            )}
-          </LinearGradient>
-        </TouchableOpacity>
-      </Animated.View>
+            <Text
+              style={{
+                fontSize: 32,
+                fontWeight: "bold",
+                color: "#1A1A1A",
+                marginBottom: 8,
+              }}
+            >
+              Join HomeMeal
+            </Text>
+            <Text
+              style={{
+                fontSize: 16,
+                color: "#757575",
+                letterSpacing: 0.2,
+              }}
+            >
+              How would you like to use our platform?
+            </Text>
+          </Animated.View>
+
+          {/* Role Cards */}
+          <View style={{ flex: 1, paddingHorizontal: 20 }}>
+            <Animated.ScrollView
+              showsVerticalScrollIndicator={false}
+              style={{ paddingTop: 12, paddingBottom: 16 }}
+            >
+              {roleCards.map(renderRoleCard)}
+            </Animated.ScrollView>
+          </View>
+
+          {/* Continue Button */}
+          <Animated.View
+            entering={FadeIn.delay(500).duration(800)}
+            style={{
+              paddingHorizontal: 20,
+              paddingBottom: 32,
+              paddingTop: 8,
+            }}
+          >
+            <TouchableOpacity
+              onPress={handleRoleSelection}
+              disabled={!selectedRole || loading}
+              activeOpacity={0.9}
+              style={{
+                borderRadius: 12,
+                overflow: "hidden",
+                shadowColor: selectedRole
+                  ? roleCards.find((card) => card.role === selectedRole)
+                      ?.shadowColor
+                  : "rgba(0, 0, 0, 0.1)",
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 1,
+                shadowRadius: 12,
+                elevation: 5,
+              }}
+            >
+              <LinearGradient
+                colors={
+                  selectedRole
+                    ? roleCards.find((card) => card.role === selectedRole)
+                        ?.gradient || ["#FF3366", "#FF6B95"]
+                    : (["#A1A1AA", "#71717A"] as [string, string])
+                }
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={{
+                  paddingVertical: 16,
+                  paddingHorizontal: 24,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  opacity: !selectedRole || loading ? 0.8 : 1,
+                }}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <>
+                    <Text
+                      style={{
+                        color: "#FFFFFF",
+                        fontSize: 18,
+                        fontWeight: "600",
+                        marginRight: 8,
+                      }}
+                    >
+                      {selectedRole ? "Continue" : "Select a Role"}
+                    </Text>
+                    <Feather
+                      name={selectedRole ? "arrow-right" : "log-in"}
+                      size={20}
+                      color="#FFFFFF"
+                    />
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </Animated.View>
+        </>
+      )}
     </View>
   );
 }
@@ -721,5 +808,11 @@ const styles = StyleSheet.create({
   },
   buttonIcon: {
     marginLeft: 8,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
   },
 });

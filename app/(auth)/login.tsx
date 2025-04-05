@@ -13,6 +13,7 @@ import {
   Keyboard,
   Dimensions,
 } from "react-native";
+import NetInfo from "@react-native-community/netinfo";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
@@ -73,6 +74,107 @@ export default function LoginScreen() {
     setPhone(digits);
   };
 
+  // Check network status and send OTP
+  const checkNetworkAndProceed = async () => {
+    if (Platform.OS === "ios") {
+      // On iOS, check network state first
+      try {
+        const networkState = await NetInfo.fetch();
+        if (
+          !networkState.isConnected ||
+          networkState.isInternetReachable === false
+        ) {
+          console.log(
+            "Poor network detected on iOS, will attempt with retries"
+          );
+        }
+      } catch (error) {
+        console.log("Error checking network:", error);
+      }
+    }
+
+    return sendOTP();
+  };
+
+  // Function to send OTP
+  const sendOTP = async () => {
+    try {
+      const phoneWithCountryCode = `+91${phone}`;
+      console.log("Sending OTP to:", phoneWithCountryCode);
+
+      // Add retry logic for better network handling
+      let retryCount = 0;
+      const maxRetries = 2;
+      let success = false;
+      let lastError = null;
+
+      // Add platform-specific options
+      const platformOptions =
+        Platform.OS === "ios"
+          ? {
+              channel: "sms" as "sms", // Type casting to fix type error
+              shouldCreateUser: true,
+            }
+          : {
+              shouldCreateUser: true,
+            };
+
+      while (retryCount <= maxRetries && !success) {
+        try {
+          console.log(
+            `Attempt ${retryCount + 1} to send OTP (${Platform.OS})...`
+          );
+
+          const { error } = await supabase.auth.signInWithOtp({
+            phone: phoneWithCountryCode,
+            options: platformOptions,
+          });
+
+          if (error) {
+            console.error(`Attempt ${retryCount + 1} error:`, error.message);
+            lastError = error;
+            retryCount++;
+          } else {
+            success = true;
+            console.log("OTP sent successfully");
+          }
+        } catch (attemptError) {
+          console.error(`Attempt ${retryCount + 1} exception:`, attemptError);
+          lastError = attemptError;
+          retryCount++;
+        }
+
+        if (!success && retryCount <= maxRetries) {
+          // Wait a bit before retrying (longer delay for later attempts)
+          await new Promise((resolve) =>
+            setTimeout(resolve, 1000 * retryCount)
+          );
+        }
+      }
+
+      if (!success) {
+        throw lastError || new Error("Failed to send verification code");
+      }
+
+      // Navigate to the verify screen
+      console.log("Navigating to verification screen");
+      router.push({
+        pathname: ROUTES.AUTH_VERIFY,
+        params: { phone: phoneWithCountryCode },
+      });
+    } catch (error: any) {
+      console.error("Error in OTP sending:", error);
+      Alert.alert(
+        "Error",
+        error.message ||
+          "Failed to send verification code. Please check your network connection and try again."
+      );
+      return false;
+    }
+
+    return true;
+  };
+
   const handleGetStarted = async () => {
     buttonScale.value = withSequence(
       withTiming(0.95, { duration: 100 }),
@@ -92,18 +194,9 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      const phoneWithCountryCode = `+91${phone}`;
-      const { error } = await supabase.auth.signInWithOtp({
-        phone: phoneWithCountryCode,
-      });
-
-      if (error) throw error;
-      router.push({
-        pathname: ROUTES.AUTH_VERIFY,
-        params: { phone: phoneWithCountryCode },
-      });
-    } catch (error: any) {
-      Alert.alert("Error", error.message);
+      await checkNetworkAndProceed();
+    } catch (error) {
+      console.error("Error in handleGetStarted:", error);
     } finally {
       setLoading(false);
     }

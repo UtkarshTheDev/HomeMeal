@@ -29,6 +29,7 @@ import Animated, {
   Layout,
 } from "react-native-reanimated";
 import { supabase } from "@/src/utils/supabaseClient";
+import { validateSession } from "@/src/utils/supabaseClient";
 import { ROUTES } from "@/src/utils/routes";
 import {
   getCurrentLocation,
@@ -226,12 +227,35 @@ export default function LocationSetupScreen() {
     buttonScale.value = withTiming(0.95, { duration: 200 });
 
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!userData?.user) {
-        throw new Error("No authenticated user found");
+      // Use the enhanced session validation
+      const { valid, user, error: validationError } = await validateSession();
+
+      if (!valid || !user) {
+        console.error(
+          "Authentication error in location setup:",
+          validationError
+        );
+
+        // Show error to user
+        Alert.alert(
+          "Authentication Error",
+          "Your session appears to have expired. Please sign in again.",
+          [
+            {
+              text: "Sign In",
+              onPress: () => {
+                router.replace(ROUTES.AUTH_INTRO);
+              },
+            },
+          ]
+        );
+        setLoading(false);
+        buttonScale.value = withTiming(1, { duration: 200 });
+        return;
       }
 
-      const userId = userData.user.id;
+      const userId = user.id;
+      console.log("Saving location for user:", userId);
 
       // Create location object for database
       const locationData = {

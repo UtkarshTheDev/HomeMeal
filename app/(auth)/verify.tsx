@@ -17,19 +17,21 @@ import Animated, {
   FadeInUp,
   FadeIn,
 } from "react-native-reanimated";
-import { supabase } from "@/src/utils/supabaseClient";
+import { supabase, validateSession } from "@/src/utils/supabaseClient";
 import { ROUTES } from "@/src/utils/routes";
 import { LinearGradient } from "expo-linear-gradient";
 import {
   checkUserStatus,
   formatPhoneForDisplay,
 } from "@/src/utils/userHelpers";
+import { useAuth } from "@/src/providers/AuthProvider";
 
 const OTP_LENGTH = 6;
 
 export default function VerifyScreen() {
   const params = useLocalSearchParams();
   const phoneNumber = (params.phone as string) || "+91 XXXXXXXX"; // Get phone from params
+  const { refreshSession } = useAuth();
 
   const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(""));
   const [loading, setLoading] = useState(false);
@@ -42,6 +44,7 @@ export default function VerifyScreen() {
   );
   const [error, setError] = useState("");
   const [verificationSuccess, setVerificationSuccess] = useState(false);
+  const [sessionValidationAttempts, setSessionValidationAttempts] = useState(0);
 
   useEffect(() => {
     inputRefs.current[0]?.focus();
@@ -60,21 +63,83 @@ export default function VerifyScreen() {
     if (verificationSuccess) {
       const timer = setTimeout(async () => {
         try {
-          const { checkOnboardingStatus } = useAuth();
-          const { isComplete, route } = await checkOnboardingStatus();
-          
-          if (route) {
-            console.log("Navigating to:", route);
-            router.replace(route);
-          } else {
-            console.log("No route determined, defaulting to role selection");
+          console.log("Verification successful, preparing to navigate...");
+
+          // Give time for session to be properly stored and initialized
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+
+          // Validate session to ensure we have a valid user before navigation
+          let validationResult = await validateSession();
+          let attempts = 1;
+
+          console.log("First session validation result:", validationResult);
+
+          // If session is not valid, try refreshing and validating a few times
+          while (!validationResult.valid && attempts < 3) {
+            console.log(
+              `Session validation attempt ${attempts} failed, retrying after delay...`
+            );
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+
+            try {
+              // Try to explicitly refresh the session
+              console.log("Attempting to refresh session explicitly...");
+              await refreshSession();
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            } catch (refreshError) {
+              console.error(
+                "Error during explicit session refresh:",
+                refreshError
+              );
+            }
+
+            validationResult = await validateSession();
+            attempts++;
+          }
+
+          setSessionValidationAttempts(attempts);
+
+          if (validationResult.valid) {
+            console.log(
+              "Session validated successfully after",
+              attempts,
+              "attempts. Navigating to role selection"
+            );
+
+            // Additional delay to ensure the session is fully registered in the system
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+
             router.replace(ROUTES.AUTH_ROLE_SELECTION);
+          } else {
+            console.error(
+              "Failed to validate session after multiple attempts:",
+              validationResult.error
+            );
+            Alert.alert(
+              "Session Error",
+              "Unable to establish your session. Please try again.",
+              [
+                {
+                  text: "Try Again",
+                  onPress: () => router.replace(ROUTES.AUTH_LOGIN),
+                },
+              ]
+            );
           }
         } catch (error) {
-          console.error("Navigation error:", error);
-          router.replace(ROUTES.AUTH_ROLE_SELECTION);
+          console.error("Navigation error after verification:", error);
+          Alert.alert(
+            "Error",
+            "An unexpected error occurred. Please try signing in again.",
+            [
+              {
+                text: "OK",
+                onPress: () => router.replace(ROUTES.AUTH_INTRO),
+              },
+            ]
+          );
         }
-      }, 500);
+      }, 3000);
 
       return () => clearTimeout(timer);
     }
@@ -127,13 +192,19 @@ export default function VerifyScreen() {
     setError("");
 
     try {
+      console.log("Verifying OTP:", otpCode, "for phone:", phoneNumber);
+
+      const cleanPhone = phoneNumber.replace(/\s+/g, "");
+
       const { data, error } = await supabase.auth.verifyOtp({
-        phone: phoneNumber,
+        phone: cleanPhone,
         token: otpCode,
         type: "sms",
       });
 
       if (error) {
+        console.error("OTP verification error:", error.message);
+
         if (
           error.message.includes("token is expired") ||
           error.message.includes("invalid token") ||
@@ -159,9 +230,27 @@ export default function VerifyScreen() {
         throw error;
       }
 
+      console.log("OTP verification successful");
       const userId = data?.user?.id;
+
       if (!userId) {
         throw new Error("Authentication successful but no user ID returned");
+      }
+
+      const { data: sessionData, error: sessionError } =
+        await supabase.auth.getSession();
+      if (sessionError) {
+        console.error(
+          "Error retrieving session after OTP verification:",
+          sessionError
+        );
+      } else if (sessionData?.session) {
+        console.log("Session successfully retrieved after OTP verification");
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        } catch (storageError) {
+          console.error("Error storing session:", storageError);
+        }
       }
 
       const { data: existingUser, error: checkError } = await supabase
@@ -170,12 +259,17 @@ export default function VerifyScreen() {
         .eq("id", userId)
         .maybeSingle();
 
+      if (checkError) {
+        console.error("Error checking user:", checkError);
+      }
+
       if (!existingUser) {
-        const { error: insertError } = await supabase
-          .from("users")
-          .insert({
+        console.log("Creating new user record for:", userId);
+
+        try {
+          const { error: insertError } = await supabase.from("users").insert({
             id: userId,
-            phone_number: phoneNumber,
+            phone_number: cleanPhone,
             location: null,
             role: null,
             setup_status: {
@@ -185,19 +279,21 @@ export default function VerifyScreen() {
               meal_creation_completed: false,
               maker_selection_completed: false,
               wallet_setup_completed: false,
-              maker_food_selection_completed: false
+              maker_food_selection_completed: false,
             },
             created_at: new Date().toISOString(),
           });
 
-        if (insertError && insertError.code !== "23505") {
-          console.error("Error creating user record:", insertError);
+          if (insertError && insertError.code !== "23505") {
+            console.error("Error creating user record:", insertError);
+          } else {
+            console.log("User record created successfully or already exists");
+          }
+        } catch (insertError) {
+          console.error("Exception creating user record:", insertError);
         }
-
-        setLoading(false);
-        setVerifying(false);
-        router.replace(ROUTES.AUTH_ROLE_SELECTION);
-        return;
+      } else {
+        console.log("User already exists:", userId);
       }
 
       setLoading(false);
@@ -220,12 +316,20 @@ export default function VerifyScreen() {
 
     try {
       const cleanedPhone = phoneNumber.replace(/[^\d+]/g, "");
+      console.log("Resending OTP to:", cleanedPhone);
 
       const { error } = await supabase.auth.signInWithOtp({
         phone: cleanedPhone,
+        options: {
+          channel: Platform.OS === "ios" ? "sms" : undefined,
+        },
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Error sending OTP:", error);
+        throw error;
+      }
+
       Alert.alert("Success", "New verification code sent!");
       setOtp(Array(OTP_LENGTH).fill(""));
       inputRefs.current[0]?.focus();
