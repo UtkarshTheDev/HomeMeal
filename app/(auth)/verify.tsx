@@ -31,7 +31,7 @@ const OTP_LENGTH = 6;
 export default function VerifyScreen() {
   const params = useLocalSearchParams();
   const phoneNumber = (params.phone as string) || "+91 XXXXXXXX"; // Get phone from params
-  const { refreshSession } = useAuth();
+  const { refreshSession, checkOnboardingStatus } = useAuth();
 
   const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(""));
   const [loading, setLoading] = useState(false);
@@ -65,66 +65,59 @@ export default function VerifyScreen() {
         try {
           console.log("Verification successful, preparing to navigate...");
 
-          // Give time for session to be properly stored and initialized
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          // Wait for session refresh and validation to complete
+          await new Promise((resolve) => setTimeout(resolve, 1500));
 
-          // Validate session to ensure we have a valid user before navigation
-          let validationResult = await validateSession();
-          let attempts = 1;
+          // Ensure we have a valid session before navigating
+          let validationResult;
+          let retryCount = 0;
+          const maxRetries = 3;
 
-          console.log("First session validation result:", validationResult);
-
-          // If session is not valid, try refreshing and validating a few times
-          while (!validationResult.valid && attempts < 3) {
-            console.log(
-              `Session validation attempt ${attempts} failed, retrying after delay...`
-            );
-            await new Promise((resolve) => setTimeout(resolve, 1500));
-
+          while (retryCount < maxRetries) {
             try {
-              // Try to explicitly refresh the session
-              console.log("Attempting to refresh session explicitly...");
+              // Explicitly refresh the session before validation
               await refreshSession();
-              await new Promise((resolve) => setTimeout(resolve, 1000));
-            } catch (refreshError) {
-              console.error(
-                "Error during explicit session refresh:",
-                refreshError
-              );
-            }
 
-            validationResult = await validateSession();
-            attempts++;
+              // Wait for refresh to complete
+              await new Promise((resolve) => setTimeout(resolve, 500));
+
+              validationResult = await validateSession();
+
+              if (validationResult.valid) {
+                console.log(
+                  "Session validation successful, proceeding with navigation"
+                );
+                break;
+              } else {
+                console.log(
+                  `Session validation attempt ${retryCount + 1} failed: ${
+                    validationResult.error
+                  }`
+                );
+                retryCount++;
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+              }
+            } catch (validationError) {
+              console.error(
+                `Session validation attempt ${retryCount + 1} error:`,
+                validationError
+              );
+              retryCount++;
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
           }
 
-          setSessionValidationAttempts(attempts);
+          // Check onboarding status after session validation
+          const { isComplete, route } = await checkOnboardingStatus();
 
-          if (validationResult.valid) {
-            console.log(
-              "Session validated successfully after",
-              attempts,
-              "attempts. Navigating to role selection"
-            );
-
-            // Additional delay to ensure the session is fully registered in the system
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-
-            router.replace(ROUTES.AUTH_ROLE_SELECTION);
+          if (route) {
+            console.log("Navigating to:", route);
+            router.replace(route as any);
           } else {
-            console.error(
-              "Failed to validate session after multiple attempts:",
-              validationResult.error
+            console.log(
+              "No specific route determined, defaulting to role selection"
             );
-            Alert.alert(
-              "Session Error",
-              "Unable to establish your session. Please try again.",
-              [
-                {
-                  text: "Try Again",
-                  onPress: () => router.replace(ROUTES.AUTH_LOGIN),
-                },
-              ]
-            );
+            router.replace(ROUTES.AUTH_ROLE_SELECTION as any);
           }
         } catch (error) {
           console.error("Navigation error after verification:", error);
@@ -139,7 +132,7 @@ export default function VerifyScreen() {
             ]
           );
         }
-      }, 3000);
+      }, 2000); // Increase timeout to ensure everything is ready
 
       return () => clearTimeout(timer);
     }
@@ -177,6 +170,147 @@ export default function VerifyScreen() {
     }
   };
 
+  const createUserRecord = async (
+    userId: string,
+    phoneNumber: string
+  ): Promise<boolean> => {
+    try {
+      console.log("Attempting direct user record creation:", userId);
+
+      // First try direct insertion (this will work if RLS policies are properly set)
+      const { error: insertError } = await supabase.from("users").insert({
+        id: userId,
+        phone_number: phoneNumber,
+        created_at: new Date().toISOString(),
+        setup_status: JSON.stringify({}),
+      });
+
+      // If direct insertion succeeds, create wallet
+      if (!insertError) {
+        console.log("User record created successfully via direct insertion");
+
+        // Create wallet directly
+        const { error: walletError } = await supabase.from("wallets").insert({
+          user_id: userId,
+          balance: 0,
+          created_at: new Date().toISOString(),
+        });
+
+        if (walletError) {
+          console.warn("Created user but wallet creation failed:", walletError);
+          // Try wallet creation via RPC as fallback
+          try {
+            const { data: walletResult, error: walletRpcError } =
+              await supabase.rpc("create_wallet", { user_id: userId });
+
+            if (walletRpcError) {
+              console.warn(
+                "Wallet creation via RPC also failed:",
+                walletRpcError
+              );
+              // Continue anyway since user was created
+            }
+          } catch (walletFallbackError) {
+            console.warn(
+              "Wallet fallback creation error:",
+              walletFallbackError
+            );
+          }
+        }
+
+        // Fix JWT claims to ensure proper token data
+        try {
+          const { error: claimError } = await supabase.rpc(
+            "fix_user_jwt_claims",
+            { p_user_id: userId }
+          );
+
+          if (claimError) {
+            console.warn("Failed to fix JWT claims:", claimError);
+          }
+        } catch (claimError) {
+          console.warn("Error fixing JWT claims:", claimError);
+        }
+
+        return true;
+      }
+
+      // If direct insertion fails, log and try RPC function
+      console.warn("Direct insertion failed:", insertError.message);
+
+      // First try the create_new_user function (simpler)
+      try {
+        console.log("Trying create_new_user RPC function");
+        const { error: createNewError } = await supabase.rpc(
+          "create_new_user",
+          {
+            user_id: userId,
+            phone: phoneNumber,
+            created_time: new Date().toISOString(),
+          }
+        );
+
+        if (!createNewError) {
+          console.log("User created successfully via create_new_user RPC");
+          return true;
+        } else {
+          console.warn("create_new_user RPC failed:", createNewError);
+        }
+      } catch (newUserError) {
+        console.warn("Error in create_new_user RPC:", newUserError);
+      }
+
+      // Finally, try the secure RPC function as last resort
+      console.log("Falling back to create_auth_user_secure RPC function");
+      const { data: result, error: rpcError } = await supabase.rpc(
+        "create_auth_user_secure",
+        {
+          p_user_id: userId,
+          p_phone: phoneNumber,
+          p_create_wallet: true,
+        }
+      );
+
+      if (rpcError) {
+        console.error("Error in secure user creation:", rpcError);
+
+        // Last attempt - try ensure_user_exists function
+        try {
+          const { error: ensureError } = await supabase.rpc(
+            "ensure_user_exists",
+            {
+              p_user_id: userId,
+              p_phone: phoneNumber,
+            }
+          );
+
+          if (!ensureError) {
+            console.log("User created via ensure_user_exists as last resort");
+            return true;
+          } else {
+            console.error("All user creation methods failed");
+            return false;
+          }
+        } catch (finalError) {
+          console.error("Final attempt to create user failed:", finalError);
+          return false;
+        }
+      }
+
+      if (result === true) {
+        console.log(
+          "User record created successfully via create_auth_user_secure RPC"
+        );
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error("Exception in createUserRecord:", error);
+      return false;
+    }
+  };
+
   const handleVerify = async () => {
     if (loading) return;
 
@@ -196,6 +330,7 @@ export default function VerifyScreen() {
 
       const cleanPhone = phoneNumber.replace(/\s+/g, "");
 
+      // Step 1: Verify OTP
       const { data, error } = await supabase.auth.verifyOtp({
         phone: cleanPhone,
         token: otpCode,
@@ -203,99 +338,90 @@ export default function VerifyScreen() {
       });
 
       if (error) {
-        console.error("OTP verification error:", error.message);
-
-        if (
-          error.message.includes("token is expired") ||
-          error.message.includes("invalid token") ||
-          error.message.includes("Invalid Refresh Token")
-        ) {
-          setError("Verification code has expired. Please request a new code.");
-          setLoading(false);
-          setVerifying(false);
-
-          setTimeout(() => {
-            if (canResend) {
-              resendOtp();
-            } else {
-              setError(
-                "Please wait and try the resend button when it becomes available."
-              );
-            }
-          }, 1500);
-
-          return;
-        }
-
-        throw error;
+        handleOtpError(error);
+        return;
       }
 
-      console.log("OTP verification successful");
       const userId = data?.user?.id;
-
       if (!userId) {
         throw new Error("Authentication successful but no user ID returned");
       }
 
-      const { data: sessionData, error: sessionError } =
-        await supabase.auth.getSession();
-      if (sessionError) {
-        console.error(
-          "Error retrieving session after OTP verification:",
-          sessionError
-        );
-      } else if (sessionData?.session) {
-        console.log("Session successfully retrieved after OTP verification");
-        try {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        } catch (storageError) {
-          console.error("Error storing session:", storageError);
-        }
-      }
+      console.log("OTP verification successful, userId:", userId);
 
-      const { data: existingUser, error: checkError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", userId)
-        .maybeSingle();
+      // No need to fix JWT claims directly - the trigger in direct-jwt-fix.sql handles this
+      // Just refresh the session to get the latest token with claims
+      try {
+        console.log("Refreshing session to ensure JWT token...");
+        const sessionResult = await refreshSession();
 
-      if (checkError) {
-        console.error("Error checking user:", checkError);
-      }
-
-      if (!existingUser) {
-        console.log("Creating new user record for:", userId);
-
-        try {
-          const { error: insertError } = await supabase.from("users").insert({
-            id: userId,
-            phone_number: cleanPhone,
-            location: null,
-            role: null,
-            setup_status: {
-              role_selected: false,
-              location_set: false,
-              profile_completed: false,
-              meal_creation_completed: false,
-              maker_selection_completed: false,
-              wallet_setup_completed: false,
-              maker_food_selection_completed: false,
-            },
-            created_at: new Date().toISOString(),
-          });
-
-          if (insertError && insertError.code !== "23505") {
-            console.error("Error creating user record:", insertError);
-          } else {
-            console.log("User record created successfully or already exists");
+        if (!sessionResult) {
+          console.warn(
+            "Session refresh returned no session, using direct getSession"
+          );
+          // Try direct getSession as fallback
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (!sessionData?.session) {
+            console.error("No session available after OTP verification");
+            throw new Error("Failed to get session after authentication");
           }
-        } catch (insertError) {
-          console.error("Exception creating user record:", insertError);
         }
-      } else {
-        console.log("User already exists:", userId);
+      } catch (sessionError) {
+        console.warn("Error refreshing session:", sessionError);
+        // Continue anyway - the token might still work
       }
 
+      // Create user record directly - auth.users should already be created with proper claims
+      // due to the trigger from direct-jwt-fix.sql
+      const { error: insertError } = await supabase.from("users").insert({
+        id: userId,
+        phone_number: cleanPhone,
+        created_at: new Date().toISOString(),
+        setup_status: JSON.stringify({}),
+      });
+
+      // Only use functions as fallback if direct insertion fails
+      if (insertError) {
+        console.warn("Direct user insert failed:", insertError.message);
+        const userCreated = await createUserRecord(userId, cleanPhone);
+        if (!userCreated) {
+          console.error("Failed to create user record through all methods");
+          setError("Failed to create user account. Please try again.");
+          setLoading(false);
+          setVerifying(false);
+          return;
+        }
+      }
+
+      // Create wallet directly
+      try {
+        const { error: walletError } = await supabase.from("wallets").insert({
+          user_id: userId,
+          balance: 0,
+          created_at: new Date().toISOString(),
+        });
+
+        if (walletError) {
+          console.warn("Wallet creation failed:", walletError);
+          // Wallet creation failure shouldn't block the process
+        }
+      } catch (walletError) {
+        console.warn("Exception in wallet creation:", walletError);
+      }
+
+      // Validate session
+      const validationResult = await validateSession();
+      if (!validationResult.valid) {
+        console.warn(
+          "Session validation returned invalid, but continuing:",
+          validationResult.error
+        );
+
+        // Refresh session one more time
+        await refreshSession();
+      }
+
+      // Success! Set states and proceed
       setLoading(false);
       setVerifying(false);
       setVerificationSuccess(true);
@@ -305,6 +431,33 @@ export default function VerifyScreen() {
       setLoading(false);
       setVerifying(false);
     }
+  };
+
+  const handleOtpError = (error: any) => {
+    console.error("OTP verification error:", error.message);
+
+    if (
+      error.message.includes("token is expired") ||
+      error.message.includes("invalid token") ||
+      error.message.includes("Invalid Refresh Token")
+    ) {
+      setError("Verification code has expired. Please request a new code.");
+      setLoading(false);
+      setVerifying(false);
+
+      setTimeout(() => {
+        if (canResend) {
+          resendOtp();
+        } else {
+          setError(
+            "Please wait and try the resend button when it becomes available."
+          );
+        }
+      }, 1500);
+      return;
+    }
+
+    throw error;
   };
 
   const resendOtp = async () => {

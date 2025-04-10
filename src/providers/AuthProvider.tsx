@@ -7,7 +7,11 @@ import React, {
 } from "react";
 import { ActivityIndicator, View, Text, Alert } from "react-native";
 import { Session, User } from "@supabase/supabase-js";
-import { supabase, validateSession } from "@/src/utils/supabaseClient";
+import {
+  supabase,
+  validateSession,
+  cleanSignOut,
+} from "@/src/utils/supabaseClient";
 import { router } from "expo-router";
 import { ROUTES } from "@/src/utils/routes";
 import LoadingScreen from "@/src/components/LoadingScreen";
@@ -100,15 +104,16 @@ const refreshSession = async (): Promise<Session | null> => {
     if (error) {
       console.error("Failed to refresh token:", error);
 
-      // If we get a specific error about JWT or claims, we clear the session
+      // If we get JWT or claims errors, we need to sign out and clear the token
       if (
         error.message?.includes("invalid claim") ||
         error.message?.includes("JWT") ||
         error.message?.includes("Refresh Token")
       ) {
-        console.log(
-          "Token error indicates session is invalid and user needs to sign in again"
-        );
+        console.log("Token has invalid claims, clearing session");
+
+        // Use clean sign out to properly clear tokens
+        await cleanSignOut();
         return null;
       }
 
@@ -123,6 +128,12 @@ const refreshSession = async (): Promise<Session | null> => {
             return sessionData.session;
           } else {
             console.log("Existing session is invalid:", secondValidation.error);
+
+            // Clear invalid session
+            if (secondValidation.error?.includes("claim")) {
+              await cleanSignOut();
+            }
+
             return null;
           }
         }
@@ -143,6 +154,12 @@ const refreshSession = async (): Promise<Session | null> => {
           "Refreshed session validation failed:",
           refreshedValidation.error
         );
+
+        // Clear invalid session with claims issues
+        if (refreshedValidation.error?.includes("claim")) {
+          await cleanSignOut();
+        }
+
         return null;
       }
 
@@ -376,10 +393,150 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   };
 
+  // Function to create a new user record with proper error handling and retries
+  const createUserRecord = async (
+    userId: string,
+    phoneNumber: string
+  ): Promise<boolean> => {
+    try {
+      console.log(
+        "Creating/verifying user record in AuthProvider for:",
+        userId
+      );
+
+      // First check if user already exists
+      const { data: existingUser, error: checkError } = await supabase
+        .from("users")
+        .select("id")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (checkError) {
+        console.error("Error checking for existing user:", checkError);
+      }
+
+      if (existingUser) {
+        console.log("User already exists, no need to create:", userId);
+        return true;
+      }
+
+      // User doesn't exist, create a new record WITHOUT .select()
+      const { error: insertError } = await supabase.from("users").insert({
+        id: userId,
+        phone_number: phoneNumber,
+        setup_status: {},
+        created_at: new Date().toISOString(),
+      });
+
+      if (insertError) {
+        // Skip error message for duplicate key error as this is expected sometimes
+        if (insertError.code === "23505") {
+          console.log("User already exists (constraint violation):", userId);
+          return true;
+        }
+
+        console.error(
+          "Error creating user record in AuthProvider:",
+          insertError
+        );
+
+        // If RLS policy error, use enhanced approaches
+        if (insertError.code === "42501") {
+          console.log("RLS policy error. Trying secure function approach.");
+
+          // Try with auth_create_user RPC function that bypasses RLS
+          try {
+            const { data: rpcData, error: rpcError } = await supabase.rpc(
+              "auth_create_user",
+              {
+                user_id: userId,
+                phone: phoneNumber,
+                create_wallet: true,
+              }
+            );
+
+            if (rpcError) {
+              console.error("RPC function failed:", rpcError);
+            } else if (rpcData === true) {
+              console.log("User created successfully via RPC function");
+              return true;
+            }
+          } catch (rpcErr) {
+            console.error("Exception calling RPC function:", rpcErr);
+          }
+        }
+
+        // Try with minimal fields as fallback
+        try {
+          const { error: retryError } = await supabase.from("users").insert({
+            id: userId,
+            phone_number: phoneNumber,
+            created_at: new Date().toISOString(),
+          });
+
+          if (retryError) {
+            console.error(
+              "Retry insert with minimal fields failed:",
+              retryError
+            );
+
+            // Last attempt with upsert
+            const { error: upsertError } = await supabase.from("users").upsert({
+              id: userId,
+              phone_number: phoneNumber,
+              created_at: new Date().toISOString(),
+            });
+
+            if (upsertError) {
+              console.error("Final upsert attempt failed:", upsertError);
+              return false;
+            } else {
+              console.log("User created successfully via upsert");
+              return true;
+            }
+          } else {
+            console.log("User created with minimal fields on retry");
+            return true;
+          }
+        } catch (retryErr) {
+          console.error("Exception during retry creation:", retryErr);
+          return false;
+        }
+      }
+
+      console.log("User record created successfully in AuthProvider");
+
+      // Verify the user was actually created
+      try {
+        const { data: verifyUser, error: verifyError } = await supabase
+          .from("users")
+          .select("id")
+          .eq("id", userId)
+          .maybeSingle();
+
+        if (verifyError) {
+          console.error("Error verifying user creation:", verifyError);
+        } else if (!verifyUser) {
+          console.error(
+            "User record not found after creation in AuthProvider!"
+          );
+          return false;
+        }
+      } catch (verifyErr) {
+        console.error("Exception verifying user creation:", verifyErr);
+      }
+
+      return true;
+    } catch (error) {
+      console.error("Exception in createUserRecord:", error);
+      return false;
+    }
+  };
+
   // Function to create wallet for new users
   const createUserWallet = async (userId: string) => {
     try {
-      // Check if wallet already exists
+      // First check if wallet already exists
       const { data: existingWallet, error: checkError } = await supabase
         .from("wallets")
         .select("id")
@@ -387,28 +544,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         .maybeSingle();
 
       if (checkError) {
-        console.error("Error checking wallet:", checkError);
-        return false;
+        console.error("Error checking for existing wallet:", checkError);
       }
 
-      // If wallet exists, no need to create one
       if (existingWallet) {
+        console.log("Wallet already exists, no need to create:", userId);
         return true;
       }
 
-      // Create wallet with initial balance of 0
-      const { error: createError } = await supabase
-        .from("wallets")
-        .insert({ user_id: userId, balance: 0 });
+      // Wallet doesn't exist, create without .select()
+      const { error: insertError } = await supabase.from("wallets").insert({
+        user_id: userId,
+        balance: 0,
+        created_at: new Date().toISOString(),
+      });
 
-      if (createError) {
-        console.error("Error creating user wallet:", createError);
+      if (insertError) {
+        // Skip error message for duplicate key error as this is expected sometimes
+        if (insertError.code === "23505") {
+          console.log("Wallet already exists (constraint violation):", userId);
+          return true;
+        }
+
+        console.error("Error creating user wallet:", insertError);
         return false;
       }
 
+      console.log("Wallet created successfully");
       return true;
     } catch (error) {
-      console.error("Exception creating user wallet:", error);
+      console.error("Exception in createUserWallet:", error);
       return false;
     }
   };
@@ -452,28 +617,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           currentUserDetails = details;
         } else {
           // Create a basic user record if nothing exists
-          try {
-            const { error: insertError } = await supabase.from("users").insert({
-              id: currentUserId,
-              phone_number: user.phone || "",
-              setup_status: update, // Include the current update in the initial state
-              created_at: new Date().toISOString(),
-            });
+          const created = await createUserRecord(
+            currentUserId,
+            user.phone || ""
+          );
 
-            // If insertion succeeded or it was a duplicate key error (user already exists)
-            if (!insertError || insertError.code === "23505") {
-              // Fetch the user details again after creating
-              const newDetails = await fetchUserDetails(currentUserId);
-              if (newDetails) {
-                setUserDetails(newDetails);
-                currentUserDetails = newDetails;
-              }
-            } else {
-              console.error("Failed to create user record:", insertError);
-              return false;
+          if (created) {
+            // Fetch the user details again after creating
+            const newDetails = await fetchUserDetails(currentUserId);
+            if (newDetails) {
+              setUserDetails(newDetails);
+              currentUserDetails = newDetails;
             }
-          } catch (createError) {
-            console.error("Error creating user record:", createError);
+          } else {
+            console.error("Failed to create user record");
             return false;
           }
         }
@@ -566,20 +723,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       // Ensure setup_status exists
       const setupStatus = details.setup_status || {};
 
+      // Always check for missing user role first since this is the critical first step
+      if (!details.role) {
+        console.log("User role not set, redirecting to role selection");
+        return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
+      }
+
       // Sequential check for completion of each onboarding step
 
       // Step 1: Check if role is selected
-      if (!details.role || !setupStatus.role_selected) {
+      if (!setupStatus.role_selected) {
+        console.log(
+          "Role not marked as selected, redirecting to role selection"
+        );
         return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
       }
 
       // Step 2: Check if location is set
       if (!details.location || !details.address || !setupStatus.location_set) {
+        console.log("Location not set, redirecting to location setup");
         return { isComplete: false, route: ROUTES.LOCATION_SETUP };
       }
 
       // Step 3: Check if profile is complete
       if (!details.name || !setupStatus.profile_completed) {
+        console.log("Profile not complete, redirecting to profile setup");
         return { isComplete: false, route: ROUTES.AUTH_PROFILE_SETUP };
       }
 
@@ -587,14 +755,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       if (details.role === "customer") {
         // For customers, check if they need to view meal plans
         if (!setupStatus.meal_creation_completed) {
+          console.log("Meal creation not complete, redirecting to meal plans");
           return { isComplete: false, route: ROUTES.TAB_MEAL_PLANS };
         }
 
         if (!setupStatus.maker_selection_completed) {
+          console.log(
+            "Maker selection not complete, redirecting to maker selection"
+          );
           return { isComplete: false, route: ROUTES.MAKER_SELECTION_SETUP };
         }
       } else if (details.role === "maker") {
         if (!setupStatus.maker_food_selection_completed) {
+          console.log(
+            "Maker food selection not complete, redirecting to food selection setup"
+          );
           return {
             isComplete: false,
             route: ROUTES.MAKER_FOOD_SELECTION_SETUP,
@@ -604,10 +779,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // Step 6: Wallet setup (last step for all roles)
       if (!setupStatus.wallet_setup_completed) {
+        console.log("Wallet setup not complete, redirecting to wallet setup");
         return { isComplete: false, route: ROUTES.WALLET_SETUP };
       }
 
       // All steps completed
+      console.log("All onboarding steps complete, redirecting to tabs");
       return { isComplete: true, route: ROUTES.TABS };
     } catch (error) {
       console.error("Error checking onboarding status:", error);

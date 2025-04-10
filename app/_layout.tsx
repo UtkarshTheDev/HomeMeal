@@ -249,7 +249,22 @@ export default function RootLayout() {
           // @ts-ignore - This global flag is used by AuthProvider
           global.appReady = true;
           console.log("🚀 App ready to render, global flags set");
-        }, 300);
+
+          // Additional logging to help debug navigation issues
+          if (session) {
+            console.log("Session available at app ready:", session.user.id);
+            // Validate the session when app is ready
+            validateSession().then((validation) => {
+              console.log(
+                "Session validation on app ready:",
+                validation.valid ? "Valid" : "Invalid",
+                validation.error || ""
+              );
+            });
+          } else {
+            console.log("No session available at app ready");
+          }
+        }, 500);
       });
     }
   }, [fontsLoaded, fontError, hasCheckedSession]);

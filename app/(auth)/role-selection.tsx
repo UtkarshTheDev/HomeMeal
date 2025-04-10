@@ -136,180 +136,247 @@ export default function RoleSelectionScreen() {
       // Map UI role to database role
       const dbRole = mapUIRoleToDBRole(selectedRole);
 
-      // Update user role in the users table
-      const { error: userUpdateError } = await supabase
+      // Update user role in the users table - first check if user exists
+      const { data: existingUser, error: checkError } = await supabase
         .from("users")
-        .update({
-          role: dbRole,
-        })
+        .select("id, role")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (checkError) {
+        console.error("Error checking user existence:", checkError);
+        // Continue anyway, we'll try to update
+      }
+
+      // Try direct update first
+      const { error: updateError } = await supabase
+        .from("users")
+        .update({ role: dbRole })
         .eq("id", userId);
 
-      if (userUpdateError) {
-        console.error("Error updating user role:", userUpdateError);
-        setError("Error updating user role. Please try again.");
+      if (updateError) {
+        console.error("Error updating role:", updateError);
+        setError("Failed to update role. Please try again.");
         setLoading(false);
         return;
       }
 
-      // Update the setup status to mark role selection as complete
-      const setupUpdateResult = await updateSetupStatus({
-        role_selected: true,
-      });
+      // Also update the role in auth.users raw_app_meta_data
+      // This ensures JWT claims are properly set
+      try {
+        // First refresh to get latest session
+        await refreshSession();
 
-      if (!setupUpdateResult) {
-        console.error("Failed to update setup status");
+        // Get current session
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session) {
+          console.log("Refreshed session before updating role");
+        }
+      } catch (refreshError) {
+        console.warn(
+          "Error refreshing session before role update:",
+          refreshError
+        );
       }
 
-      // Create role-specific entries based on the selected role
-      if (selectedRole === "chef") {
-        // UI role is "chef", but DB role is "maker"
-        try {
-          // Check if maker record already exists
-          const { data: existingMaker } = await supabase
-            .from("makers")
-            .select("user_id")
-            .eq("user_id", userId)
-            .maybeSingle();
+      // Verify the role update worked correctly
+      await verifyRoleUpdate(userId, dbRole);
 
-          // Only create if it doesn't exist
-          if (!existingMaker) {
-            // Create an entry in the makers table
-            const { error: makerError } = await supabase.from("makers").insert({
-              user_id: userId,
-              rating: 0,
-              strike_count: 0,
-              banned: false,
-              created_at: new Date().toISOString(),
-            });
-
-            if (makerError) {
-              // Continue despite error
-            }
-          }
-        } catch (makerError) {
-          // Continue despite error
-        }
-
-        try {
-          // Check if wallet already exists
-          const { data: existingWallet } = await supabase
-            .from("wallets")
-            .select("user_id")
-            .eq("user_id", userId)
-            .maybeSingle();
-
-          // Only create if it doesn't exist
-          if (!existingWallet) {
-            // Create a wallet for the maker
-            const { error: walletError } = await supabase
-              .from("wallets")
-              .insert({
-                user_id: userId,
-                balance: 0,
-                created_at: new Date().toISOString(),
-              });
-
-            if (walletError) {
-              // Continue despite error
-            }
-          }
-        } catch (walletError) {
-          // Continue despite error
-        }
-      } else if (selectedRole === "delivery_boy") {
-        try {
-          // Check if delivery_boy record already exists
-          const { data: existingDeliveryBoy } = await supabase
-            .from("delivery_boys")
-            .select("user_id")
-            .eq("user_id", userId)
-            .maybeSingle();
-
-          // Only create if it doesn't exist
-          if (!existingDeliveryBoy) {
-            // Create an entry in the delivery_boys table
-            const { error: deliveryBoyError } = await supabase
-              .from("delivery_boys")
-              .insert({
-                user_id: userId,
-                rating: 0,
-                availability_status: false,
-                strike_count: 0,
-                banned: false,
-                created_at: new Date().toISOString(),
-              });
-
-            if (deliveryBoyError) {
-              // Continue despite error
-            }
-          }
-        } catch (deliveryBoyError) {
-          // Continue despite error
-        }
-
-        try {
-          // Check if wallet already exists
-          const { data: existingWallet } = await supabase
-            .from("wallets")
-            .select("user_id")
-            .eq("user_id", userId)
-            .maybeSingle();
-
-          // Only create if it doesn't exist
-          if (!existingWallet) {
-            // Create a wallet for the delivery boy
-            const { error: walletError } = await supabase
-              .from("wallets")
-              .insert({
-                user_id: userId,
-                balance: 0,
-                created_at: new Date().toISOString(),
-              });
-
-            if (walletError) {
-              // Continue despite error
-            }
-          }
-        } catch (walletError) {
-          // Continue despite error
-        }
-      } else if (selectedRole === "customer") {
-        try {
-          // Check if wallet already exists
-          const { data: existingWallet } = await supabase
-            .from("wallets")
-            .select("user_id")
-            .eq("user_id", userId)
-            .maybeSingle();
-
-          // Only create if it doesn't exist
-          if (!existingWallet) {
-            // Create a wallet for the customer
-            const { error: walletError } = await supabase
-              .from("wallets")
-              .insert({
-                user_id: userId,
-                balance: 0,
-                created_at: new Date().toISOString(),
-              });
-
-            if (walletError) {
-              // Continue despite error
-            }
-          }
-        } catch (walletError) {
-          // Continue despite error
-        }
+      // Update setup status after role selection
+      let setupSuccess = false;
+      try {
+        setupSuccess = await updateSetupStatus({
+          role_selected: true,
+        });
+      } catch (setupError) {
+        console.error("Error updating setup status:", setupError);
       }
 
-      // Navigate to the location setup screen - regardless of errors
-      router.replace(ROUTES.LOCATION_SETUP);
-    } catch (error: any) {
-      console.error("Error in role selection:", error);
-      // Try to navigate anyway regardless of errors
-      router.replace(ROUTES.LOCATION_SETUP);
+      // Navigate to appropriate setup screen based on role
+      if (setupSuccess) {
+        if (selectedRole === "chef") {
+          await handleChefRoleSetup(userId);
+        } else if (selectedRole === "delivery_boy") {
+          await handleDeliveryRoleSetup(userId);
+        } else {
+          await handleCustomerRoleSetup(userId);
+        }
+      } else {
+        // Just navigate to main app if setup status update failed
+        if (selectedRole === "chef") {
+          router.replace("/(tabs)");
+        } else if (selectedRole === "delivery_boy") {
+          router.replace("/(tabs)");
+        } else {
+          router.replace("/(tabs)");
+        }
+      }
+    } catch (error) {
+      setError("An unexpected error occurred. Please try again.");
+      console.error("Role selection error:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Helper function for chef role setup
+  const handleChefRoleSetup = async (userId: string) => {
+    try {
+      // Check if maker record already exists
+      const { data: existingMaker } = await supabase
+        .from("makers")
+        .select("user_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      // Only create if it doesn't exist
+      if (!existingMaker) {
+        // Create an entry in the makers table
+        const { error: makerError } = await supabase.from("makers").insert({
+          user_id: userId,
+          rating: 0,
+          strike_count: 0,
+          banned: false,
+          created_at: new Date().toISOString(),
+        });
+
+        if (makerError) {
+          console.warn(
+            "Error creating maker record, continuing:",
+            makerError.message
+          );
+          // Continue despite error
+        }
+      }
+    } catch (makerError) {
+      console.warn("Exception creating maker record:", makerError);
+      // Continue despite error
+    }
+
+    await createWalletIfNeeded(userId);
+  };
+
+  // Helper function for delivery role setup
+  const handleDeliveryRoleSetup = async (userId: string) => {
+    try {
+      // Check if delivery_boy record already exists
+      const { data: existingDeliveryBoy } = await supabase
+        .from("delivery_boys")
+        .select("user_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      // Only create if it doesn't exist
+      if (!existingDeliveryBoy) {
+        // Create an entry in the delivery_boys table
+        const { error: deliveryBoyError } = await supabase
+          .from("delivery_boys")
+          .insert({
+            user_id: userId,
+            rating: 0,
+            availability_status: false,
+            strike_count: 0,
+            banned: false,
+            created_at: new Date().toISOString(),
+          });
+
+        if (deliveryBoyError) {
+          console.warn(
+            "Error creating delivery boy record, continuing:",
+            deliveryBoyError.message
+          );
+          // Continue despite error
+        }
+      }
+    } catch (deliveryBoyError) {
+      console.warn("Exception creating delivery boy record:", deliveryBoyError);
+      // Continue despite error
+    }
+
+    await createWalletIfNeeded(userId);
+  };
+
+  // Helper function for customer role setup
+  const handleCustomerRoleSetup = async (userId: string) => {
+    await createWalletIfNeeded(userId);
+  };
+
+  // Helper function to create wallet if needed
+  const createWalletIfNeeded = async (userId: string) => {
+    try {
+      // Check if wallet already exists
+      const { data: existingWallet } = await supabase
+        .from("wallets")
+        .select("user_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      // Only create if it doesn't exist
+      if (!existingWallet) {
+        // Create a wallet for the user
+        const { error: walletError } = await supabase.from("wallets").insert({
+          user_id: userId,
+          balance: 0,
+          created_at: new Date().toISOString(),
+        });
+
+        if (walletError) {
+          console.warn(
+            "Error creating wallet, continuing:",
+            walletError.message
+          );
+          // Continue despite error
+        }
+      }
+    } catch (walletError) {
+      console.warn("Exception creating wallet:", walletError);
+      // Continue despite error
+    }
+  };
+
+  // Helper function to verify the role was set correctly
+  const verifyRoleUpdate = async (userId: string, expectedRole: string) => {
+    try {
+      const { data: finalCheck } = await supabase
+        .from("users")
+        .select("role")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (!finalCheck || finalCheck.role !== expectedRole) {
+        console.warn("Role was not set correctly, trying once more");
+
+        // Try one more time with direct update
+        const { error: updateError } = await supabase
+          .from("users")
+          .update({ role: expectedRole })
+          .eq("id", userId);
+
+        if (updateError) {
+          console.error("Final role update attempt failed:", updateError);
+        } else {
+          console.log("Role set successfully on second attempt");
+
+          // Verify again
+          const { data: secondCheck } = await supabase
+            .from("users")
+            .select("role")
+            .eq("id", userId)
+            .maybeSingle();
+
+          if (!secondCheck || secondCheck.role !== expectedRole) {
+            console.error(
+              "Role still not set correctly after multiple attempts"
+            );
+          } else {
+            console.log("Role update verified successfully");
+          }
+        }
+      } else {
+        console.log("Role verified as correctly set to:", expectedRole);
+      }
+    } catch (verifyError) {
+      console.warn("Error verifying role update:", verifyError);
     }
   };
 

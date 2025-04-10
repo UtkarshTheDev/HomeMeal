@@ -7,18 +7,25 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
-  SafeAreaView,
   StyleSheet,
+  Dimensions,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { router } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { useSupabase } from "@/src/utils/useSupabase";
 import { supabase } from "@/src/utils/supabaseClient";
-import FontAwesome from "@expo/vector-icons/FontAwesome";
+import { FontAwesome5 } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
+import Animated, { FadeInDown, FadeIn } from "react-native-reanimated";
+import { Shadow } from "react-native-shadow-2";
+
+const { width } = Dimensions.get("window");
 
 export default function ProfileScreen() {
   const { session } = useSupabase();
+  const insets = useSafeAreaInsets();
   const [userData, setUserData] = useState({
     name: "",
     email: "",
@@ -152,182 +159,561 @@ export default function ProfileScreen() {
     }
   };
 
+  const getRoleIcon = () => {
+    switch (userData.role) {
+      case "customer":
+        return "user-alt";
+      case "maker":
+        return "utensils";
+      case "delivery_boy":
+        return "bicycle";
+      default:
+        return "user";
+    }
+  };
+
+  const getRoleName = () => {
+    switch (userData.role) {
+      case "customer":
+        return "Customer";
+      case "maker":
+        return "Home Chef";
+      case "delivery_boy":
+        return "Delivery Partner";
+      default:
+        return "User";
+    }
+  };
+
   if (loading) {
     return (
-      <View className="flex-1 justify-center items-center bg-white">
+      <View style={styles.loadingContainer}>
+        <StatusBar style="dark" />
         <ActivityIndicator size="large" color="#FF6B00" />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: "white" }]}>
-      <StatusBar style="dark" />
+    <View style={styles.container}>
+      <StatusBar style="light" />
 
-      <ScrollView className="flex-1 bg-white">
-        <View className="pt-12 pb-6 px-5 bg-primary rounded-b-3xl">
-          <Text className="text-white text-2xl font-bold mb-6">My Profile</Text>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+      >
+        {/* Header Section with Gradient */}
+        <LinearGradient
+          colors={["#FFAD00", "#FF6B00"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.header, { paddingTop: insets.top + 20 }]}
+        >
+          <Animated.View
+            entering={FadeInDown.duration(800).delay(200).springify()}
+            style={styles.headerContent}
+          >
+            <View style={styles.headerRow}>
+              <Text style={styles.headerTitle}>My Profile</Text>
+              <TouchableOpacity
+                onPress={() => router.back()}
+                style={styles.backButton}
+              >
+                <FontAwesome5 name="arrow-left" size={18} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
 
-          <View className="items-center">
-            <View className="relative mb-4">
+            <View style={styles.profileImageContainer}>
               {updatingProfile ? (
-                <View className="w-28 h-28 rounded-full bg-gray-200 justify-center items-center">
-                  <ActivityIndicator color="#ffffff" />
+                <View style={styles.loadingImageContainer}>
+                  <ActivityIndicator color="#FFFFFF" size="large" />
                 </View>
               ) : (
-                <>
-                  <Image
-                    source={
-                      userData.profileImage
-                        ? { uri: userData.profileImage }
-                        : require("@/assets/images/logo.png")
-                    }
-                    className="w-28 h-28 rounded-full bg-white"
-                  />
-                  <TouchableOpacity
-                    onPress={pickImage}
-                    className="absolute bottom-0 right-0 bg-white w-8 h-8 rounded-full justify-center items-center border border-gray-200"
-                  >
-                    <FontAwesome name="camera" size={16} color="#FF6B00" />
-                  </TouchableOpacity>
-                </>
+                <Shadow
+                  distance={8}
+                  startColor="rgba(0,0,0,0.1)"
+                  containerStyle={{ borderRadius: 75 }}
+                >
+                  <View style={styles.profileImageWrapper}>
+                    <Image
+                      source={
+                        userData.profileImage
+                          ? { uri: userData.profileImage }
+                          : require("@/assets/images/logo.png")
+                      }
+                      style={styles.profileImage}
+                    />
+                  </View>
+                </Shadow>
               )}
+              <TouchableOpacity onPress={pickImage} style={styles.cameraButton}>
+                <LinearGradient
+                  colors={["#FFAD00", "#FF6B00"]}
+                  style={styles.cameraButtonGradient}
+                >
+                  <FontAwesome5 name="camera" size={14} color="#FFFFFF" />
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
-            <Text className="text-white text-xl font-bold mb-1">
+
+            <Text style={styles.userName}>
               {userData.name || "Set Your Name"}
             </Text>
-            <Text className="text-white opacity-80 mb-2">
-              {userData.role === "customer"
-                ? "Customer"
-                : userData.role === "maker"
-                ? "Home Chef"
-                : "Delivery Partner"}
-            </Text>
-          </View>
-        </View>
 
-        <View className="p-5">
-          <View className="bg-gray-50 rounded-xl p-5 mb-6">
-            <Text className="text-text-secondary mb-4 uppercase text-xs font-bold">
-              Account Information
-            </Text>
-
-            <View className="mb-4">
-              <Text className="text-text-tertiary text-sm mb-1">Name</Text>
-              <Text className="text-text-primary text-base">
-                {userData.name || "Not set"}
-              </Text>
+            <View style={styles.roleBadge}>
+              <FontAwesome5 name={getRoleIcon()} size={12} color="#FF6B00" />
+              <Text style={styles.roleText}>{getRoleName()}</Text>
             </View>
+          </Animated.View>
+        </LinearGradient>
 
-            <View className="mb-4">
-              <Text className="text-text-tertiary text-sm mb-1">
-                Phone Number
-              </Text>
-              <Text className="text-text-primary text-base">
-                {userData.phone}
-              </Text>
-            </View>
-
-            <View className="mb-4">
-              <Text className="text-text-tertiary text-sm mb-1">Email</Text>
-              <Text className="text-text-primary text-base">
-                {userData.email || "Not set"}
-              </Text>
-            </View>
-          </View>
-
-          <View className="mb-5">
-            <TouchableOpacity
-              className="flex-row items-center p-4 bg-gray-50 rounded-xl mb-3"
-              onPress={() =>
-                Alert.alert("Coming Soon", "This feature is coming soon!")
-              }
-            >
-              <FontAwesome name="credit-card" size={20} color="#333" />
-              <Text className="text-text-primary text-base ml-3">
-                Payment Methods
-              </Text>
-              <FontAwesome
-                name="chevron-right"
-                size={16}
-                color="#999"
-                style={{ marginLeft: "auto" }}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              className="flex-row items-center p-4 bg-gray-50 rounded-xl mb-3"
-              onPress={() =>
-                Alert.alert("Coming Soon", "This feature is coming soon!")
-              }
-            >
-              <FontAwesome name="heart" size={20} color="#333" />
-              <Text className="text-text-primary text-base ml-3">
-                Favorite Meals
-              </Text>
-              <FontAwesome
-                name="chevron-right"
-                size={16}
-                color="#999"
-                style={{ marginLeft: "auto" }}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              className="flex-row items-center p-4 bg-gray-50 rounded-xl mb-3"
-              onPress={() =>
-                Alert.alert("Coming Soon", "This feature is coming soon!")
-              }
-            >
-              <FontAwesome name="cog" size={20} color="#333" />
-              <Text className="text-text-primary text-base ml-3">Settings</Text>
-              <FontAwesome
-                name="chevron-right"
-                size={16}
-                color="#999"
-                style={{ marginLeft: "auto" }}
-              />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              className="flex-row items-center p-4 bg-gray-50 rounded-xl"
-              onPress={() =>
-                Alert.alert("Coming Soon", "This feature is coming soon!")
-              }
-            >
-              <FontAwesome name="question-circle" size={20} color="#333" />
-              <Text className="text-text-primary text-base ml-3">
-                Help & Support
-              </Text>
-              <FontAwesome
-                name="chevron-right"
-                size={16}
-                color="#999"
-                style={{ marginLeft: "auto" }}
-              />
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            className="bg-red-50 py-4 rounded-xl items-center"
-            onPress={handleSignOut}
+        <View style={styles.content}>
+          {/* Account Information Section */}
+          <Animated.View
+            entering={FadeInDown.duration(800).delay(400).springify()}
+            style={styles.sectionContainer}
           >
-            <Text className="text-red-500 font-bold">Sign Out</Text>
-          </TouchableOpacity>
+            <Shadow
+              distance={4}
+              startColor="rgba(0,0,0,0.03)"
+              containerStyle={{ borderRadius: 16 }}
+            >
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Account Information</Text>
 
-          <Text className="text-text-tertiary text-center text-xs mt-6">
-            HomeMeal v1.0.0
-          </Text>
+                <View style={styles.infoRow}>
+                  <View style={styles.iconContainer}>
+                    <FontAwesome5 name="user" size={16} color="#FF6B00" solid />
+                  </View>
+                  <View style={styles.infoContent}>
+                    <Text style={styles.infoLabel}>Name</Text>
+                    <Text style={styles.infoValue}>
+                      {userData.name || "Not set"}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.infoRow}>
+                  <View style={styles.iconContainer}>
+                    <FontAwesome5
+                      name="phone-alt"
+                      size={16}
+                      color="#FF6B00"
+                      solid
+                    />
+                  </View>
+                  <View style={styles.infoContent}>
+                    <Text style={styles.infoLabel}>Phone Number</Text>
+                    <Text style={styles.infoValue}>{userData.phone}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                <View style={styles.infoRow}>
+                  <View style={styles.iconContainer}>
+                    <FontAwesome5
+                      name="envelope"
+                      size={16}
+                      color="#FF6B00"
+                      solid
+                    />
+                  </View>
+                  <View style={styles.infoContent}>
+                    <Text style={styles.infoLabel}>Email</Text>
+                    <Text style={styles.infoValue}>
+                      {userData.email || "Not set"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </Shadow>
+          </Animated.View>
+
+          {/* Settings Section */}
+          <Animated.View
+            entering={FadeInDown.duration(800).delay(600).springify()}
+          >
+            <Text style={styles.sectionHeaderText}>Settings</Text>
+
+            <Shadow
+              distance={4}
+              startColor="rgba(0,0,0,0.03)"
+              containerStyle={{ borderRadius: 16 }}
+            >
+              <View style={styles.settingsCard}>
+                <TouchableOpacity
+                  style={styles.settingItem}
+                  onPress={() =>
+                    Alert.alert("Coming Soon", "This feature is coming soon!")
+                  }
+                >
+                  <View style={styles.settingIconContainer}>
+                    <LinearGradient
+                      colors={["#FFAD00", "#FF6B00"]}
+                      style={styles.settingIconGradient}
+                    >
+                      <FontAwesome5
+                        name="credit-card"
+                        size={16}
+                        color="#FFFFFF"
+                      />
+                    </LinearGradient>
+                  </View>
+
+                  <View style={styles.settingContent}>
+                    <Text style={styles.settingTitle}>Payment Methods</Text>
+                    <Text style={styles.settingDescription}>
+                      Manage your payment options
+                    </Text>
+                  </View>
+
+                  <FontAwesome5 name="chevron-right" size={14} color="#CCC" />
+                </TouchableOpacity>
+
+                <View style={styles.settingDivider} />
+
+                <TouchableOpacity
+                  style={styles.settingItem}
+                  onPress={() =>
+                    Alert.alert("Coming Soon", "This feature is coming soon!")
+                  }
+                >
+                  <View style={styles.settingIconContainer}>
+                    <LinearGradient
+                      colors={["#FFAD00", "#FF6B00"]}
+                      style={styles.settingIconGradient}
+                    >
+                      <FontAwesome5 name="heart" size={16} color="#FFFFFF" />
+                    </LinearGradient>
+                  </View>
+
+                  <View style={styles.settingContent}>
+                    <Text style={styles.settingTitle}>Favorite Meals</Text>
+                    <Text style={styles.settingDescription}>
+                      View and manage your favorites
+                    </Text>
+                  </View>
+
+                  <FontAwesome5 name="chevron-right" size={14} color="#CCC" />
+                </TouchableOpacity>
+
+                <View style={styles.settingDivider} />
+
+                <TouchableOpacity
+                  style={styles.settingItem}
+                  onPress={() =>
+                    Alert.alert("Coming Soon", "This feature is coming soon!")
+                  }
+                >
+                  <View style={styles.settingIconContainer}>
+                    <LinearGradient
+                      colors={["#FFAD00", "#FF6B00"]}
+                      style={styles.settingIconGradient}
+                    >
+                      <FontAwesome5 name="cog" size={16} color="#FFFFFF" />
+                    </LinearGradient>
+                  </View>
+
+                  <View style={styles.settingContent}>
+                    <Text style={styles.settingTitle}>App Settings</Text>
+                    <Text style={styles.settingDescription}>
+                      Notifications, language, and more
+                    </Text>
+                  </View>
+
+                  <FontAwesome5 name="chevron-right" size={14} color="#CCC" />
+                </TouchableOpacity>
+
+                <View style={styles.settingDivider} />
+
+                <TouchableOpacity
+                  style={styles.settingItem}
+                  onPress={() =>
+                    Alert.alert("Coming Soon", "This feature is coming soon!")
+                  }
+                >
+                  <View style={styles.settingIconContainer}>
+                    <LinearGradient
+                      colors={["#FFAD00", "#FF6B00"]}
+                      style={styles.settingIconGradient}
+                    >
+                      <FontAwesome5
+                        name="question-circle"
+                        size={16}
+                        color="#FFFFFF"
+                      />
+                    </LinearGradient>
+                  </View>
+
+                  <View style={styles.settingContent}>
+                    <Text style={styles.settingTitle}>Help & Support</Text>
+                    <Text style={styles.settingDescription}>
+                      Contact support, FAQs
+                    </Text>
+                  </View>
+
+                  <FontAwesome5 name="chevron-right" size={14} color="#CCC" />
+                </TouchableOpacity>
+              </View>
+            </Shadow>
+          </Animated.View>
+
+          {/* Sign Out Button */}
+          <Animated.View
+            entering={FadeInDown.duration(800).delay(800).springify()}
+            style={styles.signOutContainer}
+          >
+            <Shadow
+              distance={4}
+              startColor="rgba(0,0,0,0.03)"
+              containerStyle={{ borderRadius: 16 }}
+            >
+              <TouchableOpacity
+                style={styles.signOutButton}
+                onPress={handleSignOut}
+              >
+                <FontAwesome5 name="sign-out-alt" size={16} color="#FF3B30" />
+                <Text style={styles.signOutText}>Sign Out</Text>
+              </TouchableOpacity>
+            </Shadow>
+
+            <Text style={styles.versionText}>HomeMeal v1.0.0</Text>
+          </Animated.View>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "white",
+    backgroundColor: "#FAFAFA",
   },
-  // ... rest of the styles ...
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#FAFAFA",
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingBottom: 30,
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  headerContent: {
+    alignItems: "center",
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    width: "100%",
+    marginBottom: 30,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#FFFFFF",
+  },
+  backButton: {
+    position: "absolute",
+    left: 0,
+    padding: 8,
+  },
+  profileImageContainer: {
+    position: "relative",
+    marginBottom: 16,
+  },
+  profileImageWrapper: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  profileImage: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+  },
+  loadingImageContainer: {
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  cameraButton: {
+    position: "absolute",
+    bottom: 5,
+    right: 5,
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+  cameraButtonGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
+  },
+  userName: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#FFFFFF",
+    marginBottom: 8,
+  },
+  roleBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.9)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  roleText: {
+    color: "#FF6B00",
+    fontWeight: "600",
+    marginLeft: 6,
+  },
+  content: {
+    padding: 20,
+  },
+  sectionContainer: {
+    marginBottom: 24,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#FF6B00",
+    marginBottom: 20,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 20,
+  },
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255, 107, 0, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 16,
+  },
+  infoContent: {
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 12,
+    color: "#888888",
+    marginBottom: 4,
+  },
+  infoValue: {
+    fontSize: 16,
+    color: "#333333",
+    fontWeight: "500",
+  },
+  divider: {
+    height: 1,
+    backgroundColor: "#F0F0F0",
+    marginVertical: 6,
+  },
+  sectionHeaderText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#666",
+    marginTop: 10,
+    marginBottom: 16,
+    marginLeft: 4,
+  },
+  settingsCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  settingItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+  },
+  settingIconContainer: {
+    marginRight: 16,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  settingIconGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  settingContent: {
+    flex: 1,
+  },
+  settingTitle: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#333333",
+    marginBottom: 4,
+  },
+  settingDescription: {
+    fontSize: 13,
+    color: "#888888",
+  },
+  settingDivider: {
+    height: 1,
+    backgroundColor: "#F0F0F0",
+    marginLeft: 72,
+  },
+  signOutContainer: {
+    marginTop: 30,
+    alignItems: "center",
+  },
+  signOutButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    paddingVertical: 15,
+    paddingHorizontal: 24,
+    width: "100%",
+  },
+  signOutText: {
+    color: "#FF3B30",
+    fontWeight: "600",
+    marginLeft: 10,
+    fontSize: 16,
+  },
+  versionText: {
+    color: "#999999",
+    fontSize: 12,
+    marginTop: 20,
+    textAlign: "center",
+  },
 });
