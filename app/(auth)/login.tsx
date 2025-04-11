@@ -108,16 +108,13 @@ export default function LoginScreen() {
       let success = false;
       let lastError = null;
 
-      // Add platform-specific options
-      const platformOptions =
-        Platform.OS === "ios"
-          ? {
-              channel: "sms" as "sms", // Type casting to fix type error
-              shouldCreateUser: true,
-            }
-          : {
-              shouldCreateUser: true,
-            };
+      // Add platform-specific options - ensure shouldCreateUser is true for both platforms
+      // This ensures that the user record is properly created in auth.users
+      const platformOptions = {
+        channel: Platform.OS === "ios" ? ("sms" as const) : undefined,
+        shouldCreateUser: true, // This is critical for ensuring proper token creation
+        // Setting a longer token lifespan is not supported in the current Supabase API
+      };
 
       while (retryCount <= maxRetries && !success) {
         try {
@@ -125,18 +122,36 @@ export default function LoginScreen() {
             `Attempt ${retryCount + 1} to send OTP (${Platform.OS})...`
           );
 
-          const { error } = await supabase.auth.signInWithOtp({
+          const { data, error } = await supabase.auth.signInWithOtp({
             phone: phoneWithCountryCode,
             options: platformOptions,
           });
 
           if (error) {
             console.error(`Attempt ${retryCount + 1} error:`, error.message);
+
+            // Special handling for specific error cases
+            if (
+              error.message.includes("Rate limit") ||
+              error.message.includes("Too many requests")
+            ) {
+              Alert.alert(
+                "Rate Limited",
+                "You've requested too many codes. Please wait a moment before trying again."
+              );
+              return false;
+            }
+
             lastError = error;
             retryCount++;
           } else {
             success = true;
             console.log("OTP sent successfully");
+
+            // Log success details
+            if (data) {
+              console.log("OTP response data available:", !!data);
+            }
           }
         } catch (attemptError) {
           console.error(`Attempt ${retryCount + 1} exception:`, attemptError);
@@ -146,9 +161,9 @@ export default function LoginScreen() {
 
         if (!success && retryCount <= maxRetries) {
           // Wait a bit before retrying (longer delay for later attempts)
-          await new Promise((resolve) =>
-            setTimeout(resolve, 1000 * retryCount)
-          );
+          const retryDelay = 1000 * Math.pow(2, retryCount); // Exponential backoff
+          console.log(`Retrying in ${retryDelay}ms...`);
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
         }
       }
 
@@ -164,6 +179,7 @@ export default function LoginScreen() {
       });
     } catch (error: any) {
       console.error("Error in OTP sending:", error);
+      setLoading(false);
       Alert.alert(
         "Error",
         error.message ||

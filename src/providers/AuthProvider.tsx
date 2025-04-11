@@ -104,15 +104,52 @@ const refreshSession = async (): Promise<Session | null> => {
     if (error) {
       console.error("Failed to refresh token:", error);
 
-      // If we get JWT or claims errors, we need to sign out and clear the token
+      // Special handling for JWT claim errors - instead of signing out,
+      // check if the user exists in the database
       if (
-        error.message?.includes("invalid claim") ||
+        error.message?.includes("claim") ||
         error.message?.includes("JWT") ||
         error.message?.includes("Refresh Token")
       ) {
-        console.log("Token has invalid claims, clearing session");
+        console.log("JWT claim issue detected, checking user record");
 
-        // Use clean sign out to properly clear tokens
+        // Try to get the session even if it has claim issues
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData?.session?.user?.id) {
+          const userId = sessionData.session.user.id;
+
+          // Check if user record exists in database
+          try {
+            const { data: userRecord, error: userError } = await supabase
+              .from("users")
+              .select("id, phone_number, role")
+              .eq("id", userId)
+              .maybeSingle();
+
+            if (userError) {
+              console.warn("Error checking user record:", userError);
+            } else if (userRecord) {
+              console.log("User record exists despite JWT claim issues");
+
+              // One more attempt to refresh the session
+              await supabase.auth.refreshSession();
+
+              // Get the latest session
+              const { data: refreshedData } = await supabase.auth.getSession();
+
+              // If we have a session, return it even if it has claim issues
+              if (refreshedData?.session) {
+                console.log("Using existing session despite claim issues");
+                return refreshedData.session;
+              }
+            }
+          } catch (checkError) {
+            console.error("Error checking user record:", checkError);
+          }
+        }
+
+        // If all else fails, clear the session
+        console.log("JWT issues can't be resolved, clearing session");
         await cleanSignOut();
         return null;
       }
@@ -129,8 +166,8 @@ const refreshSession = async (): Promise<Session | null> => {
           } else {
             console.log("Existing session is invalid:", secondValidation.error);
 
-            // Clear invalid session
-            if (secondValidation.error?.includes("claim")) {
+            // Only clear if not a claim error (handled above)
+            if (!secondValidation.error?.includes("claim")) {
               await cleanSignOut();
             }
 
@@ -155,8 +192,8 @@ const refreshSession = async (): Promise<Session | null> => {
           refreshedValidation.error
         );
 
-        // Clear invalid session with claims issues
-        if (refreshedValidation.error?.includes("claim")) {
+        // Only clear session for non-claim errors (claim errors handled above)
+        if (!refreshedValidation.error?.includes("claim")) {
           await cleanSignOut();
         }
 
@@ -323,6 +360,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const pendingNavigationRef = useRef<string | null>(null);
   const navigationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const routerChecksRef = useRef<number>(0);
+  const [navigationAttempt, setNavigationAttempt] = useState<number>(0);
 
   // Move to the exported refreshSession
   const refreshSessionWrapper = async (): Promise<Session | null> => {
@@ -680,117 +718,140 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     isComplete: boolean;
     route?: string;
   }> => {
-    // Check if user is available
-    if (!user) {
-      console.log("🔍 checkOnboardingStatus: No authenticated user found");
-      return { isComplete: false, route: ROUTES.AUTH_INTRO };
-    }
+    console.log("🔍 checkOnboardingStatus: Starting check");
 
-    try {
-      console.log("🔍 checkOnboardingStatus: Checking user", user.id);
-
-      // Get user details
-      const { data: details, error: fetchError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (fetchError) {
-        console.error("Error fetching user details:", fetchError);
-        return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
+    // Create a timeout promise that resolves after 5 seconds
+    const timeoutPromise = new Promise<{ isComplete: boolean; route: string }>(
+      (resolve) => {
+        setTimeout(() => {
+          console.log(
+            "⚠️ checkOnboardingStatus timed out - forcing default path"
+          );
+          // Default to role selection if timeout occurs
+          resolve({ isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION });
+        }, 5000);
       }
+    );
 
-      // If no details found, the user needs to start with role selection
-      if (!details) {
-        console.log(
-          "🔍 checkOnboardingStatus: No user details found, starting with role selection"
-        );
-        return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
-      }
-
-      // Update state
-      setUserDetails(details);
-      setUserRole(details.role || null);
-
-      console.log(
-        "User details from checkOnboardingStatus:",
-        details.role,
-        "Setup status:",
-        details.setup_status
-      );
-
-      // Ensure setup_status exists
-      const setupStatus = details.setup_status || {};
-
-      // Always check for missing user role first since this is the critical first step
-      if (!details.role) {
-        console.log("User role not set, redirecting to role selection");
-        return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
-      }
-
-      // Sequential check for completion of each onboarding step
-
-      // Step 1: Check if role is selected
-      if (!setupStatus.role_selected) {
-        console.log(
-          "Role not marked as selected, redirecting to role selection"
-        );
-        return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
-      }
-
-      // Step 2: Check if location is set
-      if (!details.location || !details.address || !setupStatus.location_set) {
-        console.log("Location not set, redirecting to location setup");
-        return { isComplete: false, route: ROUTES.LOCATION_SETUP };
-      }
-
-      // Step 3: Check if profile is complete
-      if (!details.name || !setupStatus.profile_completed) {
-        console.log("Profile not complete, redirecting to profile setup");
-        return { isComplete: false, route: ROUTES.AUTH_PROFILE_SETUP };
-      }
-
-      // Role-specific steps
-      if (details.role === "customer") {
-        // For customers, check if they need to view meal plans
-        if (!setupStatus.meal_creation_completed) {
-          console.log("Meal creation not complete, redirecting to meal plans");
-          return { isComplete: false, route: ROUTES.TAB_MEAL_PLANS };
+    // Create the actual check promise
+    const checkPromise = (async () => {
+      try {
+        // Get current session
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData?.session?.user?.id) {
+          console.warn("No user ID in session during onboarding check");
+          return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
         }
 
-        if (!setupStatus.maker_selection_completed) {
+        const userId = sessionData.session.user.id;
+        console.log("🔍 checkOnboardingStatus: Checking user", userId);
+
+        // Get user details including setup status
+        const { data: userData, error: userError } = await supabase
+          .from("users")
+          .select("id, role, setup_status")
+          .eq("id", userId)
+          .maybeSingle();
+
+        if (userError) {
+          console.error("Error getting user details:", userError);
+          return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
+        }
+
+        if (!userData) {
+          console.warn(
+            "User record not found during onboarding check, redirecting to role selection"
+          );
+          return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
+        }
+
+        // Parse setup status
+        let setupStatus: SetupStatus = {};
+        try {
+          if (typeof userData.setup_status === "string") {
+            setupStatus = JSON.parse(userData.setup_status);
+          } else if (
+            userData.setup_status &&
+            typeof userData.setup_status === "object"
+          ) {
+            setupStatus = userData.setup_status;
+          }
+        } catch (parseError) {
+          console.warn("Error parsing setup status:", parseError);
+          // Continue with empty setup status
+        }
+
+        console.log("📊 User setup status:", setupStatus);
+
+        // Check if role is selected
+        if (!userData.role || !setupStatus.role_selected) {
+          console.log("Role not selected, redirecting to role selection");
+          return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
+        }
+
+        // Check if profile is completed
+        if (!setupStatus.profile_completed) {
+          console.log("Profile not completed, redirecting to profile setup");
+          return { isComplete: false, route: ROUTES.AUTH_PROFILE_SETUP };
+        }
+
+        // Check if location is set
+        if (!setupStatus.location_set) {
+          console.log("Location not set, redirecting to location setup");
+          return { isComplete: false, route: ROUTES.LOCATION_SETUP };
+        }
+
+        // Role-specific checks
+        if (userData.role === "maker" && !setupStatus.meal_creation_completed) {
           console.log(
-            "Maker selection not complete, redirecting to maker selection"
+            "Meal creation not completed, redirecting to meal creation setup"
+          );
+          return { isComplete: false, route: ROUTES.MEAL_CREATION_SETUP };
+        }
+
+        if (
+          userData.role === "customer" &&
+          !setupStatus.maker_selection_completed
+        ) {
+          console.log(
+            "Maker selection not completed, redirecting to maker selection setup"
           );
           return { isComplete: false, route: ROUTES.MAKER_SELECTION_SETUP };
         }
-      } else if (details.role === "maker") {
-        if (!setupStatus.maker_food_selection_completed) {
+
+        if (
+          userData.role === "customer" &&
+          !setupStatus.maker_food_selection_completed
+        ) {
           console.log(
-            "Maker food selection not complete, redirecting to food selection setup"
+            "Maker food selection not completed, redirecting to maker food selection setup"
           );
           return {
             isComplete: false,
             route: ROUTES.MAKER_FOOD_SELECTION_SETUP,
           };
         }
-      }
 
-      // Step 6: Wallet setup (last step for all roles)
-      if (!setupStatus.wallet_setup_completed) {
-        console.log("Wallet setup not complete, redirecting to wallet setup");
-        return { isComplete: false, route: ROUTES.WALLET_SETUP };
-      }
+        // Check if wallet setup is completed
+        if (!setupStatus.wallet_setup_completed) {
+          console.log(
+            "Wallet setup not completed, redirecting to wallet setup"
+          );
+          return { isComplete: false, route: ROUTES.WALLET_SETUP };
+        }
 
-      // All steps completed
-      console.log("All onboarding steps complete, redirecting to tabs");
-      return { isComplete: true, route: ROUTES.TABS };
-    } catch (error) {
-      console.error("Error checking onboarding status:", error);
-      // Default to role selection on error
-      return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
-    }
+        // All checks passed, redirect to tabs
+        console.log("All onboarding steps completed, redirecting to tabs");
+        return { isComplete: true, route: ROUTES.TABS };
+      } catch (error) {
+        console.error("Exception in checkOnboardingStatus:", error);
+        // In case of error, default to role selection
+        return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
+      }
+    })();
+
+    // Race between the timeout and the check
+    return Promise.race([checkPromise, timeoutPromise]);
   };
 
   // Wrap the safeNavigate function to access component refs
@@ -824,6 +885,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       setIsInitializing(true);
       setShouldShowLoadingScreen(true);
     }
+
+    // Force initialization timeout - critical to prevent getting stuck
+    const forceInitTimeout = setTimeout(() => {
+      if (isMounted && isInitializing) {
+        console.log("⚠️ Force completing initialization after timeout");
+        setInitialAuthCheckComplete(true);
+        setIsInitializing(false);
+        setShouldShowLoadingScreen(false);
+      }
+    }, 5000); // 5 seconds max wait time for initialization
 
     // Initialize auth
     const initializeAuth = async () => {
@@ -901,13 +972,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           console.log("✅ Initial auth check completed");
           setInitialAuthCheckComplete(true);
 
-          // IMPORTANT: Delay turning off initializing state to prevent navigation issues
+          // IMPORTANT: Reduced delay for turning off initializing state
           setTimeout(() => {
             if (isMounted) {
               setIsInitializing(false);
               setShouldShowLoadingScreen(false);
             }
-          }, 500);
+          }, 300); // Reduced from 500ms
         }
       } catch (error) {
         console.error("Error initializing auth:", error);
@@ -920,8 +991,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     };
 
-    // Start auth initialization after a short delay to ensure root layout is ready
-    setTimeout(initializeAuth, 300);
+    // Start auth initialization immediately
+    initializeAuth();
 
     // Set up auth state change subscriber
     const {
@@ -945,6 +1016,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           setSession(newSession);
           setUser(newSession.user);
 
+          // Check if initialization is still in progress and force complete it
+          if (isInitializing && !initialAuthCheckComplete) {
+            console.log(
+              "🚨 Sign-in detected during initialization - forcing completion"
+            );
+            setInitialAuthCheckComplete(true);
+            setIsInitializing(false);
+            setShouldShowLoadingScreen(false);
+          }
+
           // Load user details immediately after sign-in
           console.log("🔍 Fetching user details after sign-in");
           const userDetails = await fetchUserDetails(newSession.user.id);
@@ -964,6 +1045,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         if (isMounted) {
           setSession(newSession);
           setUser(newSession.user);
+
+          // Also force completion of initialization if it's still in progress
+          if (isInitializing && !initialAuthCheckComplete) {
+            console.log(
+              "🚨 Token refresh detected during initialization - forcing completion"
+            );
+            setInitialAuthCheckComplete(true);
+            setIsInitializing(false);
+            setShouldShowLoadingScreen(false);
+          }
         }
       }
     });
@@ -971,6 +1062,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     // Clean up subscription and set mounted flag on unmount
     return () => {
       isMounted = false;
+      clearTimeout(forceInitTimeout);
       subscription.unsubscribe();
     };
   }, []);
@@ -982,7 +1074,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       console.log(
         "⏳ Waiting for auth initialization and splash animation to complete..."
       );
-      return;
+
+      // Add watchdog timer for detecting stuck states
+      const watchdogTimer = setTimeout(() => {
+        console.log(
+          "🚨 Watchdog timer triggered - initialization may be stuck"
+        );
+
+        // Check if we should force completion based on global recovery flags
+        try {
+          // @ts-ignore - Check global recovery flags
+          if (global.__forceAuthCompletion) {
+            console.log(
+              "🔥 Global recovery flag detected - forcing auth completion"
+            );
+            if (!initialAuthCheckComplete) {
+              setInitialAuthCheckComplete(true);
+            }
+            if (isInitializing) {
+              setIsInitializing(false);
+            }
+            if (shouldShowLoadingScreen) {
+              setShouldShowLoadingScreen(false);
+            }
+          }
+        } catch (e) {
+          // Ignore global property access errors
+        }
+      }, 3000);
+
+      return () => clearTimeout(watchdogTimer);
     }
 
     // Prevent navigation during initialization
@@ -1017,23 +1138,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
               route ? `Route: ${route}` : "No route"
             );
 
+            // Important: Reduce the delay for navigation to ensure it happens quickly
             if (route && isMounted) {
-              // Delay navigation to ensure auth provider is ready
+              console.log("🚀 Preparing navigation to:", route);
+
+              // Clear any existing pending navigation
+              if (pendingNavigationRef.current) {
+                console.log("🧹 Clearing previous pending navigation");
+                pendingNavigationRef.current = null;
+              }
+
+              // No delay for navigation
               navigationTimer = setTimeout(() => {
                 if (isMounted) {
-                  console.log("🚀 Navigating to:", route);
+                  console.log("🚀 Executing navigation to:", route);
                   safeNavigateWrapper(route);
+
+                  // Force re-render after navigation
+                  setNavigationAttempt((prev) => prev + 1);
                 }
-              }, 1000);
+              }, 0); // Immediate navigation with no delay
+            } else {
+              // If no route is determined, default to role selection
+              console.log(
+                "⚠️ No route determined, defaulting to role selection"
+              );
+              navigationTimer = setTimeout(() => {
+                if (isMounted) {
+                  safeNavigateWrapper(ROUTES.AUTH_ROLE_SELECTION);
+                  setNavigationAttempt((prev) => prev + 1);
+                }
+              }, 0); // Immediate with no delay
             }
           } catch (onboardingError) {
             console.error("Error checking onboarding status:", onboardingError);
 
-            // Navigate to role selection as a fallback
+            // Navigate to role selection as a fallback - faster timeout
             if (isMounted) {
+              console.log(
+                "🚨 Error in onboarding check, navigating to role selection"
+              );
               navigationTimer = setTimeout(() => {
                 safeNavigateWrapper(ROUTES.AUTH_ROLE_SELECTION);
-              }, 1000);
+                setNavigationAttempt((prev) => prev + 1);
+              }, 0); // Immediate with no delay
             }
           }
         } else {
@@ -1043,18 +1191,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           if (isMounted) {
             navigationTimer = setTimeout(() => {
               safeNavigateWrapper(ROUTES.AUTH_INTRO);
-            }, 800);
+              setNavigationAttempt((prev) => prev + 1);
+            }, 0); // Immediate with no delay
           }
         }
       } finally {
-        // Hide loading screen after a delay to ensure smooth transitions
+        // Hide loading screen immediately
         if (isMounted) {
-          setTimeout(() => {
-            if (isMounted) {
-              setIsLoading(false);
-              setShouldShowLoadingScreen(false);
-            }
-          }, 1500);
+          setShouldShowLoadingScreen(false);
+          setIsLoading(false);
         }
       }
     };

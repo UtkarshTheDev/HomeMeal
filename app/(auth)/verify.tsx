@@ -17,7 +17,12 @@ import Animated, {
   FadeInUp,
   FadeIn,
 } from "react-native-reanimated";
-import { supabase, validateSession } from "@/src/utils/supabaseClient";
+import {
+  supabase,
+  validateSession,
+  forceSessionRefreshWithClaims,
+  verifyPhoneWithOtp,
+} from "@/src/utils/supabaseClient";
 import { ROUTES } from "@/src/utils/routes";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -61,80 +66,87 @@ export default function VerifyScreen() {
 
   useEffect(() => {
     if (verificationSuccess) {
-      const timer = setTimeout(async () => {
-        try {
-          console.log("Verification successful, preparing to navigate...");
+      console.log("🚀 verificationSuccess triggered, preparing navigation...");
 
-          // Wait for session refresh and validation to complete
-          await new Promise((resolve) => setTimeout(resolve, 1500));
+      // Force immediate navigation with multiple approaches
+      let navigationAttempted = false;
 
-          // Ensure we have a valid session before navigating
-          let validationResult;
-          let retryCount = 0;
-          const maxRetries = 3;
+      // Direct router replacement - the most reliable approach
+      try {
+        console.log("🚀 Direct navigation attempt to role selection");
+        router.replace(ROUTES.AUTH_ROLE_SELECTION);
+        navigationAttempted = true;
+      } catch (error) {
+        console.error("❌ Direct navigation error:", error);
+      }
 
-          while (retryCount < maxRetries) {
-            try {
-              // Explicitly refresh the session before validation
-              await refreshSession();
-
-              // Wait for refresh to complete
-              await new Promise((resolve) => setTimeout(resolve, 500));
-
-              validationResult = await validateSession();
-
-              if (validationResult.valid) {
-                console.log(
-                  "Session validation successful, proceeding with navigation"
-                );
-                break;
-              } else {
-                console.log(
-                  `Session validation attempt ${retryCount + 1} failed: ${
-                    validationResult.error
-                  }`
-                );
-                retryCount++;
-                await new Promise((resolve) => setTimeout(resolve, 1000));
-              }
-            } catch (validationError) {
-              console.error(
-                `Session validation attempt ${retryCount + 1} error:`,
-                validationError
-              );
-              retryCount++;
-              await new Promise((resolve) => setTimeout(resolve, 1000));
-            }
+      // First backup - immediate timeout (100ms)
+      const firstBackupTimer = setTimeout(() => {
+        if (!navigationAttempted) {
+          try {
+            console.log("⏱️ First backup navigation attempt");
+            router.replace(ROUTES.AUTH_ROLE_SELECTION);
+            navigationAttempted = true;
+          } catch (error) {
+            console.error("❌ First backup navigation error:", error);
           }
+        }
+      }, 100);
 
-          // Check onboarding status after session validation
-          const { isComplete, route } = await checkOnboardingStatus();
-
-          if (route) {
-            console.log("Navigating to:", route);
-            router.replace(route as any);
-          } else {
+      // Second backup - Alternate approach with direct route string
+      const secondBackupTimer = setTimeout(() => {
+        if (!navigationAttempted) {
+          try {
             console.log(
-              "No specific route determined, defaulting to role selection"
+              "⏱️ Second backup navigation attempt with explicit route"
             );
-            router.replace(ROUTES.AUTH_ROLE_SELECTION as any);
+            // Try bypassing the ROUTES constant
+            router.replace("/(auth)/role-selection");
+            navigationAttempted = true;
+          } catch (error) {
+            console.error("❌ Second backup navigation error:", error);
           }
-        } catch (error) {
-          console.error("Navigation error after verification:", error);
+        }
+      }, 500);
+
+      // Final backup - Alert with manual navigation
+      const finalTimer = setTimeout(() => {
+        if (!navigationAttempted) {
+          console.log("⚠️ All navigation attempts failed, showing alert");
           Alert.alert(
-            "Error",
-            "An unexpected error occurred. Please try signing in again.",
+            "Continue Setup",
+            "Your verification was successful! Tap Continue to proceed with setup.",
             [
               {
-                text: "OK",
-                onPress: () => router.replace(ROUTES.AUTH_INTRO),
+                text: "Continue",
+                onPress: () => {
+                  try {
+                    router.replace(ROUTES.AUTH_ROLE_SELECTION);
+                  } catch (finalError) {
+                    console.error("❌ Final navigation attempt also failed");
+
+                    // Absolute last resort - try raw navigation
+                    try {
+                      router.replace("/(auth)/role-selection" as any);
+                    } catch {
+                      Alert.alert(
+                        "Navigation Issue",
+                        "Please restart the app to continue setup."
+                      );
+                    }
+                  }
+                },
               },
             ]
           );
         }
-      }, 2000); // Increase timeout to ensure everything is ready
+      }, 2000);
 
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(firstBackupTimer);
+        clearTimeout(secondBackupTimer);
+        clearTimeout(finalTimer);
+      };
     }
   }, [verificationSuccess]);
 
@@ -330,101 +342,103 @@ export default function VerifyScreen() {
 
       const cleanPhone = phoneNumber.replace(/\s+/g, "");
 
-      // Step 1: Verify OTP
-      const { data, error } = await supabase.auth.verifyOtp({
-        phone: cleanPhone,
-        token: otpCode,
-        type: "sms",
+      // Start some operations in parallel to speed up the process
+      const verifyPromise = verifyPhoneWithOtp(cleanPhone, otpCode);
+      const preemptiveSessionRefresh = refreshSession().catch((err) => {
+        console.log(
+          "Preemptive session refresh failed (continuing):",
+          err.message
+        );
+        return null;
       });
+
+      // Step 1: Verify OTP
+      const { data, error } = await verifyPromise;
 
       if (error) {
         handleOtpError(error);
         return;
       }
 
-      const userId = data?.user?.id;
+      const userId = data?.user?.id || data?.session?.user?.id;
       if (!userId) {
         throw new Error("Authentication successful but no user ID returned");
       }
 
       console.log("OTP verification successful, userId:", userId);
 
-      // No need to fix JWT claims directly - the trigger in direct-jwt-fix.sql handles this
-      // Just refresh the session to get the latest token with claims
-      try {
-        console.log("Refreshing session to ensure JWT token...");
-        const sessionResult = await refreshSession();
+      // Wait for the preemptive refresh to complete
+      await preemptiveSessionRefresh;
 
-        if (!sessionResult) {
-          console.warn(
-            "Session refresh returned no session, using direct getSession"
-          );
-          // Try direct getSession as fallback
-          const { data: sessionData } = await supabase.auth.getSession();
-          if (!sessionData?.session) {
-            console.error("No session available after OTP verification");
-            throw new Error("Failed to get session after authentication");
+      // Step 2: Create user record in parallel with JWT claims refresh
+      const createUserPromise = (async () => {
+        try {
+          // Check if user record exists
+          const { data: existingUser } = await supabase
+            .from("users")
+            .select("id")
+            .eq("id", userId)
+            .maybeSingle();
+
+          if (!existingUser) {
+            console.log("Creating user record in parallel with claims refresh");
+            try {
+              const { error: insertError } = await supabase
+                .from("users")
+                .insert({
+                  id: userId,
+                  phone_number: cleanPhone,
+                  created_at: new Date().toISOString(),
+                  setup_status: JSON.stringify({}),
+                });
+
+              if (insertError) {
+                console.log(
+                  "User creation failed (continuing):",
+                  insertError.message
+                );
+              }
+            } catch (insertErr: any) {
+              console.log(
+                "User creation exception (continuing):",
+                insertErr?.message
+              );
+            }
           }
+        } catch (err: any) {
+          console.log("User check failed (continuing):", err?.message);
         }
-      } catch (sessionError) {
-        console.warn("Error refreshing session:", sessionError);
-        // Continue anyway - the token might still work
-      }
+      })();
 
-      // Create user record directly - auth.users should already be created with proper claims
-      // due to the trigger from direct-jwt-fix.sql
-      const { error: insertError } = await supabase.from("users").insert({
-        id: userId,
-        phone_number: cleanPhone,
-        created_at: new Date().toISOString(),
-        setup_status: JSON.stringify({}),
-      });
-
-      // Only use functions as fallback if direct insertion fails
-      if (insertError) {
-        console.warn("Direct user insert failed:", insertError.message);
-        const userCreated = await createUserRecord(userId, cleanPhone);
-        if (!userCreated) {
-          console.error("Failed to create user record through all methods");
-          setError("Failed to create user account. Please try again.");
-          setLoading(false);
-          setVerifying(false);
-          return;
+      // Refresh claims in parallel
+      const refreshClaimsPromise = forceSessionRefreshWithClaims().catch(
+        (err) => {
+          console.log("JWT claims refresh failed (continuing):", err.message);
+          return false;
         }
-      }
+      );
 
-      // Create wallet directly
-      try {
-        const { error: walletError } = await supabase.from("wallets").insert({
-          user_id: userId,
-          balance: 0,
-          created_at: new Date().toISOString(),
-        });
+      // Wait for both operations to complete
+      await Promise.all([createUserPromise, refreshClaimsPromise]);
 
-        if (walletError) {
-          console.warn("Wallet creation failed:", walletError);
-          // Wallet creation failure shouldn't block the process
-        }
-      } catch (walletError) {
-        console.warn("Exception in wallet creation:", walletError);
-      }
-
-      // Validate session
-      const validationResult = await validateSession();
-      if (!validationResult.valid) {
-        console.warn(
-          "Session validation returned invalid, but continuing:",
-          validationResult.error
-        );
-
-        // Refresh session one more time
-        await refreshSession();
-      }
-
-      // Success! Set states and proceed
+      // Success! Set states and try to navigate immediately
       setLoading(false);
       setVerifying(false);
-      setVerificationSuccess(true);
+
+      // CRITICAL: Skip setting verificationSuccess state and navigate immediately
+      console.log("🚀 Immediate direct navigation after verification");
+      try {
+        // Direct navigation command
+        router.replace(ROUTES.AUTH_ROLE_SELECTION);
+        console.log("🚀 Direct navigation command executed");
+      } catch (navError) {
+        console.error(
+          "Direct navigation failed, falling back to state-based navigation:",
+          navError
+        );
+        // Only set verificationSuccess if direct navigation fails
+        setVerificationSuccess(true);
+      }
     } catch (error: any) {
       console.error("Verification error:", error);
       setError(error.message || "Failed to verify code. Please try again.");
@@ -436,27 +450,63 @@ export default function VerifyScreen() {
   const handleOtpError = (error: any) => {
     console.error("OTP verification error:", error.message);
 
+    // Handle expired or invalid tokens
     if (
       error.message.includes("token is expired") ||
       error.message.includes("invalid token") ||
-      error.message.includes("Invalid Refresh Token")
+      error.message.includes("Token has expired") ||
+      error.message.includes("Invalid Refresh Token") ||
+      error.message.includes("Invalid OTP")
     ) {
-      setError("Verification code has expired. Please request a new code.");
+      // Clear the OTP input fields
+      setOtp(Array(OTP_LENGTH).fill(""));
+
+      // Show error message
+      setError(
+        "Your verification code has expired or is invalid. Please request a new code."
+      );
       setLoading(false);
       setVerifying(false);
 
+      // Auto-trigger resend if available, or show guidance
       setTimeout(() => {
         if (canResend) {
+          console.log("Auto-triggering OTP resend after token expiration");
           resendOtp();
         } else {
-          setError(
-            "Please wait and try the resend button when it becomes available."
-          );
+          setError(`Code expired. Wait ${resendTimer}s to request a new code.`);
+          // Focus on first input to be ready for the new code
+          inputRefs.current[0]?.focus();
         }
-      }, 1500);
+      }, 1000);
       return;
     }
 
+    // Handle rate limiting
+    if (
+      error.message.includes("Rate limit") ||
+      error.message.includes("Too many requests")
+    ) {
+      setError(
+        "Too many attempts. Please wait a few minutes before trying again."
+      );
+      setLoading(false);
+      setVerifying(false);
+      return;
+    }
+
+    // Handle network/connectivity issues
+    if (
+      error.message.includes("network") ||
+      error.message.includes("connect")
+    ) {
+      setError("Network error. Please check your connection and try again.");
+      setLoading(false);
+      setVerifying(false);
+      return;
+    }
+
+    // For any other errors, we'll rethrow to be handled by the parent catch
     throw error;
   };
 
@@ -466,6 +516,7 @@ export default function VerifyScreen() {
     setCanResend(false);
     setResendTimer(30);
     setAutoVerifyAttempted(false);
+    setError(""); // Clear any previous errors
 
     try {
       const cleanedPhone = phoneNumber.replace(/[^\d+]/g, "");
@@ -474,18 +525,29 @@ export default function VerifyScreen() {
       const { error } = await supabase.auth.signInWithOtp({
         phone: cleanedPhone,
         options: {
-          channel: Platform.OS === "ios" ? "sms" : undefined,
+          channel: Platform.OS === "ios" ? ("sms" as const) : undefined,
+          shouldCreateUser: true,
         },
       });
 
       if (error) {
         console.error("Error sending OTP:", error);
-        throw error;
+        if (
+          error.message.includes("Rate limit") ||
+          error.message.includes("Too many requests")
+        ) {
+          setError("Too many code requests. Please wait a few minutes.");
+          // Increase the resend timer for rate limits
+          setResendTimer(60);
+        } else {
+          throw error;
+        }
+      } else {
+        Alert.alert("Success", "New verification code sent!");
+        setOtp(Array(OTP_LENGTH).fill(""));
+        inputRefs.current[0]?.focus();
       }
 
-      Alert.alert("Success", "New verification code sent!");
-      setOtp(Array(OTP_LENGTH).fill(""));
-      inputRefs.current[0]?.focus();
       startResendTimer();
     } catch (error: any) {
       console.error("Resend OTP Error:", error);

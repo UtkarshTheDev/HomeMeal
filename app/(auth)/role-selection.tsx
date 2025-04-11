@@ -9,6 +9,7 @@ import {
   StyleSheet,
   ScrollView,
   Dimensions,
+  Platform,
 } from "react-native";
 import { router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -41,53 +42,122 @@ export default function RoleSelectionScreen() {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Add force load tracking
+  const [forceLoadAttempted, setForceLoadAttempted] = useState(false);
+
+  // Log when component mounts - helps track navigation issues
+  console.log("📱 Role Selection Screen mounted");
+
+  // Force initialization if screen loads but appears stuck
+  useEffect(() => {
+    const forceLoadTimer = setTimeout(() => {
+      if (initialLoading && !forceLoadAttempted) {
+        console.log(
+          "⚡ Force initializing role selection screen after timeout"
+        );
+        setForceLoadAttempted(true);
+        setInitialLoading(false);
+      }
+    }, 2000); // After 2 seconds, force the screen to load
+
+    return () => clearTimeout(forceLoadTimer);
+  }, [initialLoading, forceLoadAttempted]);
 
   // Validate session when component loads
   useEffect(() => {
-    async function checkSession() {
-      try {
-        console.log("Role selection screen: Validating session on load");
-        setInitialLoading(true);
-
-        // First try to refresh the session
-        await refreshSession();
-
-        // Then validate it
-        const { valid, user, error: validationError } = await validateSession();
-
-        if (!valid || !user) {
-          console.error(
-            "Session invalid in role selection screen:",
-            validationError
-          );
-
-          // Show error and navigate to auth intro
-          Alert.alert(
-            "Authentication Error",
-            "Your session appears to be invalid. Please sign in again.",
-            [
-              {
-                text: "Sign In",
-                onPress: () => {
-                  router.replace(ROUTES.AUTH_INTRO);
-                },
-              },
-            ]
-          );
-        } else {
-          console.log(
-            "Session validated successfully in role selection screen"
-          );
-        }
-      } catch (err) {
-        console.error("Error validating session on role selection load:", err);
-      } finally {
-        setInitialLoading(false);
-      }
-    }
-
+    // Execute immediately to prevent loading delay
     checkSession();
+
+    // Create a timer to force the screen to load even if validation is slow
+    const forceLoadTimer = setTimeout(() => {
+      console.log("⚡ Force loading role selection screen after timeout");
+      setInitialLoading(false);
+    }, 1500); // 1.5 seconds max wait time
+
+    return () => clearTimeout(forceLoadTimer);
   }, []);
+
+  // Function to validate session on load
+  const checkSession = async () => {
+    try {
+      console.log("Role selection screen: Validating session on load");
+      setInitialLoading(true);
+
+      // Create a timeout promise that resolves after a short time
+      const validationTimeout = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          console.log(
+            "⏱️ Session validation timed out in role selection, proceeding anyway"
+          );
+          setInitialLoading(false);
+          resolve();
+        }, 2000); // 2 seconds max wait time
+      });
+
+      // Actual validation
+      const validationPromise = (async () => {
+        try {
+          // Get the current user
+          const { data: session } = await supabase.auth.getSession();
+
+          if (!session?.session) {
+            console.log("No active session found in role selection");
+            setInitialLoading(false);
+            return;
+          }
+
+          // Validate the session
+          const { valid, error, user } = await validateSession();
+
+          if (valid && user) {
+            console.log("Session is valid, user data available");
+            // We have a valid user, no need to set any ID as the auth context handles this
+          } else {
+            console.warn("Session validation failed:", error);
+
+            // Show an alert and give the user options
+            if (Platform.OS === "web") {
+              if (
+                confirm(
+                  "There was an issue with your session. Do you want to try again?"
+                )
+              ) {
+                router.replace(ROUTES.AUTH_LOGIN);
+              } else {
+                setInitialLoading(false);
+              }
+            } else {
+              Alert.alert(
+                "Session Issue",
+                "There was a problem with your login session.",
+                [
+                  {
+                    text: "Sign In Again",
+                    onPress: () => router.replace(ROUTES.AUTH_LOGIN),
+                  },
+                  {
+                    text: "Continue Anyway",
+                    onPress: () => setInitialLoading(false),
+                  },
+                ]
+              );
+            }
+          }
+        } catch (e) {
+          console.error("Error in checkSession:", e);
+        } finally {
+          // Always hide loading state on completion
+          setInitialLoading(false);
+        }
+      })();
+
+      // Race between timeout and actual validation
+      await Promise.race([validationTimeout, validationPromise]);
+    } catch (e) {
+      console.error("Exception in outer checkSession:", e);
+      setInitialLoading(false);
+    }
+  };
 
   // Convert UI role to database role
   const mapUIRoleToDBRole = (uiRole: UIRole): DBRole => {

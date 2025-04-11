@@ -148,62 +148,74 @@ export default function RootLayout() {
       try {
         console.log("🔐 Initializing session state in root layout...");
 
-        // Check if a session exists
-        const hasSession = await checkExistingSession();
-
-        if (hasSession) {
-          console.log("Found existing session in storage during layout init");
-
-          // Validate the session
-          try {
-            const validation = await validateSession();
+        // Set a timeout to ensure we don't wait too long
+        const timeoutPromise = new Promise<void>((resolve) => {
+          setTimeout(() => {
             console.log(
-              "Session validation result:",
-              validation.valid ? "Valid" : "Invalid"
+              "⚠️ Session initialization timed out, continuing anyway"
             );
+            setHasCheckedSession(true);
+            resolve();
+          }, 2000); // 2 second timeout max
+        });
 
-            if (validation.valid && validation.session) {
-              setSession(validation.session);
-              setSessionValidated(true);
-            } else if (validation.error) {
-              console.log("Session validation error:", validation.error);
-              // We'll still get the session, but we know it's invalid
-            }
-          } catch (validationError) {
-            console.error("Error validating session:", validationError);
-          }
-        } else {
-          console.log("No session found in storage during layout init");
-        }
+        // Actual session check
+        const sessionCheckPromise = (async () => {
+          try {
+            // Check if a session exists (fast operation)
+            const hasSession = await checkExistingSession();
 
-        // Get the session data
-        const { data, error } = await supabase.auth.getSession();
-
-        if (error) {
-          console.error("Error retrieving session:", error.message);
-        } else if (data.session) {
-          console.log(
-            "Session successfully retrieved in layout:",
-            data.session.user.id
-          );
-          setSession(data.session);
-
-          // Validate retrieved session if we haven't already
-          if (!sessionValidated) {
-            try {
-              const validation = await validateSession();
-              setSessionValidated(validation.valid);
-            } catch (err) {
-              console.error(
-                "Error in session validation after retrieval:",
-                err
+            if (hasSession) {
+              console.log(
+                "Found existing session in storage during layout init"
               );
+
+              // Start validation but don't wait for it to complete
+              validateSession()
+                .then((validation) => {
+                  console.log(
+                    "Session validation result:",
+                    validation.valid ? "Valid" : "Invalid"
+                  );
+
+                  if (validation.valid && validation.session) {
+                    setSession(validation.session);
+                    setSessionValidated(true);
+                  }
+                })
+                .catch((error) => {
+                  console.error("Async session validation error:", error);
+                });
+            } else {
+              console.log("No session found in storage during layout init");
             }
+
+            // Get the session data (another fast operation)
+            const { data, error } = await supabase.auth.getSession();
+
+            if (error) {
+              console.error("Error retrieving session:", error.message);
+            } else if (data.session) {
+              console.log(
+                "Session successfully retrieved in layout:",
+                data.session.user.id
+              );
+              setSession(data.session);
+            }
+
+            // Mark session check as complete to unblock app startup
+            setHasCheckedSession(true);
+          } catch (e) {
+            console.error("Exception during session initialization:", e);
+            // Ensure we always unblock the app even on error
+            setHasCheckedSession(true);
           }
-        }
+        })();
+
+        // Race between timeout and actual check - whichever finishes first
+        await Promise.race([timeoutPromise, sessionCheckPromise]);
       } catch (e) {
-        console.error("Exception during session initialization:", e);
-      } finally {
+        console.error("Exception in initSession outer block:", e);
         setHasCheckedSession(true);
       }
     }
@@ -238,12 +250,23 @@ export default function RootLayout() {
 
   // Handle splash screen and app readiness
   useEffect(() => {
+    const splashTimeout = setTimeout(() => {
+      // Force hide splash screen after 3 seconds even if not completely ready
+      console.log("⚠️ Forcing splash screen hide after timeout");
+      SplashScreen.hideAsync().catch(() => {});
+      setAppReady(true);
+
+      // Set global app ready flag
+      // @ts-ignore - This global flag is used by AuthProvider
+      global.appReady = true;
+    }, 3000);
+
     if ((fontsLoaded || fontError) && hasCheckedSession) {
       // Hide splash screen once fonts are loaded and we've checked for session
-      SplashScreen.hideAsync().then(() => {
-        console.log("🎬 Native splash screen hidden");
-        // Set app as ready with a slight delay to prevent flashes
-        setTimeout(() => {
+      SplashScreen.hideAsync()
+        .then(() => {
+          console.log("🎬 Native splash screen hidden");
+          // Set app as ready immediately
           setAppReady(true);
           // Set global app ready flag
           // @ts-ignore - This global flag is used by AuthProvider
@@ -253,20 +276,23 @@ export default function RootLayout() {
           // Additional logging to help debug navigation issues
           if (session) {
             console.log("Session available at app ready:", session.user.id);
-            // Validate the session when app is ready
-            validateSession().then((validation) => {
-              console.log(
-                "Session validation on app ready:",
-                validation.valid ? "Valid" : "Invalid",
-                validation.error || ""
-              );
-            });
           } else {
             console.log("No session available at app ready");
           }
-        }, 500);
-      });
+        })
+        .catch((error) => {
+          console.warn("Error hiding splash screen:", error);
+          // Still mark app as ready even if splash screen hide fails
+          setAppReady(true);
+          // @ts-ignore - This global flag is used by AuthProvider
+          global.appReady = true;
+        });
+
+      // Clear the timeout since we successfully hid the splash screen
+      clearTimeout(splashTimeout);
     }
+
+    return () => clearTimeout(splashTimeout);
   }, [fontsLoaded, fontError, hasCheckedSession]);
 
   // Create a simpler initial loading screen
