@@ -362,6 +362,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const routerChecksRef = useRef<number>(0);
   const [navigationAttempt, setNavigationAttempt] = useState<number>(0);
 
+  // Add these at the top level of the component
+  const INIT_TIMEOUT = 3000; // 3 seconds max for initialization
+  const SPLASH_TIMEOUT = 2000; // 2 seconds max for splash screen
+
   // Move to the exported refreshSession
   const refreshSessionWrapper = async (): Promise<Session | null> => {
     const newSession = await refreshSession();
@@ -873,197 +877,84 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     }, 100);
   };
 
-  // Set up the auth state listener - this is the first thing that should run
+  // Modify the initialization effect
   useEffect(() => {
-    // Flag to track if this component is still mounted
-    let isMounted = true;
-    let authInitAttempts = 0;
-    const maxInitAttempts = 3;
+    let mounted = true;
+    let initTimeoutId: NodeJS.Timeout;
+    let splashTimeoutId: NodeJS.Timeout;
 
-    // IMPROVED: Set app as initializing immediately
-    if (isMounted) {
-      setIsInitializing(true);
-      setShouldShowLoadingScreen(true);
-    }
-
-    // Force initialization timeout - critical to prevent getting stuck
-    const forceInitTimeout = setTimeout(() => {
-      if (isMounted && isInitializing) {
-        console.log("⚠️ Force completing initialization after timeout");
-        setInitialAuthCheckComplete(true);
-        setIsInitializing(false);
-        setShouldShowLoadingScreen(false);
-      }
-    }, 5000); // 5 seconds max wait time for initialization
-
-    // Initialize auth
-    const initializeAuth = async () => {
-      if (!isMounted) return;
-
+    const initialize = async () => {
       try {
-        authInitAttempts++;
-        console.log(
-          `🔐 Initializing authentication state (attempt ${authInitAttempts})...`
-        );
+        setIsInitializing(true);
+        console.log("🚀 Starting auth provider initialization...");
 
-        // First try to get the existing session
-        const sessionResult = await supabase.auth.getSession();
-        const initialSession = sessionResult.data?.session;
-        const sessionError = sessionResult.error;
+        // Set a hard timeout for initialization
+        initTimeoutId = setTimeout(() => {
+          if (mounted) {
+            console.log(
+              "⚠️ Auth initialization timed out - forcing completion"
+            );
+            setIsInitializing(false);
+            setInitialAuthCheckComplete(true);
+          }
+        }, INIT_TIMEOUT);
+
+        // Set a shorter timeout for splash screen
+        splashTimeoutId = setTimeout(() => {
+          if (mounted) {
+            console.log("⚠️ Splash animation timed out - forcing completion");
+            setSplashAnimationComplete(true);
+          }
+        }, SPLASH_TIMEOUT);
+
+        // Get initial session
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
 
         if (sessionError) {
           console.error("Error getting initial session:", sessionError);
-          // Continue with null session
         }
 
-        // If we have a session, set it
-        if (initialSession) {
-          console.log(
-            "🔑 Found existing session during initialization:",
-            initialSession.user.id
-          );
+        if (session?.user) {
+          console.log("📱 Initial session found for user:", session.user.id);
+          setSession(session);
+          setUser(session.user);
 
-          if (isMounted) {
-            setSession(initialSession);
-            setUser(initialSession.user);
-
-            // Immediately fetch user details to ensure we have them
-            const userDetails = await fetchUserDetails(initialSession.user.id);
-            if (userDetails) {
-              setUserDetails(userDetails);
-              setUserRole(userDetails.role || null);
-              console.log("👤 User details loaded, role:", userDetails.role);
-            }
-          }
-
-          // Try to refresh the token silently
-          try {
-            const refreshedSession = await refreshSession();
-            console.log(
-              "🔄 Session refresh result:",
-              refreshedSession ? "Success" : "Failed"
-            );
-          } catch (refreshError) {
-            console.error(
-              "Token refresh error during initialization:",
-              refreshError
-            );
-          }
-        } else {
-          console.log("🔒 No existing session found during initialization");
-          // Make sure user is null
-          if (isMounted) {
-            setSession(null);
-            setUser(null);
-            setUserRole(null);
-            setUserDetails(null);
-          }
-
-          // If this isn't the first attempt and we still don't have a session, try once more
-          if (authInitAttempts < maxInitAttempts && !initialSession) {
-            console.log("🔄 Trying alternate session restoration approach");
-            setTimeout(initializeAuth, 1000); // Retry after a delay
-            return; // Exit this attempt
-          }
+          // Fetch user details in parallel with other operations
+          fetchUserDetails(session.user.id)
+            .then((details) => {
+              if (mounted) {
+                setUserDetails(details || null);
+              }
+            })
+            .catch(console.error);
         }
 
-        // Mark initial auth check as complete
-        if (isMounted) {
-          console.log("✅ Initial auth check completed");
-          setInitialAuthCheckComplete(true);
-
-          // IMPORTANT: Reduced delay for turning off initializing state
-          setTimeout(() => {
-            if (isMounted) {
-              setIsInitializing(false);
-              setShouldShowLoadingScreen(false);
-            }
-          }, 300); // Reduced from 500ms
-        }
-      } catch (error) {
-        console.error("Error initializing auth:", error);
-        // Mark initial auth check as complete even on error
-        if (isMounted) {
+        // Mark initialization as complete
+        if (mounted) {
           setInitialAuthCheckComplete(true);
           setIsInitializing(false);
-          setShouldShowLoadingScreen(false);
+          setSplashAnimationComplete(true);
+        }
+      } catch (error) {
+        console.error("Error during auth initialization:", error);
+        // Force completion even on error
+        if (mounted) {
+          setInitialAuthCheckComplete(true);
+          setIsInitializing(false);
+          setSplashAnimationComplete(true);
         }
       }
     };
 
-    // Start auth initialization immediately
-    initializeAuth();
+    initialize();
 
-    // Set up auth state change subscriber
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-      console.log("🔄 Auth state changed:", event);
-
-      // Update session state based on the event
-      if (event === "SIGNED_OUT") {
-        if (isMounted) {
-          console.log("👋 User signed out, clearing state");
-          setSession(null);
-          setUser(null);
-          setUserRole(null);
-          setUserDetails(null);
-        }
-      } else if (event === "SIGNED_IN" && newSession) {
-        console.log("👤 User signed in:", newSession.user.id);
-
-        if (isMounted) {
-          setSession(newSession);
-          setUser(newSession.user);
-
-          // Check if initialization is still in progress and force complete it
-          if (isInitializing && !initialAuthCheckComplete) {
-            console.log(
-              "🚨 Sign-in detected during initialization - forcing completion"
-            );
-            setInitialAuthCheckComplete(true);
-            setIsInitializing(false);
-            setShouldShowLoadingScreen(false);
-          }
-
-          // Load user details immediately after sign-in
-          console.log("🔍 Fetching user details after sign-in");
-          const userDetails = await fetchUserDetails(newSession.user.id);
-
-          if (userDetails && isMounted) {
-            setUserDetails(userDetails);
-            setUserRole(userDetails.role || null);
-            console.log(
-              "👤 User details loaded after sign-in, role:",
-              userDetails.role
-            );
-          }
-        }
-      } else if (event === "TOKEN_REFRESHED" && newSession) {
-        console.log("🔑 Token refreshed for user:", newSession.user.id);
-
-        if (isMounted) {
-          setSession(newSession);
-          setUser(newSession.user);
-
-          // Also force completion of initialization if it's still in progress
-          if (isInitializing && !initialAuthCheckComplete) {
-            console.log(
-              "🚨 Token refresh detected during initialization - forcing completion"
-            );
-            setInitialAuthCheckComplete(true);
-            setIsInitializing(false);
-            setShouldShowLoadingScreen(false);
-          }
-        }
-      }
-    });
-
-    // Clean up subscription and set mounted flag on unmount
     return () => {
-      isMounted = false;
-      clearTimeout(forceInitTimeout);
-      subscription.unsubscribe();
+      mounted = false;
+      clearTimeout(initTimeoutId);
+      clearTimeout(splashTimeoutId);
     };
   }, []);
 

@@ -3,8 +3,11 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
-// Import createUserRecord at the top level
 import { createUserRecord } from "./userHelpers";
+import { validateSession as validateSessionImported } from "./validateSession";
+
+// Re-export the validateSession function
+export const validateSession = validateSessionImported;
 
 // Disable verbose GoTrueClient logs
 const disableSupabaseVerboseLogs = () => {
@@ -111,46 +114,37 @@ const customStorage = {
       }
     }
   },
-
   async setItem(key: string, value: string): Promise<void> {
     try {
       if (Platform.OS === "web") {
         localStorage.setItem(key, value);
       } else {
-        try {
-          await SecureStore.setItemAsync(key, value);
-        } catch (error) {
-          // Fall back to AsyncStorage if SecureStore fails
-          await AsyncStorage.setItem(key, value);
-        }
+        await SecureStore.setItemAsync(key, value);
       }
     } catch (error) {
       console.error(`Error storing secure key: ${error}`);
       try {
-        // Second attempt with AsyncStorage
+        // Fall back to AsyncStorage if SecureStore fails
         await AsyncStorage.setItem(key, value);
-      } catch {
-        // Failed both attempts
+      } catch (fallbackError) {
+        console.error(`Fallback storage also failed: ${fallbackError}`);
       }
     }
   },
-
   async removeItem(key: string): Promise<void> {
     try {
       if (Platform.OS === "web") {
         localStorage.removeItem(key);
       } else {
         await SecureStore.deleteItemAsync(key);
-        // Also try to remove from AsyncStorage in case it was stored there
-        await AsyncStorage.removeItem(key);
       }
     } catch (error) {
       console.error(`Error removing secure key: ${error}`);
       try {
-        // Try AsyncStorage if SecureStore fails
+        // Fall back to AsyncStorage if SecureStore fails
         await AsyncStorage.removeItem(key);
-      } catch {
-        // Failed both attempts
+      } catch (fallbackError) {
+        console.error(`Fallback removal also failed: ${fallbackError}`);
       }
     }
   },
@@ -236,29 +230,25 @@ export const supabase = createClient(
               .then(resolve)
               .catch((error) => {
                 lastError = error;
+                retryCount++;
 
-                if (error.message?.includes("No API key found")) {
-                  console.error(
-                    "🔑 API Key Error:",
-                    error.message,
-                    "Key available:",
-                    Boolean(currentKey)
+                if (
+                  retryCount <= maxRetries &&
+                  (error.name === "AbortError" ||
+                    error.name === "TypeError" ||
+                    error.message?.includes("network") ||
+                    error.message?.includes("fetch"))
+                ) {
+                  // Exponential backoff for retries
+                  const delay = Math.min(
+                    1000 * Math.pow(2, retryCount - 1) + Math.random() * 1000,
+                    8000
                   );
-                }
-
-                const isRetriable =
-                  error.name === "AbortError" ||
-                  (error.message &&
-                    error.message.includes("Network request failed")) ||
-                  (error.response &&
-                    (error.response.status === 408 ||
-                      error.response.status === 429 ||
-                      (error.response.status >= 500 &&
-                        error.response.status < 600)));
-
-                if (isRetriable && retryCount < maxRetries) {
-                  retryCount++;
-                  const delay = Math.min(1000 * Math.pow(2, retryCount), 10000);
+                  console.log(
+                    `Retrying fetch (${retryCount}/${maxRetries}) after ${Math.round(
+                      delay
+                    )}ms...`
+                  );
                   setTimeout(attemptFetch, delay);
                 } else {
                   reject(lastError);
@@ -273,52 +263,35 @@ export const supabase = createClient(
   }
 );
 
-// Add an auth state change listener to handle JWT claims after client creation
+// Set up auth state change listener to ensure user record exists
 supabase.auth.onAuthStateChange(async (event, session) => {
-  // When a new session is established, ensure JWT claims are properly set
-  if (session && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED")) {
+  if (event === "SIGNED_IN" && session?.user) {
     try {
-      // Get the user ID which will be used as the sub claim
-      const userId = session.user?.id;
-      if (userId) {
-        console.log(
-          `Auth state change (${event}) - Ensuring sub claim for user:`,
-          userId
-        );
+      const userId = session.user.id;
+      console.log("Auth state change: SIGNED_IN, userId:", userId);
 
-        // Make sure user exists in database to prevent auth/db misalignment
-        try {
-          const { data: userData, error: userError } = await supabase
-            .from("users")
-            .select("id")
-            .eq("id", userId)
-            .maybeSingle();
+      // Check if user record exists in database
+      try {
+        const { data: existingUser, error: userError } = await supabase
+          .from("users")
+          .select("id")
+          .eq("id", userId)
+          .maybeSingle();
 
-          if (userError || !userData) {
-            console.log(
-              "User record missing, creating during auth state change"
-            );
-            // Create user record if missing
-            const { error: insertError } = await supabase.from("users").insert({
-              id: userId,
-              phone_number: session.user?.phone || "",
-              created_at: new Date().toISOString(),
-            });
-
-            if (insertError && insertError.code !== "23505") {
-              // Not a duplicate error
-              console.warn(
-                "Failed to create user during auth state change:",
-                insertError
-              );
-            }
-          }
-        } catch (userCheckError) {
-          console.warn(
-            "Error checking user during auth state change:",
-            userCheckError
+        if (userError) {
+          console.warn("Error checking user during auth state change:", userError);
+        } else if (!existingUser) {
+          console.log(
+            "User record missing, creating during auth state change"
           );
+          // Create user record if missing
+          await createUserRecord(userId, session.user?.phone || "");
         }
+      } catch (userCheckError) {
+        console.warn(
+          "Error checking user during auth state change:",
+          userCheckError
+        );
       }
     } catch (error) {
       console.error("Error in onAuthStateChange handling:", error);
@@ -372,146 +345,69 @@ export const getCurrentUser = async () => {
   }
 };
 
-// This function is kept for reference but not used anymore
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const handleMissingSubClaim = async (userId: string, phoneNumber?: string) => {
+// Function to refresh the session token
+export const refreshSession = async (): Promise<any> => {
   try {
-    console.log("Handling missing sub claim for user:", userId);
+    console.log("Attempting to refresh session token");
 
-    // Direct approach: Check if user exists in the database
-    if (phoneNumber) {
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("id, phone_number")
-        .eq("id", userId)
-        .maybeSingle();
+    // Try to refresh the session
+    const { data, error } = await supabase.auth.refreshSession();
 
-      if (!userError && userData) {
-        console.log("User record exists, proceeding without RPC fix");
-        return true;
-      }
-
-      // Attempt to create the user record directly if it doesn't exist
-      try {
-        console.log("User record does not exist, attempting direct creation");
-        const { error: insertError } = await supabase.from("users").insert({
-          id: userId,
-          phone_number: phoneNumber,
-          created_at: new Date().toISOString(),
-        });
-
-        if (!insertError) {
-          console.log("Successfully created user record directly");
-          return true;
-        } else {
-          console.error("Direct user creation failed:", insertError.message);
-          return false;
-        }
-      } catch (createErr) {
-        console.error("Error creating user record directly:", createErr);
-        return false;
-      }
+    if (error) {
+      console.error("Failed to refresh token:", error);
+      return { session: null, error };
     }
 
-    // Fallback: Verify if user record exists
-    const { data: userData, error: userError } = await supabase
-      .from("users")
-      .select("id, phone_number")
-      .eq("id", userId)
-      .maybeSingle();
-
-    if (userError) {
-      console.error(
-        "Error checking user data during claim recovery:",
-        userError
-      );
-      return false;
+    if (data?.session) {
+      console.log("Session successfully refreshed");
+      return { session: data.session, error: null };
+    } else {
+      return { session: null, error: "No session returned" };
     }
-
-    if (userData) {
-      console.log("User record exists but session has invalid claims");
-      return true;
-    }
-
-    return false;
   } catch (error) {
-    console.error("Error in handleMissingSubClaim:", error);
-    return false;
+    console.error("Exception refreshing token:", error);
+    return { session: null, error };
   }
 };
-
-// Import and re-export the improved validateSession function
-import { validateSession as validateSessionImproved } from "./validateSession";
-
-// Re-export the improved implementation with the original name
-export const validateSession = validateSessionImproved;
-
-// The legacy validateSession implementation has been moved to validateSession.ts
 
 // Helper function for clean sign-out and token cleanup
 export const cleanSignOut = async (): Promise<boolean> => {
   try {
     console.log("Performing clean sign-out with token cleanup");
 
-    // First clear any existing sessions from storage
+    // First try to clear any local storage
     try {
-      if (Platform.OS === "web") {
-        localStorage.removeItem("supabase-auth-token-v1");
-      } else {
-        await SecureStore.deleteItemAsync("supabase-auth-token-v1");
-        await AsyncStorage.removeItem("supabase-auth-token-v1");
-      }
+      await customStorage.removeItem("supabase.auth.token");
+      await customStorage.removeItem("supabase.auth.refreshToken");
+      await customStorage.removeItem("supabase.auth.expires_at");
     } catch (storageError) {
-      console.error("Error clearing storage during sign-out:", storageError);
+      console.warn("Error clearing auth storage:", storageError);
     }
 
-    // Now sign out from Supabase
+    // Then perform the actual sign out
     const { error } = await supabase.auth.signOut();
     if (error) {
-      console.error("Error during Supabase sign-out:", error);
+      console.error("Error during sign out:", error.message);
       return false;
     }
 
-    console.log("Sign-out successful with token cleanup");
+    console.log("Sign out successful");
     return true;
   } catch (error) {
-    console.error("Exception during clean sign-out:", error);
+    console.error("Exception during sign out:", error);
     return false;
   }
 };
 
-// Export a convenience wrapper for refreshing session
-export const refreshAuthToken = async (): Promise<boolean> => {
+// Helper function to force a token refresh
+export const forceTokenRefresh = async (): Promise<boolean> => {
   try {
-    // First check if we already have a valid session
-    const { data: currentSession } = await supabase.auth.getSession();
-    if (currentSession?.session) {
-      console.log("Current session found before refresh");
-    }
+    console.log("Forcing token refresh");
 
     // Perform the refresh
     const { data, error } = await supabase.auth.refreshSession();
     if (error) {
       console.error("Token refresh error:", error.message);
-
-      // Try to force navigation if this is called from a verify screen
-      try {
-        // @ts-ignore - Global notifications for critical auth events
-        if (global.__authRefreshFailed) {
-          console.log(
-            "🚨 Multiple auth refresh failures detected - triggering global recovery"
-          );
-          // Signal that auth should complete regardless of state
-          // @ts-ignore
-          global.__forceAuthCompletion = true;
-        } else {
-          // @ts-ignore
-          global.__authRefreshFailed = true;
-        }
-      } catch (globalError) {
-        console.warn("Error setting global auth state:", globalError);
-      }
-
       return false;
     }
 
@@ -544,44 +440,38 @@ export const forceSessionRefreshWithClaims = async (): Promise<boolean> => {
     if (userId) {
       console.log("Current session belongs to user:", userId);
 
-      // Ensure user exists in database by trying multiple methods
+      // Check if user record exists in database
       try {
-        // First check if user exists
-        const { data: existingUser } = await supabase
+        const { data: userData, error: userError } = await supabase
           .from("users")
-          .select("id")
+          .select("id, phone_number")
           .eq("id", userId)
           .maybeSingle();
 
-        if (!existingUser) {
-          console.log("User record missing, creating during session refresh");
+        if (userError) {
+          console.warn("Error checking user record during refresh:", userError);
+        } else if (!userData) {
+          console.log("User record missing during refresh, attempting to create");
 
-          // Get phone number from session metadata if possible
+          // Try to extract phone from JWT
           let phoneNumber = "";
           try {
-            const { data: userData } = await supabase.auth.getUser();
-            phoneNumber = userData?.user?.phone || "";
-
-            if (!phoneNumber) {
-              // Try to get from JWT claims or user metadata
-              const jwt = currentSession.session.access_token;
-              if (jwt && jwt.split(".").length === 3) {
-                try {
-                  const payload = JSON.parse(atob(jwt.split(".")[1]));
-                  phoneNumber = payload.phone || "";
-                } catch (e) {
-                  console.warn("Could not parse JWT for phone", e);
-                }
-              }
-
-              if (!phoneNumber) {
-                // Try to get from user metadata
-                const metadata = userData?.user?.user_metadata;
-                phoneNumber = metadata?.phone || "";
+            const jwt = currentSession.session.access_token;
+            if (jwt) {
+              const parts = jwt.split(".");
+              if (parts.length === 3) {
+                const payload = JSON.parse(atob(parts[1]));
+                phoneNumber = payload.phone || "";
               }
             }
-          } catch (userError) {
-            console.warn("Error getting user data for phone", userError);
+          } catch (e) {
+            console.warn("Could not parse JWT for phone", e);
+          }
+
+          if (!phoneNumber) {
+            // Try to get from user metadata
+            const metadata = currentSession.session.user?.user_metadata;
+            phoneNumber = metadata?.phone || "";
           }
 
           // Create user with whatever data we have
@@ -646,37 +536,6 @@ export const forceSessionRefreshWithClaims = async (): Promise<boolean> => {
   }
 };
 
-// Helper function to log token details for debugging auth issues
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const logTokenDetails = (
-  message: string,
-  error: any = null,
-  session: any = null
-) => {
-  try {
-    console.log(`🔑 ${message}`);
-
-    if (error) {
-      console.log(`🔑 Error: ${error.message || "Unknown error"}`);
-      console.log(`🔑 Error code: ${error.code || "No code"}`);
-    }
-
-    if (session) {
-      const expiryTime = session.expires_at
-        ? new Date(session.expires_at * 1000).toISOString()
-        : "Unknown";
-
-      console.log(`🔑 Session expires: ${expiryTime}`);
-      console.log(`🔑 User ID: ${session.user?.id || "Unknown"}`);
-      console.log(`🔑 Has refresh token: ${Boolean(session.refresh_token)}`);
-    }
-  } catch (logError) {
-    console.error("Error logging token details:", logError);
-  }
-};
-
-// Import createUserRecord from userHelpers is at the top of the file
-
 // Development mode configuration
 const DEV_CONFIG = {
   OTP: "123456", // Fixed OTP for development
@@ -737,24 +596,20 @@ export const verifyPhoneWithOtp = async (
       token: code,
       type: "sms",
     });
-
+    
     // If verification was successful, ensure we have a valid session
     if (!verifyResult.error && verifyResult.data?.session) {
       console.log("OTP verification successful, ensuring session is valid");
-
+      
       // Wait a moment for the session to be fully established
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
       // Force a session refresh to ensure all claims are properly set
       try {
-        const { data: refreshData, error: refreshError } =
-          await supabase.auth.refreshSession();
-
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        
         if (refreshError) {
-          console.warn(
-            "Session refresh after OTP verification failed:",
-            refreshError.message
-          );
+          console.warn("Session refresh after OTP verification failed:", refreshError.message);
           // Continue with the original session data
         } else if (refreshData.session) {
           console.log("Session refreshed successfully after OTP verification");
@@ -762,14 +617,11 @@ export const verifyPhoneWithOtp = async (
           verifyResult.data.session = refreshData.session;
         }
       } catch (refreshErr) {
-        console.warn(
-          "Error refreshing session after OTP verification:",
-          refreshErr
-        );
+        console.warn("Error refreshing session after OTP verification:", refreshErr);
         // Continue with the original session data
       }
     }
-
+    
     return verifyResult;
   } catch (error) {
     console.error("Error in verifyPhoneWithOtp:", error);

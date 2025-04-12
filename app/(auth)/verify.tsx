@@ -22,7 +22,7 @@ import {
   validateSession,
   forceSessionRefreshWithClaims,
   verifyPhoneWithOtp,
-} from "@/src/utils/supabaseClient";
+} from "@/src/utils/supabaseClient.new";
 import { ROUTES } from "@/src/utils/routes";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -64,89 +64,47 @@ export default function VerifyScreen() {
     }
   }, [otp]);
 
+  // Simplified navigation effect that triggers when verification is successful
   useEffect(() => {
     if (verificationSuccess) {
-      console.log("🚀 verificationSuccess triggered, preparing navigation...");
+      console.log(
+        "🚀 Verification success detected, navigating to role selection"
+      );
 
-      // Force immediate navigation with multiple approaches
-      let navigationAttempted = false;
+      // Simple navigation with a single backup
+      const navigateToRoleSelection = () => {
+        try {
+          console.log("🚀 Navigating to role selection");
+          router.replace(ROUTES.AUTH_ROLE_SELECTION);
+        } catch (error) {
+          console.error("❌ Navigation error:", error);
 
-      // Direct router replacement - the most reliable approach
-      try {
-        console.log("🚀 Direct navigation attempt to role selection");
-        router.replace(ROUTES.AUTH_ROLE_SELECTION);
-        navigationAttempted = true;
-      } catch (error) {
-        console.error("❌ Direct navigation error:", error);
-      }
+          // Backup with direct route string
+          setTimeout(() => {
+            try {
+              console.log("⏱️ Backup navigation attempt");
+              router.replace("/(auth)/role-selection");
+            } catch (backupError) {
+              console.error("❌ Backup navigation failed:", backupError);
 
-      // First backup - immediate timeout (100ms)
-      const firstBackupTimer = setTimeout(() => {
-        if (!navigationAttempted) {
-          try {
-            console.log("⏱️ First backup navigation attempt");
-            router.replace(ROUTES.AUTH_ROLE_SELECTION);
-            navigationAttempted = true;
-          } catch (error) {
-            console.error("❌ First backup navigation error:", error);
-          }
+              // Final fallback - show alert for manual navigation
+              Alert.alert(
+                "Continue Setup",
+                "Your verification was successful! Tap Continue to proceed with setup.",
+                [
+                  {
+                    text: "Continue",
+                    onPress: () => router.replace(ROUTES.AUTH_ROLE_SELECTION),
+                  },
+                ]
+              );
+            }
+          }, 300);
         }
-      }, 100);
-
-      // Second backup - Alternate approach with direct route string
-      const secondBackupTimer = setTimeout(() => {
-        if (!navigationAttempted) {
-          try {
-            console.log(
-              "⏱️ Second backup navigation attempt with explicit route"
-            );
-            // Try bypassing the ROUTES constant
-            router.replace("/(auth)/role-selection");
-            navigationAttempted = true;
-          } catch (error) {
-            console.error("❌ Second backup navigation error:", error);
-          }
-        }
-      }, 500);
-
-      // Final backup - Alert with manual navigation
-      const finalTimer = setTimeout(() => {
-        if (!navigationAttempted) {
-          console.log("⚠️ All navigation attempts failed, showing alert");
-          Alert.alert(
-            "Continue Setup",
-            "Your verification was successful! Tap Continue to proceed with setup.",
-            [
-              {
-                text: "Continue",
-                onPress: () => {
-                  try {
-                    router.replace(ROUTES.AUTH_ROLE_SELECTION);
-                  } catch (finalError) {
-                    console.error("❌ Final navigation attempt also failed");
-
-                    // Absolute last resort - try raw navigation
-                    try {
-                      router.replace("/(auth)/role-selection" as any);
-                    } catch {
-                      Alert.alert(
-                        "Navigation Issue",
-                        "Please restart the app to continue setup."
-                      );
-                    }
-                  }
-                },
-              },
-            ]
-          );
-        }
-      }, 2000);
-
-      return () => {
-        clearTimeout(firstBackupTimer);
-        clearTimeout(secondBackupTimer);
-        clearTimeout(finalTimer);
       };
+
+      // Add a small delay before navigation to ensure session is properly set
+      setTimeout(navigateToRoleSelection, 500);
     }
   }, [verificationSuccess]);
 
@@ -342,18 +300,8 @@ export default function VerifyScreen() {
 
       const cleanPhone = phoneNumber.replace(/\s+/g, "");
 
-      // Start some operations in parallel to speed up the process
-      const verifyPromise = verifyPhoneWithOtp(cleanPhone, otpCode);
-      const preemptiveSessionRefresh = refreshSession().catch((err) => {
-        console.log(
-          "Preemptive session refresh failed (continuing):",
-          err.message
-        );
-        return null;
-      });
-
       // Step 1: Verify OTP
-      const { data, error } = await verifyPromise;
+      const { data, error } = await verifyPhoneWithOtp(cleanPhone, otpCode);
 
       if (error) {
         handleOtpError(error);
@@ -367,78 +315,41 @@ export default function VerifyScreen() {
 
       console.log("OTP verification successful, userId:", userId);
 
-      // Wait for the preemptive refresh to complete
-      await preemptiveSessionRefresh;
+      // Step 2: Create user record if it doesn't exist
+      try {
+        // Check if user record exists
+        const { data: existingUser } = await supabase
+          .from("users")
+          .select("id")
+          .eq("id", userId)
+          .maybeSingle();
 
-      // Step 2: Create user record in parallel with JWT claims refresh
-      const createUserPromise = (async () => {
-        try {
-          // Check if user record exists
-          const { data: existingUser } = await supabase
-            .from("users")
-            .select("id")
-            .eq("id", userId)
-            .maybeSingle();
-
-          if (!existingUser) {
-            console.log("Creating user record in parallel with claims refresh");
-            try {
-              const { error: insertError } = await supabase
-                .from("users")
-                .insert({
-                  id: userId,
-                  phone_number: cleanPhone,
-                  created_at: new Date().toISOString(),
-                  setup_status: JSON.stringify({}),
-                });
-
-              if (insertError) {
-                console.log(
-                  "User creation failed (continuing):",
-                  insertError.message
-                );
-              }
-            } catch (insertErr: any) {
-              console.log(
-                "User creation exception (continuing):",
-                insertErr?.message
-              );
-            }
-          }
-        } catch (err: any) {
-          console.log("User check failed (continuing):", err?.message);
+        if (!existingUser) {
+          console.log("Creating user record");
+          await createUserRecord(userId, cleanPhone);
+        } else {
+          console.log("User record already exists");
         }
-      })();
+      } catch (err) {
+        console.log("Error checking/creating user record:", err);
+        // Continue anyway - this shouldn't block authentication
+      }
 
-      // Refresh claims in parallel
-      const refreshClaimsPromise = forceSessionRefreshWithClaims().catch(
-        (err) => {
-          console.log("JWT claims refresh failed (continuing):", err.message);
-          return false;
-        }
-      );
+      // Step 3: Refresh session to ensure we have valid JWT claims
+      try {
+        console.log("Refreshing session to update JWT claims");
+        await forceSessionRefreshWithClaims();
+        await refreshSession();
+      } catch (refreshErr) {
+        console.log("Session refresh error (continuing):", refreshErr);
+        // Continue anyway - we'll try to navigate even if refresh fails
+      }
 
-      // Wait for both operations to complete
-      await Promise.all([createUserPromise, refreshClaimsPromise]);
-
-      // Success! Set states and try to navigate immediately
+      // Step 4: Set verification as successful
+      console.log("Verification process completed successfully");
       setLoading(false);
       setVerifying(false);
-
-      // CRITICAL: Skip setting verificationSuccess state and navigate immediately
-      console.log("🚀 Immediate direct navigation after verification");
-      try {
-        // Direct navigation command
-        router.replace(ROUTES.AUTH_ROLE_SELECTION);
-        console.log("🚀 Direct navigation command executed");
-      } catch (navError) {
-        console.error(
-          "Direct navigation failed, falling back to state-based navigation:",
-          navError
-        );
-        // Only set verificationSuccess if direct navigation fails
-        setVerificationSuccess(true);
-      }
+      setVerificationSuccess(true);
     } catch (error: any) {
       console.error("Verification error:", error);
       setError(error.message || "Failed to verify code. Please try again.");

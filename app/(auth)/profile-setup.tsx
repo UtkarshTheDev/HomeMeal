@@ -32,8 +32,10 @@ import Animated, {
   withDelay,
   Easing,
 } from "react-native-reanimated";
-import { supabase } from "@/src/utils/supabaseClient";
+import { supabase } from "@/src/utils/supabaseClient.new";
 import { uploadImage as uploadImageUtil } from "@/src/utils/userHelpers";
+import ScreenTransition from "@/src/components/ScreenTransition";
+import AnimatedButton from "@/src/components/AnimatedButton";
 import * as WebBrowser from "expo-web-browser";
 // @ts-ignore - Ignore type checking for expo-auth-session
 import { useAuthRequest, makeRedirectUri } from "expo-auth-session";
@@ -329,6 +331,15 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "700",
+  },
+  saveButton: {
+    borderRadius: 12,
+    overflow: "hidden",
+    shadowColor: "#FF6B00",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
   disabledInputWrapper: {
     flexDirection: "row",
@@ -858,306 +869,299 @@ const ProfileSetupScreen = () => {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
-      <View style={styles.mainContainer}>
-        {/* Enhanced Header */}
-        <View style={styles.headerContainer}>
-          <LinearGradient
-            colors={["#FF8A00", "#FF6B00", "#FF5400"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.gradientHeader}
-          >
-            {/* Abstract Pattern Background */}
-            <Svg style={styles.headerPattern} viewBox="0 0 100 100">
-              <Defs>
-                <RadialGradient
-                  id="grad"
-                  cx="50%"
-                  cy="50%"
-                  r="50%"
-                  fx="50%"
-                  fy="50%"
-                >
-                  <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.2" />
-                  <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
-                </RadialGradient>
-              </Defs>
-              <G fill="url(#grad)">
-                <Path
-                  d="M20,20 Q40,5 60,20 T100,30 Q95,50 100,70 T60,80 Q40,95 20,80 T-10,60 Q0,40 -10,20 T20,20 Z"
-                  opacity="0.7"
-                />
-                <Path
-                  d="M30,10 Q50,0 70,10 T110,20 Q100,40 110,60 T70,70 Q50,80 30,70 T-10,50 Q0,30 -10,10 T30,10 Z"
-                  opacity="0.5"
-                />
-              </G>
-            </Svg>
-
-            {/* Animated Sparkles */}
-            <Animated.View
-              style={[
-                styles.headerSparkle,
-                { top: "20%", right: "15%" },
-                sparkle1Style,
-              ]}
-            >
-              <Sparkles size={24} color="rgba(255,255,255,0.8)" />
-            </Animated.View>
-
-            <Animated.View
-              style={[
-                styles.headerSparkle,
-                { top: "40%", right: "35%" },
-                sparkle2Style,
-              ]}
-            >
-              <Sparkles size={18} color="rgba(255,255,255,0.8)" />
-            </Animated.View>
-
-            <Animated.View
-              style={[
-                styles.headerSparkle,
-                { top: "30%", right: "55%" },
-                sparkle3Style,
-              ]}
-            >
-              <Sparkles size={16} color="rgba(255,255,255,0.8)" />
-            </Animated.View>
-
-            <View style={styles.headerTextContainer}>
-              <Animated.Text
-                entering={FadeInUp.delay(200).duration(700)}
-                style={styles.title}
-              >
-                Complete Your Profile
-              </Animated.Text>
-              <Animated.Text
-                entering={FadeInUp.delay(350).duration(700)}
-                style={styles.subtitle}
-              >
-                Just a few more details to get you started
-              </Animated.Text>
-            </View>
-          </LinearGradient>
-        </View>
-
-        {/* Content */}
-        <ScrollView
-          style={styles.contentScrollView}
-          contentContainerStyle={styles.contentContainer}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Profile Image Picker */}
-          <Animated.View
-            style={[styles.profileImageContainer, profileImageAnimatedStyle]}
-          >
-            <TouchableOpacity
-              onPress={pickImage}
-              style={{ position: "relative" }}
-            >
-              {profileImage ? (
-                <Image
-                  source={{ uri: profileImage }}
-                  style={styles.profileImage}
-                />
-              ) : (
-                <View style={styles.profileImagePlaceholder}>
-                  <User2 size={55} color="#A0AEC0" />
-                </View>
-              )}
-              <View style={styles.uploadIconContainer}>
-                <Camera size={22} color="#FFFFFF" />
-              </View>
-            </TouchableOpacity>
-          </Animated.View>
-
-          {/* Google Sign-In Card */}
-          <Animated.View style={styles.quickSetupCard}>
+      <ScreenTransition type="slide" duration={500}>
+        <View style={styles.mainContainer}>
+          {/* Enhanced Header */}
+          <View style={styles.headerContainer}>
             <LinearGradient
-              colors={["#FF7E1D", "#FF6B00"]}
+              colors={["#FF8A00", "#FF6B00", "#FF5400"]}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
-              style={styles.cardGradient}
+              style={styles.gradientHeader}
             >
-              <Text style={styles.cardHeader}>Quick Setup</Text>
-              <Text style={styles.cardSubtitle}>
-                Import your details from Google to save time
-              </Text>
+              {/* Abstract Pattern Background */}
+              <Svg style={styles.headerPattern} viewBox="0 0 100 100">
+                <Defs>
+                  <RadialGradient
+                    id="grad"
+                    cx="50%"
+                    cy="50%"
+                    r="50%"
+                    fx="50%"
+                    fy="50%"
+                  >
+                    <Stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.2" />
+                    <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
+                  </RadialGradient>
+                </Defs>
+                <G fill="url(#grad)">
+                  <Path
+                    d="M20,20 Q40,5 60,20 T100,30 Q95,50 100,70 T60,80 Q40,95 20,80 T-10,60 Q0,40 -10,20 T20,20 Z"
+                    opacity="0.7"
+                  />
+                  <Path
+                    d="M30,10 Q50,0 70,10 T110,20 Q100,40 110,60 T70,70 Q50,80 30,70 T-10,50 Q0,30 -10,10 T30,10 Z"
+                    opacity="0.5"
+                  />
+                </G>
+              </Svg>
 
-              <Animated.View style={googleButtonAnimatedStyle}>
-                <TouchableOpacity
-                  onPress={handleGoogleSignIn}
-                  disabled={googleSignInLoading}
-                  style={styles.googleButton}
-                >
-                  {googleSignInLoading ? (
-                    <ActivityIndicator size="small" color="#4285F4" />
-                  ) : (
-                    <>
-                      <View style={styles.googleIconContainer}>
-                        <GoogleIcon size={22} />
-                      </View>
-                      <Text style={styles.googleButtonText}>
-                        Continue with Google
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+              {/* Animated Sparkles */}
+              <Animated.View
+                style={[
+                  styles.headerSparkle,
+                  { top: "20%", right: "15%" },
+                  sparkle1Style,
+                ]}
+              >
+                <Sparkles size={24} color="rgba(255,255,255,0.8)" />
               </Animated.View>
+
+              <Animated.View
+                style={[
+                  styles.headerSparkle,
+                  { top: "40%", right: "35%" },
+                  sparkle2Style,
+                ]}
+              >
+                <Sparkles size={18} color="rgba(255,255,255,0.8)" />
+              </Animated.View>
+
+              <Animated.View
+                style={[
+                  styles.headerSparkle,
+                  { top: "30%", right: "55%" },
+                  sparkle3Style,
+                ]}
+              >
+                <Sparkles size={16} color="rgba(255,255,255,0.8)" />
+              </Animated.View>
+
+              <View style={styles.headerTextContainer}>
+                <Animated.Text
+                  entering={FadeInUp.delay(200).duration(700)}
+                  style={styles.title}
+                >
+                  Complete Your Profile
+                </Animated.Text>
+                <Animated.Text
+                  entering={FadeInUp.delay(350).duration(700)}
+                  style={styles.subtitle}
+                >
+                  Just a few more details to get you started
+                </Animated.Text>
+              </View>
             </LinearGradient>
-          </Animated.View>
+          </View>
 
-          {/* Manual Form Section */}
-          <Animated.View style={[styles.formContainer, formAnimatedStyle]}>
-            {/* Form Title */}
-            <Text style={styles.formHeader}>Your Information</Text>
-
-            {/* Form fields */}
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Full Name *</Text>
-              <View style={styles.inputWrapper}>
-                <View style={styles.inputIcon}>
-                  <User2 size={20} color="#64748B" />
+          {/* Content */}
+          <ScrollView
+            style={styles.contentScrollView}
+            contentContainerStyle={styles.contentContainer}
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Profile Image Picker */}
+            <Animated.View
+              style={[styles.profileImageContainer, profileImageAnimatedStyle]}
+            >
+              <TouchableOpacity
+                onPress={pickImage}
+                style={{ position: "relative" }}
+              >
+                {profileImage ? (
+                  <Image
+                    source={{ uri: profileImage }}
+                    style={styles.profileImage}
+                  />
+                ) : (
+                  <View style={styles.profileImagePlaceholder}>
+                    <User2 size={55} color="#A0AEC0" />
+                  </View>
+                )}
+                <View style={styles.uploadIconContainer}>
+                  <Camera size={22} color="#FFFFFF" />
                 </View>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter your full name"
-                  value={name}
-                  onChangeText={setName}
-                  placeholderTextColor="#A0AEC0"
-                />
-              </View>
-            </View>
+              </TouchableOpacity>
+            </Animated.View>
 
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Email Address *</Text>
-              <View style={styles.inputWrapper}>
-                <View style={styles.inputIcon}>
-                  <Mail size={20} color="#64748B" />
-                </View>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter your email"
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  placeholderTextColor="#A0AEC0"
-                />
-              </View>
-            </View>
+            {/* Google Sign-In Card */}
+            <Animated.View style={styles.quickSetupCard}>
+              <LinearGradient
+                colors={["#FF7E1D", "#FF6B00"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.cardGradient}
+              >
+                <Text style={styles.cardHeader}>Quick Setup</Text>
+                <Text style={styles.cardSubtitle}>
+                  Import your details from Google to save time
+                </Text>
 
-            {/* Bio input field - only show for makers */}
-            {userRole === "maker" && (
+                <Animated.View style={googleButtonAnimatedStyle}>
+                  <TouchableOpacity
+                    onPress={handleGoogleSignIn}
+                    disabled={googleSignInLoading}
+                    style={styles.googleButton}
+                  >
+                    {googleSignInLoading ? (
+                      <ActivityIndicator size="small" color="#4285F4" />
+                    ) : (
+                      <>
+                        <View style={styles.googleIconContainer}>
+                          <GoogleIcon size={22} />
+                        </View>
+                        <Text style={styles.googleButtonText}>
+                          Continue with Google
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </Animated.View>
+              </LinearGradient>
+            </Animated.View>
+
+            {/* Manual Form Section */}
+            <Animated.View style={[styles.formContainer, formAnimatedStyle]}>
+              {/* Form Title */}
+              <Text style={styles.formHeader}>Your Information</Text>
+
+              {/* Form fields */}
               <View style={styles.inputContainer}>
-                <Text style={styles.inputLabel}>Bio *</Text>
+                <Text style={styles.inputLabel}>Full Name *</Text>
                 <View style={styles.inputWrapper}>
                   <View style={styles.inputIcon}>
-                    <User size={20} color="#64748B" />
+                    <User2 size={20} color="#64748B" />
                   </View>
                   <TextInput
                     style={styles.input}
-                    placeholder="Tell us about yourself and your cooking specialties"
-                    value={bio}
-                    onChangeText={setBio}
-                    multiline={true}
-                    numberOfLines={4}
-                    textAlignVertical="top"
+                    placeholder="Enter your full name"
+                    value={name}
+                    onChangeText={setName}
                     placeholderTextColor="#A0AEC0"
                   />
                 </View>
+              </View>
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Email Address *</Text>
+                <View style={styles.inputWrapper}>
+                  <View style={styles.inputIcon}>
+                    <Mail size={20} color="#64748B" />
+                  </View>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter your email"
+                    value={email}
+                    onChangeText={setEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    placeholderTextColor="#A0AEC0"
+                  />
+                </View>
+              </View>
+
+              {/* Bio input field - only show for makers */}
+              {userRole === "maker" && (
+                <View style={styles.inputContainer}>
+                  <Text style={styles.inputLabel}>Bio *</Text>
+                  <View style={styles.inputWrapper}>
+                    <View style={styles.inputIcon}>
+                      <User size={20} color="#64748B" />
+                    </View>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Tell us about yourself and your cooking specialties"
+                      value={bio}
+                      onChangeText={setBio}
+                      multiline={true}
+                      numberOfLines={4}
+                      textAlignVertical="top"
+                      placeholderTextColor="#A0AEC0"
+                    />
+                  </View>
+                  <Text style={styles.inputHint}>
+                    Your bio will be visible to customers browsing your profile
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Phone Number</Text>
+                <View style={styles.disabledInputWrapper}>
+                  <View style={styles.inputIcon}>
+                    <Phone size={20} color="#A0AEC0" />
+                  </View>
+                  <TextInput
+                    style={styles.disabledInput}
+                    value={phoneNumber}
+                    editable={false}
+                  />
+                </View>
                 <Text style={styles.inputHint}>
-                  Your bio will be visible to customers browsing your profile
+                  Phone number cannot be changed
                 </Text>
               </View>
-            )}
+            </Animated.View>
+          </ScrollView>
 
-            <View style={styles.inputContainer}>
-              <Text style={styles.inputLabel}>Phone Number</Text>
-              <View style={styles.disabledInputWrapper}>
-                <View style={styles.inputIcon}>
-                  <Phone size={20} color="#A0AEC0" />
-                </View>
-                <TextInput
-                  style={styles.disabledInput}
-                  value={phoneNumber}
-                  editable={false}
-                />
-              </View>
-              <Text style={styles.inputHint}>
-                Phone number cannot be changed
-              </Text>
-            </View>
-          </Animated.View>
-        </ScrollView>
-
-        {/* Fixed Save Button at Bottom */}
-        <View style={styles.bottomButtonContainer}>
-          <Animated.View style={buttonAnimatedStyle}>
-            <TouchableOpacity
-              onPress={saveProfile}
-              disabled={loading}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
+          {/* Fixed Save Button at Bottom */}
+          <View style={styles.bottomButtonContainer}>
+            <Animated.View style={buttonAnimatedStyle}>
+              <AnimatedButton
+                onPress={saveProfile}
+                disabled={loading}
                 colors={["#FFAD00", "#FF6B00"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.saveButtonGradient}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Text style={styles.saveButtonText}>Save & Continue</Text>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-          </Animated.View>
-        </View>
+                loading={loading}
+                label="Save & Continue"
+                icon="arrow-right"
+                style={styles.saveButton}
+              />
+            </Animated.View>
+          </View>
 
-        {/* Success animation overlay */}
-        <Animated.View
-          style={{
-            position: "absolute",
-            width: "100%",
-            height: "100%",
-            backgroundColor: "rgba(255,255,255,0.9)",
-            justifyContent: "center",
-            alignItems: "center",
-            opacity: successAnimation,
-            zIndex: successAnimation.value > 0 ? 999 : -1,
-          }}
-        >
-          <View
+          {/* Success animation overlay */}
+          <Animated.View
             style={{
-              width: 80,
-              height: 80,
-              borderRadius: 40,
-              backgroundColor: "#4CAF50",
+              position: "absolute",
+              width: "100%",
+              height: "100%",
+              backgroundColor: "rgba(255,255,255,0.9)",
               justifyContent: "center",
               alignItems: "center",
-              shadowColor: "#000",
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: 0.2,
-              shadowRadius: 8,
-              elevation: 5,
+              opacity: successAnimation,
+              zIndex: successAnimation.value > 0 ? 999 : -1,
             }}
           >
-            <Check size={40} color="#FFFFFF" />
-          </View>
-          <Text
-            style={{
-              marginTop: 20,
-              fontSize: 18,
-              fontWeight: "600",
-              color: "#000000",
-            }}
-          >
-            {formFilled ? "Profile Updated!" : "Profile Completed!"}
-          </Text>
-        </Animated.View>
-      </View>
+            <View
+              style={{
+                width: 80,
+                height: 80,
+                borderRadius: 40,
+                backgroundColor: "#4CAF50",
+                justifyContent: "center",
+                alignItems: "center",
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.2,
+                shadowRadius: 8,
+                elevation: 5,
+              }}
+            >
+              <Check size={40} color="#FFFFFF" />
+            </View>
+            <Text
+              style={{
+                marginTop: 20,
+                fontSize: 18,
+                fontWeight: "600",
+                color: "#000000",
+              }}
+            >
+              {formFilled ? "Profile Updated!" : "Profile Completed!"}
+            </Text>
+          </Animated.View>
+        </View>
+      </ScreenTransition>
     </SafeAreaView>
   );
 };

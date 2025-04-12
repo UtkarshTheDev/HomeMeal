@@ -15,10 +15,10 @@ import {
   supabase,
   checkExistingSession,
   validateSession,
-} from "@/src/utils/supabaseClient";
+} from "@/src/utils/supabaseClient.new";
 import "./global.css";
 import { useColorScheme } from "@/components/useColorScheme";
-import AuthProvider from "@/src/providers/AuthProvider";
+import AuthProvider from "@/src/providers/AuthProviderFixed";
 import { Session } from "@supabase/supabase-js";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import LoadingScreen from "@/src/components/LoadingScreen";

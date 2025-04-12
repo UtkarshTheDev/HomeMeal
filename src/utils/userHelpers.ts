@@ -5,6 +5,79 @@ import { Platform } from "react-native";
 import * as ImageManipulator from "expo-image-manipulator";
 
 /**
+ * Create a user record in the database
+ * @param userId The user's ID
+ * @param phoneNumber The user's phone number
+ * @returns Promise<boolean> indicating success or failure
+ */
+export const createUserRecord = async (
+  userId: string,
+  phoneNumber: string
+): Promise<boolean> => {
+  try {
+    console.log("Creating user record:", userId, "phone:", phoneNumber);
+
+    // Try direct insertion first
+    const { error: insertError } = await supabase.from("users").insert({
+      id: userId,
+      phone_number: phoneNumber || "",
+      created_at: new Date().toISOString(),
+      setup_status: JSON.stringify({}),
+    });
+
+    if (insertError) {
+      console.warn("Direct insertion failed:", insertError.message);
+
+      // If not duplicate error, try minimal fields
+      if (insertError.code !== "23505") {
+        const { error: minimalError } = await supabase.from("users").insert({
+          id: userId,
+          phone_number: phoneNumber || "",
+          created_at: new Date().toISOString(),
+        });
+
+        if (minimalError && minimalError.code !== "23505") {
+          console.error("Minimal insertion also failed:", minimalError.message);
+
+          // Try RPC as last resort
+          try {
+            await supabase.rpc("ensure_user_exists", {
+              p_user_id: userId,
+              p_phone: phoneNumber || "",
+            });
+            console.log("User created via RPC function");
+            return true;
+          } catch (rpcError) {
+            console.error("RPC user creation failed:", rpcError);
+            return false;
+          }
+        }
+      }
+    }
+
+    // Try to create wallet too
+    try {
+      const { error: walletError } = await supabase.from("wallets").insert({
+        user_id: userId,
+        balance: 0,
+        created_at: new Date().toISOString(),
+      });
+
+      if (walletError && walletError.code !== "23505") {
+        console.warn("Wallet creation failed:", walletError.message);
+      }
+    } catch (walletError) {
+      console.warn("Error creating wallet:", walletError);
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Exception creating user record:", error);
+    return false;
+  }
+};
+
+/**
  * Check if a user is new or existing and whether they have completed their profile
  * @returns Object containing user status and profile completion info
  */
