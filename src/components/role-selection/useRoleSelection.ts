@@ -161,11 +161,10 @@ export const useRoleSelection = (
     }
   };
 
-  // Helper function to navigate to the next screen - OPTIMIZED
+  // Helper function to navigate to the next screen - OPTIMIZED & FIXED
   const navigateToNextScreen = () => {
     try {
-      // PERFORMANCE OPTIMIZATION: Navigate immediately without waiting for anything
-      // This makes the UI feel much more responsive
+      // Log navigation intent
       if (selectedRole === "chef") {
         console.log("🔝 Navigating to profile setup for chef");
       } else if (selectedRole === "delivery_boy") {
@@ -174,10 +173,13 @@ export const useRoleSelection = (
         console.log("🔝 Navigating to profile setup for customer");
       }
 
-      // Navigate immediately without any delay
-      router.replace(ROUTES.AUTH_PROFILE_SETUP);
+      // CRITICAL FIX: Add a small delay before navigation to ensure session is fully refreshed
+      // This prevents the "invalid claim: missing sub claim" error
+      setTimeout(() => {
+        router.replace(ROUTES.AUTH_PROFILE_SETUP);
+      }, 300);
 
-      // PERFORMANCE OPTIMIZATION: Start role-specific setup after navigation has started
+      // Start role-specific setup in parallel
       // This ensures the navigation is not blocked by these operations
       setTimeout(() => {
         // Get current user ID from Supabase in the background
@@ -299,12 +301,22 @@ export const useRoleSelection = (
           });
       }, 0);
 
-      // 2. Refresh session in the background
-      setTimeout(() => {
-        refreshSession().catch((error) => {
-          console.warn("Error refreshing session (non-blocking):", error);
-        });
-      }, 0);
+      // 2. Refresh session in the background - CRITICAL FIX
+      // This must complete before navigation to ensure JWT claims are updated
+      console.log("Attempting to refresh session token");
+      try {
+        // Wait for session refresh to complete before continuing
+        await refreshSession();
+
+        // Add a small delay to ensure token is fully processed
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        // Force a second refresh to ensure claims are updated
+        await supabase.auth.refreshSession();
+      } catch (refreshError) {
+        console.warn("Error refreshing session:", refreshError);
+        // Continue anyway since we've already updated the database
+      }
 
       // Note: We don't need to set loading to false here since we're navigating away
     } catch (error) {

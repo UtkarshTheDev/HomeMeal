@@ -1,19 +1,13 @@
 /**
- * Enhanced Supabase client with authentication utilities
- * This file provides authentication-specific functionality including:
- * - OTP verification
- * - Session management
- * - Secure storage handling
+ * Enhanced Supabase client with authentication utilities - SILENT VERSION
+ * This file provides authentication-specific functionality with silent error handling
+ * to improve user experience by avoiding error messages
  */
 
 // Import from the shared file to avoid circular dependencies
-import {
-  supabase,
-  customStorageAdapter,
-  isDevelopmentMode,
-} from "./supabaseShared";
+import { supabase, customStorageAdapter } from "./supabaseShared";
 
-// Import enhanced validateSession
+// Import validateSession
 import {
   validateSession as validateSessionImported,
   setSupabaseInstance,
@@ -25,116 +19,88 @@ setSupabaseInstance(supabase);
 // Re-export the validateSession function
 export const validateSession = validateSessionImported;
 
-// Function to force a session refresh with claims - ENHANCED
+// Function to force a session refresh with claims - SILENT VERSION
 export const forceSessionRefreshWithClaims = async () => {
   try {
-    console.log("Forcing session refresh with focus on JWT claims");
-
-    // First get the current session to check user ID
-    const { data: sessionData, error: sessionError } =
-      await supabase.auth.getSession();
-
-    if (sessionError) {
-      console.warn("Error getting current session:", sessionError.message);
-      return false;
-    }
-
+    // First get the current session to check user ID - silently
+    const { data: sessionData } = await supabase.auth.getSession();
+    
     const userId = sessionData?.session?.user?.id;
-
+    
     if (userId) {
-      // Try to fix JWT claims if possible
+      // Try to fix JWT claims if possible - silently
       try {
         await supabase.rpc("fix_user_jwt_claims", {
           p_user_id: userId,
         });
-        console.log("Attempted to fix JWT claims via RPC");
       } catch (fixError) {
-        // Continue even if this fails
-        console.warn("Failed to fix JWT claims via RPC:", fixError);
+        // Continue silently even if this fails
       }
     }
-
-    // Use the standard refresh method
+    
+    // Use the standard refresh method - silently
     const { data, error } = await supabase.auth.refreshSession();
 
     if (error) {
-      console.warn("Error refreshing session:", error.message);
-
-      // If there's a JWT claim error, try a more aggressive approach
+      // If there's a JWT claim error, try a more aggressive approach - silently
       if (error.message.includes("claim") || error.message.includes("JWT")) {
-        console.log("JWT claim error detected, trying alternative refresh");
-
         // Wait a moment and try again
-        await new Promise((resolve) => setTimeout(resolve, 500));
-
-        const { data: retryData, error: retryError } =
-          await supabase.auth.refreshSession();
-
-        if (!retryError && retryData?.session) {
-          console.log("Alternative refresh succeeded");
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const { data: retryData } = await supabase.auth.refreshSession();
+        
+        if (retryData?.session) {
           return true;
         }
-
-        console.warn("Alternative refresh also failed:", retryError?.message);
+        
         return false;
       }
-
+      
       return false;
     }
 
     if (!data.session) {
-      console.warn("No session found during force refresh");
       return false;
     }
 
-    console.log("Session refresh successful with JWT claims");
     return true;
   } catch (error) {
-    console.error("Exception in forceSessionRefreshWithClaims:", error);
+    // Fail silently
     return false;
   }
 };
 
-// Function to refresh the session
+// Function to refresh the session - SILENT VERSION
 export const refreshSession = async () => {
   try {
-    // Use the standard refresh method
-    const { error } = await supabase.auth.refreshSession();
-    if (error) {
-      console.warn("Session refresh failed:", error.message);
-      return false;
+    // Use the standard refresh method silently
+    const { data } = await supabase.auth.refreshSession();
+    if (data?.session) {
+      return data.session;
     }
-    return true;
+    return null;
   } catch (error) {
-    console.error("Exception in refreshSession:", error);
-    return false;
+    // Fail silently
+    return null;
   }
 };
 
-// Function to sign out and clean up
+// Function to sign out and clean up - SILENT VERSION
 export const cleanSignOut = async () => {
   try {
-    console.log("Signing out and cleaning up...");
     await supabase.auth.signOut();
     return true;
   } catch (error) {
-    console.error("Error in cleanSignOut:", error);
+    // Fail silently
     return false;
   }
 };
 
-// Send OTP to phone number
+// Send OTP to phone number - SILENT VERSION
 export const sendOtpToPhone = async (phone: string): Promise<any> => {
   try {
-    console.log("Sending OTP to:", phone);
-
     // Log if we're in development mode (for debugging only)
-    if (isDevelopmentMode()) {
-      console.log("Running in development mode, but using real OTP flow");
-    }
-
     // Send a real OTP via Supabase Auth
-    console.log("Sending OTP via Supabase Auth...");
     const { data, error } = await supabase.auth.signInWithOtp({
       phone,
       options: {
@@ -144,33 +110,24 @@ export const sendOtpToPhone = async (phone: string): Promise<any> => {
     });
 
     if (error) {
-      console.error("Error sending OTP:", error.message);
+      // Fail silently
       return { data: null, error };
     }
 
-    console.log("OTP sent successfully");
     return { data, error: null };
   } catch (error) {
-    console.error("Exception in sendOtpToPhone:", error);
+    // Fail silently
     return { data: null, error };
   }
 };
 
-// Verify OTP
+// Verify OTP - SILENT VERSION
 export const verifyPhoneWithOtp = async (
   phone: string,
   code: string
 ): Promise<any> => {
   try {
-    // Log if we're in development mode (for debugging only)
-    if (isDevelopmentMode()) {
-      console.log(
-        "Running in development mode, but using real OTP verification"
-      );
-    }
-
     // For all cases, verify with Supabase
-    console.log("Verifying OTP with Supabase Auth...");
     const verifyResult = await supabase.auth.verifyOtp({
       phone,
       token: code,
@@ -178,13 +135,13 @@ export const verifyPhoneWithOtp = async (
     });
 
     if (verifyResult.error) {
-      console.error("OTP verification failed:", verifyResult.error.message);
+      // Fail silently
       return verifyResult;
     }
 
     // Check if we have a user ID
     if (!verifyResult.data?.user?.id) {
-      console.error("Verification succeeded but no user ID returned");
+      // Fail silently
       return {
         data: null,
         error: new Error("Verification succeeded but no user ID returned"),
@@ -193,14 +150,14 @@ export const verifyPhoneWithOtp = async (
 
     return verifyResult;
   } catch (error) {
-    console.error("Error in verifyPhoneWithOtp:", error);
+    // Fail silently
     return { data: null, error };
   }
 };
 
 /**
  * Create a user record in the database using the current Supabase client
- * Optimized for speed with direct insertion as the priority
+ * Optimized for speed with direct insertion as the priority - SILENT VERSION
  * @param userId The user's ID
  * @param phoneNumber The user's phone number
  * @returns Promise<boolean> indicating success or failure
@@ -210,11 +167,8 @@ export const createUserRecord = async (
   phoneNumber?: string
 ): Promise<boolean> => {
   try {
-    console.log("Creating user record with direct insertion:", userId);
-
     // Validate UUID format to avoid database errors
-    if (!userId || userId.length !== 36 || !userId.includes("-")) {
-      console.error("Invalid UUID format:", userId);
+    if (!userId || userId.length !== 36 || !userId.includes('-')) {
       return false;
     }
 
@@ -227,9 +181,8 @@ export const createUserRecord = async (
         } else if (userData?.user?.user_metadata?.phone) {
           phoneNumber = userData.user.user_metadata.phone;
         }
-        console.log("Retrieved phone from user data:", phoneNumber);
       } catch (err) {
-        console.warn("Could not retrieve phone from user data", err);
+        // Continue silently
       }
     }
 
@@ -241,12 +194,10 @@ export const createUserRecord = async (
       .maybeSingle();
 
     if (existingUser) {
-      console.log("User record already exists, skipping creation");
       return true;
     }
 
     // DIRECT INSERTION PRIORITY: Try direct insertion with minimal fields first
-    console.log("Attempting direct user record creation with minimal fields");
     const { error: minimalInsertError } = await supabase.from("users").insert({
       id: userId,
       phone_number: phoneNumber || "",
@@ -255,8 +206,6 @@ export const createUserRecord = async (
 
     // If minimal insertion succeeds, add additional fields in a separate update
     if (!minimalInsertError) {
-      console.log("Minimal user record created successfully");
-
       // Update with additional fields
       const { error: updateError } = await supabase
         .from("users")
@@ -266,39 +215,21 @@ export const createUserRecord = async (
         })
         .eq("id", userId);
 
-      if (updateError) {
-        console.warn(
-          "Failed to update additional fields:",
-          updateError.message
-        );
-        // Continue anyway since the basic user record exists
-      }
-
       // Create wallet in a separate operation
       try {
-        console.log("Creating wallet for user");
         const { error: walletError } = await supabase.from("wallets").insert({
           user_id: userId,
           balance: 0,
           created_at: new Date().toISOString(),
         });
-
-        if (walletError) {
-          console.warn("Failed to create wallet:", walletError.message);
-          // Continue anyway since the user record exists
-        }
       } catch (walletErr) {
-        console.warn("Error creating wallet:", walletErr);
-        // Continue anyway since the user record exists
+        // Continue silently
       }
 
       return true;
     }
 
     // If minimal insertion fails, try full insertion
-    console.warn("Minimal insertion failed:", minimalInsertError.message);
-    console.log("Attempting full direct insertion");
-
     const { error: fullInsertError } = await supabase.from("users").insert({
       id: userId,
       phone_number: phoneNumber || "",
@@ -308,8 +239,6 @@ export const createUserRecord = async (
     });
 
     if (!fullInsertError) {
-      console.log("Full user record created successfully");
-
       // Create wallet
       try {
         const { error: walletError } = await supabase.from("wallets").insert({
@@ -317,21 +246,14 @@ export const createUserRecord = async (
           balance: 0,
           created_at: new Date().toISOString(),
         });
-
-        if (walletError) {
-          console.warn("Failed to create wallet:", walletError.message);
-        }
       } catch (walletErr) {
-        console.warn("Error creating wallet:", walletErr);
+        // Continue silently
       }
-
+      
       return true;
     }
 
     // If all direct methods fail, try RPC as last resort
-    console.warn("All direct insertion methods failed");
-    console.log("Trying create_new_user RPC function as last resort");
-
     try {
       const { error: rpcError } = await supabase.rpc("create_new_user", {
         user_id: userId,
@@ -339,48 +261,37 @@ export const createUserRecord = async (
       });
 
       if (!rpcError) {
-        console.log("User created via RPC function");
         return true;
       }
-
-      console.warn("All user creation methods failed");
+      
       return false;
     } catch (rpcError) {
-      console.error("RPC fallback failed:", rpcError);
       return false;
     }
   } catch (error) {
-    console.error("Error in createUserRecord:", error);
+    // Fail silently
     return false;
   }
 };
 
-// Log successful OTP verification and create user record if needed
+// Log successful OTP verification and create user record if needed - SILENT VERSION
 export const handleSuccessfulVerification = async (
   userId: string,
   phoneNumber?: string
 ) => {
   try {
-    console.log("OTP verification successful, userId:", userId);
-
     // Create user record if it doesn't exist
-    console.log("Creating user record");
     const userCreated = await createUserRecord(userId, phoneNumber);
 
-    if (!userCreated) {
-      console.warn("Failed to create user record, but proceeding");
-    }
-
     // Refresh session to update JWT claims
-    console.log("Refreshing session to update JWT claims");
     await forceSessionRefreshWithClaims();
 
     return true;
   } catch (error) {
-    console.error("Error in handleSuccessfulVerification:", error);
+    // Fail silently
     return false;
   }
 };
 
-// Re-export supabase and other utilities
-export { supabase, isDevelopmentMode };
+// Re-export supabase
+export { supabase };

@@ -7,17 +7,15 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-import { ActivityIndicator, View, Text, Alert } from "react-native";
+import { Alert } from "react-native";
 import { Session, User } from "@supabase/supabase-js";
 import {
   supabase,
-  validateSession,
-  cleanSignOut,
-} from "@/src/utils/supabaseAuthClient";
+  refreshSession as refreshSessionSilent,
+} from "@/src/utils/supabaseAuthClientSilent";
 import { router } from "expo-router";
 import { ROUTES } from "@/src/utils/routes";
-import LoadingScreen from "@/src/components/LoadingScreen";
-import SplashAnimation from "@/src/components/animations/SplashAnimation";
+import { useLoading } from "./LoadingProvider";
 
 // Disable Supabase GoTrueClient verbose logs
 if (process.env.NODE_ENV !== "development") {
@@ -72,33 +70,13 @@ interface AuthContextType {
 // Create auth context
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Function to refresh session
-const refreshSession = async (): Promise<Session | null> => {
-  try {
-    // Try to refresh the session
-    const { data, error } = await supabase.auth.refreshSession();
-
-    if (error) {
-      console.error("Failed to refresh token:", error);
-      return null;
-    }
-
-    if (data?.session) {
-      console.log("Session successfully refreshed");
-      return data.session;
-    } else {
-      return null;
-    }
-  } catch (error) {
-    console.error("Exception refreshing token:", error);
-    return null;
-  }
-};
-
 // Create the auth provider component
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
+  // Get loading functions from LoadingProvider
+  const { showLoading, hideLoading } = useLoading();
+
   // State management with batch updates in mind
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -106,9 +84,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [userDetails, setUserDetails] = useState<UserDetails | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
-  const [shouldShowLoadingScreen, setShouldShowLoadingScreen] = useState<boolean>(false);
-  const [splashAnimationComplete, setSplashAnimationComplete] = useState<boolean>(false);
-  const [initialAuthCheckComplete, setInitialAuthCheckComplete] = useState<boolean>(false);
+  const [splashAnimationComplete, setSplashAnimationComplete] =
+    useState<boolean>(false);
+  const [initialAuthCheckComplete, setInitialAuthCheckComplete] =
+    useState<boolean>(false);
   const [navigationAttempt, setNavigationAttempt] = useState<number>(0);
 
   // Refs for tracking pending navigation
@@ -242,79 +221,81 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [userDetails]);
 
   // Function to update user's setup status
-  const updateSetupStatus = useCallback(async (
-    update: Partial<SetupStatus>
-  ): Promise<boolean> => {
-    try {
-      if (!user) {
-        console.error("Cannot update setup status: No authenticated user");
-        return false;
-      }
-
-      // Get current setup status
-      const { data: userData, error: fetchError } = await supabase
-        .from("users")
-        .select("setup_status")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (fetchError) {
-        console.error("Error fetching current setup status:", fetchError);
-        return false;
-      }
-
-      // Parse current setup status
-      let currentStatus: SetupStatus = {};
+  const updateSetupStatus = useCallback(
+    async (update: Partial<SetupStatus>): Promise<boolean> => {
       try {
-        if (userData?.setup_status) {
-          if (typeof userData.setup_status === "string") {
-            currentStatus = JSON.parse(userData.setup_status);
-          } else {
-            currentStatus = userData.setup_status;
-          }
+        if (!user) {
+          console.error("Cannot update setup status: No authenticated user");
+          return false;
         }
-      } catch (parseError) {
-        console.error("Error parsing current setup status:", parseError);
-      }
 
-      // Merge with updates
-      const updatedStatus = { ...currentStatus, ...update };
+        // Get current setup status
+        const { data: userData, error: fetchError } = await supabase
+          .from("users")
+          .select("setup_status")
+          .eq("id", user.id)
+          .maybeSingle();
 
-      // Update in database
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          setup_status: JSON.stringify(updatedStatus),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", user.id);
+        if (fetchError) {
+          console.error("Error fetching current setup status:", fetchError);
+          return false;
+        }
 
-      if (updateError) {
-        console.error("Error updating setup status:", updateError);
+        // Parse current setup status
+        let currentStatus: SetupStatus = {};
+        try {
+          if (userData?.setup_status) {
+            if (typeof userData.setup_status === "string") {
+              currentStatus = JSON.parse(userData.setup_status);
+            } else {
+              currentStatus = userData.setup_status;
+            }
+          }
+        } catch (parseError) {
+          console.error("Error parsing current setup status:", parseError);
+        }
+
+        // Merge with updates
+        const updatedStatus = { ...currentStatus, ...update };
+
+        // Update in database
+        const { error: updateError } = await supabase
+          .from("users")
+          .update({
+            setup_status: JSON.stringify(updatedStatus),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", user.id);
+
+        if (updateError) {
+          console.error("Error updating setup status:", updateError);
+          return false;
+        }
+
+        // Update local state
+        setUserDetails((prev) =>
+          prev
+            ? {
+                ...prev,
+                setup_status: updatedStatus,
+              }
+            : null
+        );
+
+        return true;
+      } catch (error) {
+        console.error("Exception in updateSetupStatus:", error);
         return false;
       }
-
-      // Update local state
-      setUserDetails((prev) =>
-        prev
-          ? {
-              ...prev,
-              setup_status: updatedStatus,
-            }
-          : null
-      );
-
-      return true;
-    } catch (error) {
-      console.error("Exception in updateSetupStatus:", error);
-      return false;
-    }
-  }, [user]);
+    },
+    [user]
+  );
 
   // Function to sign out
   const signOut = useCallback(async () => {
     try {
       setIsLoading(true);
+      showLoading("Signing out...");
       const { error } = await supabase.auth.signOut();
       if (error) {
         console.error("Error signing out:", error);
@@ -334,26 +315,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       Alert.alert("Error", "An unexpected error occurred. Please try again.");
     } finally {
       setIsLoading(false);
+      hideLoading();
     }
-  }, []);
+  }, [showLoading, hideLoading]);
 
-  // Wrap refreshSession to update state
-  const refreshSessionWrapper = useCallback(async (): Promise<Session | null> => {
-    try {
-      setIsLoading(true);
-      const refreshedSession = await refreshSession();
-      if (refreshedSession) {
-        setSession(refreshedSession);
-        setUser(refreshedSession.user);
+  // Wrap refreshSession to update state - completely silent version
+  const refreshSessionWrapper =
+    useCallback(async (): Promise<Session | null> => {
+      try {
+        // Don't show any loading indicator for quick session refreshes
+        // Try to refresh the session completely silently
+        const refreshedSession = await refreshSessionSilent();
+        if (refreshedSession) {
+          setSession(refreshedSession);
+          setUser(refreshedSession.user);
+          return refreshedSession;
+        }
+
+        // If refresh failed, redirect to auth flow without any error or message
+        return null;
+      } catch (error) {
+        // Fail silently
+        return null;
       }
-      return refreshedSession;
-    } catch (error) {
-      console.error("Error in refreshSessionWrapper:", error);
-      return null;
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+    }, []);
 
   // Effect to initialize auth state - optimized for performance
   useEffect(() => {
@@ -364,6 +349,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     const initialize = async () => {
       try {
         console.log("🔄 Initializing auth provider...");
+        showLoading("Starting HomeMeal...");
 
         // Set a timeout to ensure initialization completes
         initTimeoutId = setTimeout(() => {
@@ -373,7 +359,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             setIsInitializing(false);
             setSplashAnimationComplete(true);
           }
-        }, 3000); // Reduced timeout for faster perceived performance
+        }, 2000); // Reduced timeout for faster perceived performance
 
         // Get initial session - this is a fast operation
         const { data, error } = await supabase.auth.getSession();
@@ -385,11 +371,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         // Set session and user immediately if available
         if (data?.session) {
           console.log("Initial session found:", data.session.user.id);
-          
+
           // Set session and user immediately
           setSession(data.session);
           setUser(data.session.user);
-          
+
           // Fetch user details in the background without blocking
           fetchUserDetails(data.session.user.id);
         } else {
@@ -418,7 +404,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
                 // Update session and user immediately
                 setSession(newSession);
                 setUser(newSession.user);
-                
+
                 // Fetch user details in the background
                 if (newSession.user) {
                   fetchUserDetails(newSession.user.id);
@@ -467,7 +453,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       clearTimeout(initTimeoutId);
       clearTimeout(splashTimeoutId);
     };
-  }, [fetchUserDetails]);
+  }, [fetchUserDetails, showLoading]);
 
   // Handle navigation based on auth state - runs after initialization is complete
   useEffect(() => {
@@ -479,20 +465,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
 
-    // Optimized navigation check - doesn't block UI
+    // Optimized navigation check - completely silent version
     const checkAndNavigate = async () => {
       try {
-        console.log("🔍 Checking auth state for navigation...");
-
         // Check if we have a valid session - fast check first
         if (!session) {
-          console.log("No active session found, trying refresh...");
-          
-          // Try a quick refresh
+          // Try a quick refresh silently
           const refreshedSession = await refreshSessionWrapper();
-          
+
+          // Handle refresh failure gracefully and silently
           if (!refreshedSession || !refreshedSession.user) {
-            console.error("No user ID available after refresh");
+            // Silently redirect to auth flow without any error or message
             safeNavigateWrapper(ROUTES.AUTH_INTRO);
             return;
           }
@@ -513,7 +496,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           // If we have a session but no user details, fetch them
           console.log("Session exists but no user details, fetching...");
           fetchUserDetails(session.user.id);
-          
+
           // Don't navigate yet, wait for user details to be fetched
           // This prevents premature navigation
         } else {
@@ -521,7 +504,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           safeNavigateWrapper(ROUTES.AUTH_INTRO);
         }
       } catch (error) {
-        console.error("Error during navigation check:", error);
+        // Silently redirect to auth flow on any error
         safeNavigateWrapper(ROUTES.AUTH_INTRO);
       }
     };
@@ -529,59 +512,68 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     // Start navigation check
     checkAndNavigate();
   }, [
-    initialAuthCheckComplete, 
-    splashAnimationComplete, 
-    navigationAttempt, 
-    session, 
+    initialAuthCheckComplete,
+    splashAnimationComplete,
+    navigationAttempt,
+    session,
     userDetails,
     checkOnboardingStatus,
     fetchUserDetails,
     refreshSessionWrapper,
-    safeNavigateWrapper
+    safeNavigateWrapper,
+    showLoading,
+    hideLoading,
   ]);
 
   // Memoize context value to prevent unnecessary re-renders
-  const contextValue = useMemo(() => ({
-    session,
-    user,
-    userRole,
-    userDetails,
-    isLoading,
-    isInitializing,
-    signOut,
-    refreshSession: refreshSessionWrapper,
-    checkOnboardingStatus,
-    updateSetupStatus,
-  }), [
-    session,
-    user,
-    userRole,
-    userDetails,
-    isLoading,
-    isInitializing,
-    signOut,
-    refreshSessionWrapper,
-    checkOnboardingStatus,
-    updateSetupStatus
-  ]);
+  const contextValue = useMemo(
+    () => ({
+      session,
+      user,
+      userRole,
+      userDetails,
+      isLoading,
+      isInitializing,
+      signOut,
+      refreshSession: refreshSessionWrapper,
+      checkOnboardingStatus,
+      updateSetupStatus,
+    }),
+    [
+      session,
+      user,
+      userRole,
+      userDetails,
+      isLoading,
+      isInitializing,
+      signOut,
+      refreshSessionWrapper,
+      checkOnboardingStatus,
+      updateSetupStatus,
+    ]
+  );
 
-  // Render loading screen during initialization
-  if (isInitializing || !splashAnimationComplete) {
-    return (
-      <SplashAnimation onComplete={() => setSplashAnimationComplete(true)} />
-    );
-  }
+  // Show splash animation during initialization
+  useEffect(() => {
+    if (isInitializing || !splashAnimationComplete) {
+      showLoading("Starting HomeMeal...");
+    } else {
+      hideLoading();
+    }
+  }, [isInitializing, splashAnimationComplete, showLoading, hideLoading]);
 
-  // Render loading screen during navigation
-  if (shouldShowLoadingScreen) {
-    return <LoadingScreen message="Loading..." />;
-  }
+  // Show loading during navigation or other operations
+  useEffect(() => {
+    if (isLoading) {
+      showLoading("Loading...");
+    } else {
+      hideLoading();
+    }
+  }, [isLoading, showLoading, hideLoading]);
 
   // Render children with optimized context
   return (
-    <AuthContext.Provider value={contextValue}>
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>
   );
 };
 

@@ -17,7 +17,8 @@ import { useColorScheme } from "@/components/useColorScheme";
 import AuthProvider from "@/src/providers/AuthProviderOptimized";
 import { Session } from "@supabase/supabase-js";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import LoadingScreen from "@/src/components/LoadingScreen";
+import LoadingProvider from "@/src/providers/LoadingProvider";
+import LoadingInitializer from "@/src/components/LoadingInitializer";
 
 // Helper function to check if Supabase is configured
 const isSupabaseConfigured = (): boolean => {
@@ -118,6 +119,7 @@ export default function RootLayout() {
   const [isRootMounted, setIsRootMounted] = useState(false);
   const [appReady, setAppReady] = useState(false);
   const [sessionValidated, setSessionValidated] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
 
   // Set root mounted state immediately to help prevent navigation errors
   useEffect(() => {
@@ -257,6 +259,8 @@ export default function RootLayout() {
           console.log("🎬 Native splash screen hidden");
           // Set app as ready immediately
           setAppReady(true);
+          // Set isInitializing to false
+          setIsInitializing(false);
           // Set global app ready flag
           // @ts-ignore - This global flag is used by AuthProvider
           global.appReady = true;
@@ -273,6 +277,8 @@ export default function RootLayout() {
           console.warn("Error hiding splash screen:", error);
           // Still mark app as ready even if splash screen hide fails
           setAppReady(true);
+          // Set isInitializing to false
+          setIsInitializing(false);
           // @ts-ignore - This global flag is used by AuthProvider
           global.appReady = true;
         });
@@ -288,24 +294,26 @@ export default function RootLayout() {
   if (!appReady) {
     return (
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <SupabaseContext.Provider value={{ supabase, session }}>
-          <ThemeProvider
-            value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
-          >
-            <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
-              <LoadingScreen message="Starting app..." showLogo={true} />
-              {/* CRITICAL: Still render the Stack to ensure layout is mounted, but with minimal content */}
-              <View style={{ height: 0, overflow: "hidden" }}>
-                <Stack
-                  initialRouteName="(auth)"
-                  screenOptions={{ headerShown: false }}
-                >
-                  <Stack.Screen name="(auth)" />
-                </Stack>
+        <LoadingProvider>
+          <SupabaseContext.Provider value={{ supabase, session }}>
+            <ThemeProvider
+              value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+            >
+              <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
+                <LoadingInitializer message="Starting HomeMeal..." />
+                {/* CRITICAL: Still render the Stack to ensure layout is mounted, but with minimal content */}
+                <View style={{ height: 0, overflow: "hidden" }}>
+                  <Stack
+                    initialRouteName="(auth)"
+                    screenOptions={{ headerShown: false }}
+                  >
+                    <Stack.Screen name="(auth)" />
+                  </Stack>
+                </View>
               </View>
-            </View>
-          </ThemeProvider>
-        </SupabaseContext.Provider>
+            </ThemeProvider>
+          </SupabaseContext.Provider>
+        </LoadingProvider>
       </GestureHandlerRootView>
     );
   }
@@ -313,36 +321,48 @@ export default function RootLayout() {
   // App is ready to render
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SupabaseContext.Provider value={{ supabase, session }}>
-        <AuthProvider>
-          <ThemeProvider
-            value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
-          >
-            <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
-              <Stack
-                initialRouteName="(auth)"
-                screenOptions={{
-                  headerShown: false,
-                  contentStyle: { backgroundColor: "white" },
-                  animation: "fade",
-                  animationDuration: 300,
-                }}
-              >
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-                <Stack.Screen
-                  name="modal"
-                  options={{
-                    presentation: "modal",
-                    animation: "slide_from_bottom",
+      <LoadingProvider>
+        <SupabaseContext.Provider value={{ supabase, session }}>
+          <AuthProvider>
+            <ThemeProvider
+              value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+            >
+              <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
+                {/* Show loading during initial app render */}
+                {isInitializing && (
+                  <LoadingInitializer message="Preparing your experience..." />
+                )}
+                <Stack
+                  initialRouteName="(auth)"
+                  screenOptions={{
                     headerShown: false,
+                    contentStyle: { backgroundColor: "white" },
+                    animation: "fade",
+                    animationDuration: 300,
                   }}
-                />
-              </Stack>
-            </View>
-          </ThemeProvider>
-        </AuthProvider>
-      </SupabaseContext.Provider>
+                >
+                  <Stack.Screen
+                    name="(tabs)"
+                    options={{ headerShown: false }}
+                  />
+                  <Stack.Screen
+                    name="(auth)"
+                    options={{ headerShown: false }}
+                  />
+                  <Stack.Screen
+                    name="modal"
+                    options={{
+                      presentation: "modal",
+                      animation: "slide_from_bottom",
+                      headerShown: false,
+                    }}
+                  />
+                </Stack>
+              </View>
+            </ThemeProvider>
+          </AuthProvider>
+        </SupabaseContext.Provider>
+      </LoadingProvider>
     </GestureHandlerRootView>
   );
 }
