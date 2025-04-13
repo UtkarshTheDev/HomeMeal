@@ -24,7 +24,6 @@ import Animated, {
   withTiming,
   withSequence,
   withDelay,
-  Easing,
 } from "react-native-reanimated";
 import {
   supabase,
@@ -34,7 +33,8 @@ import {
 import { ROUTES } from "@/src/utils/routes";
 import { FontAwesome } from "@expo/vector-icons";
 
-const { width } = Dimensions.get("window");
+// Get screen dimensions for responsive design
+const dimensions = Dimensions.get("window");
 
 export default function LoginScreen() {
   const [phone, setPhone] = useState("");
@@ -247,55 +247,86 @@ export default function LoginScreen() {
       <View className="flex-1 bg-background-light">
         <StatusBar style="light" />
 
-        {/* Top Gradient Section - Modern, subtle gradient */}
+        {/* Top Gradient Section - App theme gradient (orange) */}
         <LinearGradient
-          colors={["#FF8A00", "#FF6B00", "#FF5400"]}
+          colors={["#FF8A00", "#EA580C", "#FF6B00"]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          className="h-[40%] w-full items-center justify-center rounded-b-[40px] shadow-lg"
+          className="w-full items-center justify-center rounded-b-[32px] shadow-lg"
           style={{
-            backgroundColor: "#FF6B00",
-            shadowColor: "#FF6B00",
-            shadowOffset: { width: 0, height: 10 },
-            shadowOpacity: 0.3,
-            shadowRadius: 15,
-            elevation: 10,
+            height: dimensions.height * 0.38, // 38% of screen height for better responsiveness
+            backgroundColor: "#EA580C",
+            shadowColor: "#EA580C",
+            shadowOffset: { width: 0, height: 8 },
+            shadowOpacity: 0.2,
+            shadowRadius: 12,
+            elevation: 8,
           }}
         >
+          {/* Decorative elements for modern look - app theme */}
+          <View
+            style={{
+              position: "absolute",
+              top: 40,
+              left: 20,
+              width: 60,
+              height: 60,
+              borderRadius: 30,
+              backgroundColor: "rgba(255, 255, 255, 0.15)",
+              borderWidth: 1,
+              borderColor: "rgba(255, 255, 255, 0.1)",
+            }}
+          />
+          <View
+            style={{
+              position: "absolute",
+              bottom: 60,
+              right: 30,
+              width: 40,
+              height: 40,
+              borderRadius: 20,
+              backgroundColor: "rgba(255, 255, 255, 0.15)",
+              borderWidth: 1,
+              borderColor: "rgba(255, 255, 255, 0.1)",
+            }}
+          />
           <Animated.View className="items-center" style={logoStyle}>
-            {/* Modern logo with subtle animation */}
-            <View className="relative">
+            {/* Modern logo with professional design */}
+            <View className="relative flex items-center justify-center">
+              {/* Subtle glow effect behind logo */}
               <Animated.View
                 style={{
                   position: "absolute",
-                  width: 120,
-                  height: 120,
-                  borderRadius: 60,
-                  backgroundColor: "rgba(255, 255, 255, 0.2)",
+                  width: 124,
+                  height: 124,
+                  borderRadius: 100,
+                  backgroundColor: "rgba(255, 255, 255, 0.15)",
                   transform: [{ scale: logoScale }],
                 }}
               />
               <Image
                 source={require("@/assets/images/logo.png")}
-                className="w-32 h-32"
+                className="w-28 h-28 mb-1"
                 style={{ tintColor: "#FFFFFF" }}
                 resizeMode="contain"
               />
             </View>
 
             <Text
-              className="text-4xl font-bold text-white mt-4"
+              className="text-3xl font-bold text-white mt-4"
               style={{
                 fontFamily:
                   Platform.OS === "ios" ? "Avenir-Heavy" : "sans-serif-medium",
+                letterSpacing: 0.5,
               }}
             >
               HomeMeal
             </Text>
             <Text
-              className="text-white/90 text-lg mt-2"
+              className="text-white/90 text-base mt-1"
               style={{
                 fontFamily: Platform.OS === "ios" ? "Avenir" : "sans-serif",
+                letterSpacing: 0.3,
               }}
             >
               Fresh homemade food delivered
@@ -309,7 +340,7 @@ export default function LoginScreen() {
           className="flex-1"
         >
           <Animated.View className="flex-1 px-6" style={formStyle}>
-            <View className="bg-white rounded-3xl -mt-16 p-8 shadow-xl">
+            <View className="bg-white rounded-3xl -mt-16 p-8 shadow-xl mb-4">
               {/* Modern, minimalist header */}
               <View className="mb-8">
                 <Text
@@ -385,7 +416,7 @@ export default function LoginScreen() {
                 </View>
               </View>
 
-              {/* Get Started Button - Modern, minimalist design */}
+              {/* Continue Button - Modern, minimalist design with app theme */}
               <Animated.View style={buttonStyle}>
                 <TouchableOpacity
                   onPress={handleGetStarted}
@@ -394,13 +425,13 @@ export default function LoginScreen() {
                   activeOpacity={0.8}
                 >
                   <LinearGradient
-                    colors={["#FF8A00", "#FF6B00"]}
+                    colors={["#FF8A00", "#EA580C"]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
                     className="h-[56px] rounded-xl items-center justify-center shadow-lg"
                     style={{
                       elevation: 4,
-                      shadowColor: "#FF6B00",
+                      shadowColor: "#EA580C",
                       shadowOffset: { width: 0, height: 4 },
                       shadowOpacity: 0.2,
                       shadowRadius: 8,
@@ -433,19 +464,32 @@ export default function LoginScreen() {
                   </LinearGradient>
                 </TouchableOpacity>
               </Animated.View>
+            </View>
 
-              {/* Privacy note */}
+            {/* Privacy note - Moved outside the card for better spacing */}
+            <View
+              style={{
+                marginTop: "auto",
+                marginBottom: dimensions.height * 0.05,
+                paddingHorizontal: 16,
+              }}
+            >
               <Text
-                className="text-center text-xs text-gray-400 mt-6"
+                className="text-center text-xs text-gray-500"
                 style={{
                   fontFamily: Platform.OS === "ios" ? "Avenir" : "sans-serif",
+                  letterSpacing: 0.2,
                 }}
               >
-                By continuing, you agree to our Terms of Service and Privacy
-                Policy
+                By continuing, you agree to our{" "}
+                <Text style={{ color: "#EA580C", fontWeight: "500" }}>
+                  Terms of Service
+                </Text>{" "}
+                and{" "}
+                <Text style={{ color: "#EA580C", fontWeight: "500" }}>
+                  Privacy Policy
+                </Text>
               </Text>
-
-              {/* No duplicate terms needed */}
             </View>
           </Animated.View>
         </KeyboardAvoidingView>
