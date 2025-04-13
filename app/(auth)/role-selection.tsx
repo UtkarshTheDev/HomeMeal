@@ -58,7 +58,7 @@ export default function RoleSelectionScreen() {
         "Convenient delivery to your doorstep",
         "Rate and favorite your preferred meals",
       ],
-      badge: "MOST POPULAR",
+      badge: "ORDER FOOD",
     },
     // Chef card second
     {
@@ -71,7 +71,7 @@ export default function RoleSelectionScreen() {
       gradient: ["#EA580C", "#FB923C"] as [string, string], // Orange gradient
       customIcon: (
         <View style={{ position: "relative" }}>
-          <FontAwesome5 name="chef-hat" size={24} color="#EA580C" />
+          <MaterialIcons name="restaurant" size={24} color="#EA580C" />
           <View
             style={{
               position: "absolute",
@@ -95,7 +95,7 @@ export default function RoleSelectionScreen() {
         "Build your reputation as a home chef",
         "Earn money doing what you love",
       ],
-      badge: "EARN MONEY",
+      badge: "SELL FOOD",
     },
     // Delivery partner card last
     {
@@ -132,7 +132,7 @@ export default function RoleSelectionScreen() {
         "No special vehicle requirements",
         "Fast payment processing",
       ],
-      badge: "FLEXIBLE HOURS",
+      badge: "DELIVER FOOD",
     },
   ];
 

@@ -569,18 +569,42 @@ export const verifyPhoneWithOtp = async (
         // Get the current session to simulate verification
         const { data: sessionData } = await supabase.auth.getSession();
 
-        // If no session found, create one using signInWithOtp
+        // If no session found, create a fake session instead of calling Twilio
         if (!sessionData?.session) {
-          console.log("No existing session, creating one with dev OTP");
-          return supabase.auth.signInWithOtp({
-            phone,
-            options: {
-              data: {
-                verification_code: code,
+          console.log(
+            "No existing session, creating a simulated session for development"
+          );
+
+          // Create a fake user and session for development with valid UUID format
+          // Generate a valid UUID v4 format
+          const fakeUserId =
+            "10000000-1000-4000-a000-" +
+            ("000000000000" + Date.now().toString(16)).slice(-12);
+          const fakeSession = {
+            access_token:
+              "dev-token-" + Math.random().toString(36).substring(2),
+            refresh_token:
+              "dev-refresh-" + Math.random().toString(36).substring(2),
+            expires_in: 3600,
+            expires_at: Math.floor(Date.now() / 1000) + 3600,
+            token_type: "bearer",
+            user: {
+              id: fakeUserId,
+              phone: phone,
+              app_metadata: {
+                provider: "phone",
               },
-              shouldCreateUser: true,
+              user_metadata: {},
+              aud: "authenticated",
+              role: "authenticated",
             },
-          });
+          };
+
+          // Return a simulated successful response
+          return {
+            data: { session: fakeSession, user: fakeSession.user },
+            error: null,
+          };
         }
 
         // Return a successful result to simulate verification

@@ -29,7 +29,7 @@ import {
   supabase,
   isDevelopmentMode,
   DEV_CONFIG,
-} from "@/src/utils/supabaseClient.new";
+} from "@/src/utils/supabaseAuthClient";
 import { ROUTES } from "@/src/utils/routes";
 import { FontAwesome } from "@expo/vector-icons";
 

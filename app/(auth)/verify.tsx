@@ -19,10 +19,9 @@ import Animated, {
 } from "react-native-reanimated";
 import {
   supabase,
-  validateSession,
-  forceSessionRefreshWithClaims,
   verifyPhoneWithOtp,
-} from "@/src/utils/supabaseClient.new";
+  handleSuccessfulVerification,
+} from "@/src/utils/supabaseAuthClient";
 import { ROUTES } from "@/src/utils/routes";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -313,37 +312,8 @@ export default function VerifyScreen() {
         throw new Error("Authentication successful but no user ID returned");
       }
 
-      console.log("OTP verification successful, userId:", userId);
-
-      // Step 2: Create user record if it doesn't exist
-      try {
-        // Check if user record exists
-        const { data: existingUser } = await supabase
-          .from("users")
-          .select("id")
-          .eq("id", userId)
-          .maybeSingle();
-
-        if (!existingUser) {
-          console.log("Creating user record");
-          await createUserRecord(userId, cleanPhone);
-        } else {
-          console.log("User record already exists");
-        }
-      } catch (err) {
-        console.log("Error checking/creating user record:", err);
-        // Continue anyway - this shouldn't block authentication
-      }
-
-      // Step 3: Refresh session to ensure we have valid JWT claims
-      try {
-        console.log("Refreshing session to update JWT claims");
-        await forceSessionRefreshWithClaims();
-        await refreshSession();
-      } catch (refreshErr) {
-        console.log("Session refresh error (continuing):", refreshErr);
-        // Continue anyway - we'll try to navigate even if refresh fails
-      }
+      // Use the new handleSuccessfulVerification function to create user record and refresh session
+      await handleSuccessfulVerification(userId);
 
       // Step 4: Set verification as successful
       console.log("Verification process completed successfully");

@@ -208,17 +208,23 @@ const styles = StyleSheet.create({
   badgeContainer: {
     position: "absolute",
     top: 12,
-    right: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
+    right: 45, // Moved further right to avoid collision with selection circle
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
     zIndex: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.5,
+    elevation: 2,
   },
   badgeText: {
     color: "#FFFFFF",
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: "bold",
     letterSpacing: 0.5,
+    textAlign: "center",
   },
 });
 
