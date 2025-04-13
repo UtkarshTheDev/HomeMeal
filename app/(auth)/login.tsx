@@ -26,9 +26,8 @@ import Animated, {
   withDelay,
 } from "react-native-reanimated";
 import {
-  supabase,
   isDevelopmentMode,
-  DEV_CONFIG,
+  sendOtpToPhone,
 } from "@/src/utils/supabaseAuthClient";
 import { ROUTES } from "@/src/utils/routes";
 import { FontAwesome } from "@expo/vector-icons";
@@ -112,13 +111,7 @@ export default function LoginScreen() {
       let success = false;
       let lastError = null;
 
-      // Add platform-specific options - ensure shouldCreateUser is true for both platforms
-      // This ensures that the user record is properly created in auth.users
-      const platformOptions = {
-        channel: Platform.OS === "ios" ? ("sms" as const) : undefined,
-        shouldCreateUser: true, // This is critical for ensuring proper token creation
-        // Setting a longer token lifespan is not supported in the current Supabase API
-      };
+      // Note: Platform-specific options are now handled in the sendOtpToPhone function
 
       while (retryCount <= maxRetries && !success) {
         try {
@@ -126,30 +119,15 @@ export default function LoginScreen() {
             `Attempt ${retryCount + 1} to send OTP (${Platform.OS})...`
           );
 
-          // Check if this is a development phone number
-          const isDevelopmentPhone =
-            isDevelopmentMode() &&
-            DEV_CONFIG.PHONE_NUMBERS.includes(phoneWithCountryCode) &&
-            DEV_CONFIG.SKIP_REAL_OTP;
-
-          let data, error;
-
-          if (isDevelopmentPhone) {
-            // For development phone numbers, simulate success without sending real OTP
-            console.log(
-              "🔑 Development phone detected - skipping real OTP send"
-            );
-            data = { phone: phoneWithCountryCode };
-            error = null;
-          } else {
-            // For regular phone numbers, proceed with normal OTP sending
-            const result = await supabase.auth.signInWithOtp({
-              phone: phoneWithCountryCode,
-              options: platformOptions,
-            });
-            data = result.data;
-            error = result.error;
+          // Log if we're in development mode (for debugging only)
+          if (isDevelopmentMode()) {
+            console.log("Running in development mode, but using real OTP flow");
           }
+
+          // For all phone numbers, proceed with normal OTP sending
+          const result = await sendOtpToPhone(phoneWithCountryCode);
+          const data = result.data;
+          const error = result.error;
 
           if (error) {
             console.error(`Attempt ${retryCount + 1} error:`, error.message);

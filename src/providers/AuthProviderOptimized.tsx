@@ -4,6 +4,8 @@ import React, {
   useEffect,
   useContext,
   useRef,
+  useCallback,
+  useMemo,
 } from "react";
 import { ActivityIndicator, View, Text, Alert } from "react-native";
 import { Session, User } from "@supabase/supabase-js";
@@ -48,12 +50,10 @@ interface UserDetails {
   location?: any;
   image_url?: string;
   setup_status?: SetupStatus;
-  created_at: string;
-  updated_at?: string;
 }
 
-// Define the Auth context shape
-type AuthContextType = {
+// Define auth context type
+interface AuthContextType {
   session: Session | null;
   user: User | null;
   userRole: UserRole;
@@ -62,42 +62,19 @@ type AuthContextType = {
   isInitializing: boolean;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<Session | null>;
-  checkOnboardingStatus: () => Promise<{ isComplete: boolean; route?: string }>;
+  checkOnboardingStatus: () => Promise<{
+    isComplete: boolean;
+    route?: string;
+  }>;
   updateSetupStatus: (update: Partial<SetupStatus>) => Promise<boolean>;
-};
+}
 
-// Create the auth context
-const AuthContext = createContext<AuthContextType>({
-  session: null,
-  user: null,
-  userRole: null,
-  userDetails: null,
-  isLoading: true,
-  isInitializing: true,
-  signOut: async () => {},
-  refreshSession: async () => null,
-  checkOnboardingStatus: async () => ({ isComplete: false }),
-  updateSetupStatus: async () => false,
-});
+// Create auth context
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Function to refresh the session token
+// Function to refresh session
 const refreshSession = async (): Promise<Session | null> => {
   try {
-    console.log("Attempting to refresh session token");
-
-    // First try to validate the current session
-    const validationResult = await validateSession();
-    if (validationResult.valid && validationResult.session) {
-      console.log("Current session is already valid");
-      return validationResult.session;
-    }
-
-    // If current session is invalid, attempt to refresh
-    console.log(
-      "Current session invalid, trying to refresh:",
-      validationResult.error
-    );
-
     // Try to refresh the session
     const { data, error } = await supabase.auth.refreshSession();
 
@@ -122,86 +99,110 @@ const refreshSession = async (): Promise<Session | null> => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
+  // State management with batch updates in mind
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<UserRole>(null);
   const [userDetails, setUserDetails] = useState<UserDetails | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
-  const [shouldShowLoadingScreen, setShouldShowLoadingScreen] =
-    useState<boolean>(false);
-  const [splashAnimationComplete, setSplashAnimationComplete] =
-    useState<boolean>(false);
-  const [isNavigationReady, setIsNavigationReady] = useState<boolean>(false);
-  const [initialAuthCheckComplete, setInitialAuthCheckComplete] =
-    useState<boolean>(false);
+  const [shouldShowLoadingScreen, setShouldShowLoadingScreen] = useState<boolean>(false);
+  const [splashAnimationComplete, setSplashAnimationComplete] = useState<boolean>(false);
+  const [initialAuthCheckComplete, setInitialAuthCheckComplete] = useState<boolean>(false);
   const [navigationAttempt, setNavigationAttempt] = useState<number>(0);
 
   // Refs for tracking pending navigation
   const pendingNavigationRef = useRef<string | null>(null);
   const navigationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const userDetailsRequestInProgress = useRef<boolean>(false);
 
-  // Helper function for safe navigation
-  const safeNavigateWrapper = (route: string) => {
+  // Memoized helper function for safe navigation
+  const safeNavigateWrapper = useCallback((route: string) => {
     try {
       if (typeof route !== "string" || !route) {
         console.error("Invalid route for navigation:", route);
         return;
       }
 
-      console.log("🧭 Navigating to:", route);
-      router.replace(route as any);
+      // Clear any pending navigation
+      if (navigationTimeoutRef.current) {
+        clearTimeout(navigationTimeoutRef.current);
+        navigationTimeoutRef.current = null;
+      }
+
+      // Store the pending navigation
+      pendingNavigationRef.current = route;
+
+      // Set a short timeout to batch potential multiple navigation attempts
+      navigationTimeoutRef.current = setTimeout(() => {
+        const pendingRoute = pendingNavigationRef.current;
+        if (pendingRoute) {
+          console.log("🧭 Navigating to:", pendingRoute);
+          router.replace(pendingRoute);
+          pendingNavigationRef.current = null;
+        }
+      }, 50);
     } catch (error) {
       console.error("Navigation error:", error);
     }
-  };
+  }, []);
 
-  // Function to check if user has completed onboarding
-  const checkOnboardingStatus = async (): Promise<{
-    isComplete: boolean;
-    route?: string;
-  }> => {
+  // Optimized function to fetch user details - doesn't block UI
+  const fetchUserDetails = useCallback(async (userId: string) => {
+    // Prevent multiple simultaneous requests
+    if (userDetailsRequestInProgress.current) {
+      console.log("User details request already in progress, skipping");
+      return;
+    }
+
+    userDetailsRequestInProgress.current = true;
+
     try {
-      // First check if we have a valid session
-      const validationResult = await validateSession();
-      if (!validationResult.valid) {
-        console.log("No valid session during onboarding check");
-        return { isComplete: false, route: ROUTES.AUTH_INTRO };
-      }
-
-      // Get user details from database
       const { data, error } = await supabase
         .from("users")
         .select("*")
-        .eq("id", validationResult.user?.id)
+        .eq("id", userId)
         .maybeSingle();
 
       if (error) {
         console.error("Error fetching user details:", error);
-        return { isComplete: false, route: ROUTES.AUTH_INTRO };
+        return;
       }
 
-      if (!data) {
-        console.log("No user record found during onboarding check");
+      if (data) {
+        // Batch state updates to reduce renders
+        setUserDetails(data);
+        setUserRole(data.role as UserRole);
+      }
+    } catch (error) {
+      console.error("Exception fetching user details:", error);
+    } finally {
+      userDetailsRequestInProgress.current = false;
+    }
+  }, []);
+
+  // Memoized function to check onboarding status
+  const checkOnboardingStatus = useCallback(async () => {
+    try {
+      if (!userDetails) {
+        console.log("No user details available for onboarding check");
         return { isComplete: false, route: ROUTES.AUTH_INTRO };
       }
 
       // Parse setup status
       let setupStatus: SetupStatus = {};
       try {
-        if (data.setup_status) {
-          if (typeof data.setup_status === "string") {
-            setupStatus = JSON.parse(data.setup_status);
-          } else {
-            setupStatus = data.setup_status;
-          }
+        if (typeof userDetails.setup_status === "string") {
+          setupStatus = JSON.parse(userDetails.setup_status);
+        } else if (userDetails.setup_status) {
+          setupStatus = userDetails.setup_status;
         }
       } catch (parseError) {
         console.error("Error parsing setup status:", parseError);
       }
 
       // Check if role is selected
-      if (!data.role) {
+      if (!userDetails.role) {
         console.log("User has no role selected");
         return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
       }
@@ -219,12 +220,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       // Role-specific checks
-      if (data.role === "maker") {
+      if (userDetails.role === "maker") {
         if (!setupStatus.meal_creation_completed) {
           console.log("Maker meal creation not completed");
           return { isComplete: false, route: ROUTES.MEAL_CREATION_SETUP };
         }
-      } else if (data.role === "customer") {
+      } else if (userDetails.role === "customer") {
         if (!setupStatus.maker_selection_completed) {
           console.log("Customer maker selection not completed");
           return { isComplete: false, route: ROUTES.MAKER_SELECTION_SETUP };
@@ -238,10 +239,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       console.error("Error checking onboarding status:", error);
       return { isComplete: false, route: ROUTES.AUTH_INTRO };
     }
-  };
+  }, [userDetails]);
 
   // Function to update user's setup status
-  const updateSetupStatus = async (
+  const updateSetupStatus = useCallback(async (
     update: Partial<SetupStatus>
   ): Promise<boolean> => {
     try {
@@ -258,7 +259,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         .maybeSingle();
 
       if (fetchError) {
-        console.error("Error fetching user setup status:", fetchError);
+        console.error("Error fetching current setup status:", fetchError);
         return false;
       }
 
@@ -273,17 +274,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           }
         }
       } catch (parseError) {
-        console.error("Error parsing setup status:", parseError);
+        console.error("Error parsing current setup status:", parseError);
       }
 
-      // Merge current status with updates
+      // Merge with updates
       const updatedStatus = { ...currentStatus, ...update };
 
       // Update in database
       const { error: updateError } = await supabase
         .from("users")
         .update({
-          setup_status: updatedStatus,
+          setup_status: JSON.stringify(updatedStatus),
           updated_at: new Date().toISOString(),
         })
         .eq("id", user.id);
@@ -293,16 +294,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         return false;
       }
 
-      console.log("Setup status updated successfully:", updatedStatus);
+      // Update local state
+      setUserDetails((prev) =>
+        prev
+          ? {
+              ...prev,
+              setup_status: updatedStatus,
+            }
+          : null
+      );
+
       return true;
     } catch (error) {
-      console.error("Exception updating setup status:", error);
+      console.error("Exception in updateSetupStatus:", error);
       return false;
     }
-  };
+  }, [user]);
 
   // Function to sign out
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     try {
       setIsLoading(true);
       const { error } = await supabase.auth.signOut();
@@ -325,10 +335,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   // Wrap refreshSession to update state
-  const refreshSessionWrapper = async (): Promise<Session | null> => {
+  const refreshSessionWrapper = useCallback(async (): Promise<Session | null> => {
     try {
       setIsLoading(true);
       const refreshedSession = await refreshSession();
@@ -343,9 +353,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  // Effect to initialize auth state
+  // Effect to initialize auth state - optimized for performance
   useEffect(() => {
     let mounted = true;
     let initTimeoutId: NodeJS.Timeout;
@@ -363,104 +373,75 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             setIsInitializing(false);
             setSplashAnimationComplete(true);
           }
-        }, 5000);
+        }, 3000); // Reduced timeout for faster perceived performance
 
-        // Get initial session
+        // Get initial session - this is a fast operation
         const { data, error } = await supabase.auth.getSession();
 
         if (error) {
           console.error("Error getting initial session:", error);
         }
 
+        // Set session and user immediately if available
         if (data?.session) {
           console.log("Initial session found:", data.session.user.id);
+          
+          // Set session and user immediately
           setSession(data.session);
           setUser(data.session.user);
-
-          // Validate session
-          const validationResult = await validateSession();
-          if (!validationResult.valid) {
-            console.warn(
-              "Initial session validation failed:",
-              validationResult.error
-            );
-          }
-
-          // Get user details
-          try {
-            const { data: userData, error: userError } = await supabase
-              .from("users")
-              .select("*")
-              .eq("id", data.session.user.id)
-              .maybeSingle();
-
-            if (userError) {
-              console.error("Error fetching user details:", userError);
-            } else if (userData) {
-              setUserDetails(userData);
-              setUserRole(userData.role as UserRole);
-            }
-          } catch (userError) {
-            console.error("Exception fetching user details:", userError);
-          }
+          
+          // Fetch user details in the background without blocking
+          fetchUserDetails(data.session.user.id);
         } else {
           console.log("No initial session found");
         }
 
         // Set up auth state change listener
-        const {
-          data: { subscription },
-        } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-          console.log("Auth state changed:", event);
+        const { data: authData } = supabase.auth.onAuthStateChange(
+          (event, newSession) => {
+            console.log("Auth state changed:", event);
 
-          if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-            setSession(newSession);
-            setUser(newSession?.user || null);
-
-            // Get user details on sign in
-            if (newSession?.user) {
-              try {
-                const { data: userData, error: userError } = await supabase
-                  .from("users")
-                  .select("*")
-                  .eq("id", newSession.user.id)
-                  .maybeSingle();
-
-                if (userError) {
-                  console.error(
-                    "Error fetching user details on auth change:",
-                    userError
-                  );
-                } else if (userData) {
-                  setUserDetails(userData);
-                  setUserRole(userData.role as UserRole);
+            if (event === "SIGNED_OUT") {
+              if (mounted) {
+                // Batch state updates to reduce renders
+                setSession(null);
+                setUser(null);
+                setUserRole(null);
+                setUserDetails(null);
+              }
+            } else if (
+              event === "SIGNED_IN" ||
+              event === "TOKEN_REFRESHED" ||
+              event === "USER_UPDATED"
+            ) {
+              if (mounted && newSession) {
+                // Update session and user immediately
+                setSession(newSession);
+                setUser(newSession.user);
+                
+                // Fetch user details in the background
+                if (newSession.user) {
+                  fetchUserDetails(newSession.user.id);
                 }
-              } catch (userError) {
-                console.error(
-                  "Exception fetching user details on auth change:",
-                  userError
-                );
               }
             }
-          } else if (event === "SIGNED_OUT") {
-            setSession(null);
-            setUser(null);
-            setUserRole(null);
-            setUserDetails(null);
           }
-        });
+        );
 
-        // Complete initialization
+        const subscription = authData.subscription;
+
+        // Complete initialization faster
         if (mounted) {
+          // Mark initialization as complete immediately
           setInitialAuthCheckComplete(true);
           setIsInitializing(false);
 
-          // Set a timeout for splash animation
+          // Reduce splash animation time for faster perceived performance
           splashTimeoutId = setTimeout(() => {
             if (mounted) {
               setSplashAnimationComplete(true);
             }
-          }, 2000);
+          }, 1000); // Reduced from 2000ms to 1000ms
         }
 
         // Clean up subscription on unmount
@@ -478,6 +459,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     };
 
+    // Start initialization
     initialize();
 
     return () => {
@@ -485,7 +467,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       clearTimeout(initTimeoutId);
       clearTimeout(splashTimeoutId);
     };
-  }, []);
+  }, [fetchUserDetails]);
 
   // Handle navigation based on auth state - runs after initialization is complete
   useEffect(() => {
@@ -497,46 +479,91 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
 
-    let navigationTimer: NodeJS.Timeout;
+    // Optimized navigation check - doesn't block UI
     const checkAndNavigate = async () => {
       try {
-        setIsLoading(true);
         console.log("🔍 Checking auth state for navigation...");
 
-        // Check if we have a valid session
-        const validationResult = await validateSession();
-
-        if (!validationResult.valid) {
-          console.log("No valid session, navigating to intro");
-          safeNavigateWrapper(ROUTES.AUTH_INTRO);
-          return;
+        // Check if we have a valid session - fast check first
+        if (!session) {
+          console.log("No active session found, trying refresh...");
+          
+          // Try a quick refresh
+          const refreshedSession = await refreshSessionWrapper();
+          
+          if (!refreshedSession || !refreshedSession.user) {
+            console.error("No user ID available after refresh");
+            safeNavigateWrapper(ROUTES.AUTH_INTRO);
+            return;
+          }
         }
 
-        // Check onboarding status
-        const { isComplete, route } = await checkOnboardingStatus();
+        // If we have user details, check onboarding status
+        if (userDetails) {
+          const { isComplete, route } = await checkOnboardingStatus();
 
-        if (!isComplete && route) {
-          console.log("Onboarding incomplete, navigating to:", route);
-          safeNavigateWrapper(route);
+          if (!isComplete && route) {
+            console.log("Onboarding incomplete, navigating to:", route);
+            safeNavigateWrapper(route);
+          } else {
+            console.log("Onboarding complete, navigating to tabs");
+            safeNavigateWrapper(ROUTES.TABS);
+          }
+        } else if (session?.user) {
+          // If we have a session but no user details, fetch them
+          console.log("Session exists but no user details, fetching...");
+          fetchUserDetails(session.user.id);
+          
+          // Don't navigate yet, wait for user details to be fetched
+          // This prevents premature navigation
         } else {
-          console.log("Onboarding complete, navigating to tabs");
-          safeNavigateWrapper(ROUTES.TABS);
+          // No session and no user details
+          safeNavigateWrapper(ROUTES.AUTH_INTRO);
         }
       } catch (error) {
         console.error("Error during navigation check:", error);
         safeNavigateWrapper(ROUTES.AUTH_INTRO);
-      } finally {
-        setIsLoading(false);
       }
     };
 
     // Start navigation check
     checkAndNavigate();
+  }, [
+    initialAuthCheckComplete, 
+    splashAnimationComplete, 
+    navigationAttempt, 
+    session, 
+    userDetails,
+    checkOnboardingStatus,
+    fetchUserDetails,
+    refreshSessionWrapper,
+    safeNavigateWrapper
+  ]);
 
-    return () => {
-      clearTimeout(navigationTimer);
-    };
-  }, [initialAuthCheckComplete, splashAnimationComplete, navigationAttempt]);
+  // Memoize context value to prevent unnecessary re-renders
+  const contextValue = useMemo(() => ({
+    session,
+    user,
+    userRole,
+    userDetails,
+    isLoading,
+    isInitializing,
+    signOut,
+    refreshSession: refreshSessionWrapper,
+    checkOnboardingStatus,
+    updateSetupStatus,
+  }), [
+    session,
+    user,
+    userRole,
+    userDetails,
+    isLoading,
+    isInitializing,
+    signOut,
+    refreshSessionWrapper,
+    checkOnboardingStatus,
+    updateSetupStatus
+  ]);
 
   // Render loading screen during initialization
   if (isInitializing || !splashAnimationComplete) {
@@ -550,22 +577,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     return <LoadingScreen message="Loading..." />;
   }
 
-  // Context value
-  const value = {
-    session,
-    user,
-    userRole,
-    userDetails,
-    isLoading,
-    isInitializing,
-    signOut,
-    refreshSession: refreshSessionWrapper,
-    checkOnboardingStatus,
-    updateSetupStatus,
-  };
-
-  console.log("🔄 Rendering auth provider children...");
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  // Render children with optimized context
+  return (
+    <AuthContext.Provider value={contextValue}>
+      {children}
+    </AuthContext.Provider>
+  );
 };
 
 // Custom hook to use the auth context

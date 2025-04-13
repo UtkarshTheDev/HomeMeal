@@ -11,7 +11,7 @@ import {
   supabase,
   validateSession,
   cleanSignOut,
-} from "@/src/utils/supabaseClient";
+} from "@/src/utils/supabaseAuthClient";
 import { router } from "expo-router";
 import { ROUTES } from "@/src/utils/routes";
 import LoadingScreen from "@/src/components/LoadingScreen";

@@ -1,4 +1,4 @@
-import { supabase } from "./supabaseClient";
+import { supabase } from "./supabaseShared";
 import * as FileSystem from "expo-file-system";
 import { decode } from "base64-arraybuffer";
 import { Platform } from "react-native";

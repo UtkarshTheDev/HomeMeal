@@ -53,17 +53,7 @@ const RoleCard = ({ card, index, isSelected, onSelect }: RoleCardProps) => {
             ]}
           />
 
-          {/* Badge (if provided) */}
-          {card.badge && (
-            <View
-              style={[
-                styles.badgeContainer,
-                { backgroundColor: card.mainColor },
-              ]}
-            >
-              <Text style={styles.badgeText}>{card.badge}</Text>
-            </View>
-          )}
+          {/* Badge moved to inside the card content for better positioning */}
 
           {/* Card Content */}
           <View style={styles.cardContent}>
@@ -79,7 +69,19 @@ const RoleCard = ({ card, index, isSelected, onSelect }: RoleCardProps) => {
               </Animated.View>
 
               <View style={styles.titleContainer}>
-                <Text style={styles.cardTitle}>{card.title}</Text>
+                <View style={styles.titleRow}>
+                  <Text style={styles.cardTitle}>{card.title}</Text>
+                  {card.badge && (
+                    <View
+                      style={[
+                        styles.badgeContainerInline,
+                        { backgroundColor: card.mainColor },
+                      ]}
+                    >
+                      <Text style={styles.badgeText}>{card.badge}</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={styles.cardDescription}>{card.description}</Text>
               </View>
 
@@ -175,6 +177,12 @@ const styles = StyleSheet.create({
   titleContainer: {
     flex: 1,
   },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    marginBottom: 2,
+  },
   cardTitle: {
     fontSize: 20,
     fontWeight: "700",
@@ -219,9 +227,17 @@ const styles = StyleSheet.create({
     shadowRadius: 1.5,
     elevation: 2,
   },
+  badgeContainerInline: {
+    marginLeft: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   badgeText: {
     color: "#FFFFFF",
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: "bold",
     letterSpacing: 0.5,
     textAlign: "center",

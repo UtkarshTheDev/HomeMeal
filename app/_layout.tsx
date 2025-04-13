@@ -10,18 +10,19 @@ import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState, createContext } from "react";
 import { View } from "react-native";
 import "react-native-reanimated";
-import {
-  isSupabaseConfigured,
-  supabase,
-  checkExistingSession,
-  validateSession,
-} from "@/src/utils/supabaseClient.new";
+import { supabase, validateSession } from "@/src/utils/supabaseAuthClient";
+import { supabaseUrl, supabaseAnonKey } from "@/src/utils/supabaseShared";
 import "./global.css";
 import { useColorScheme } from "@/components/useColorScheme";
-import AuthProvider from "@/src/providers/AuthProviderFixed";
+import AuthProvider from "@/src/providers/AuthProviderOptimized";
 import { Session } from "@supabase/supabase-js";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import LoadingScreen from "@/src/components/LoadingScreen";
+
+// Helper function to check if Supabase is configured
+const isSupabaseConfigured = (): boolean => {
+  return !!supabaseUrl && !!supabaseAnonKey;
+};
 
 // Create SupabaseContext for the useSupabase hook
 export const SupabaseContext = createContext<{
@@ -162,46 +163,22 @@ export default function RootLayout() {
         // Actual session check
         const sessionCheckPromise = (async () => {
           try {
-            // Check if a session exists (fast operation)
-            const hasSession = await checkExistingSession();
+            // Get the session data directly (fast operation)
+            const { data: sessionData } = await supabase.auth.getSession();
+            const hasSession = !!sessionData?.session;
 
             if (hasSession) {
               console.log(
                 "Found existing session in storage during layout init"
               );
+              setSession(sessionData.session);
 
-              // Start validation but don't wait for it to complete
-              validateSession()
-                .then((validation) => {
-                  console.log(
-                    "Session validation result:",
-                    validation.valid ? "Valid" : "Invalid"
-                  );
-
-                  if (validation.valid && validation.session) {
-                    setSession(validation.session);
-                    setSessionValidated(true);
-                  }
-                })
-                .catch((error) => {
-                  console.error("Async session validation error:", error);
-                });
+              // No need to validate here, AuthProvider will handle it
             } else {
               console.log("No session found in storage during layout init");
             }
 
-            // Get the session data (another fast operation)
-            const { data, error } = await supabase.auth.getSession();
-
-            if (error) {
-              console.error("Error retrieving session:", error.message);
-            } else if (data.session) {
-              console.log(
-                "Session successfully retrieved in layout:",
-                data.session.user.id
-              );
-              setSession(data.session);
-            }
+            // Session already set above if it exists, no need to do it again
 
             // Mark session check as complete to unblock app startup
             setHasCheckedSession(true);
@@ -245,6 +222,18 @@ export default function RootLayout() {
       console.warn(
         "⚠️ Supabase is not configured. Please add your Supabase URL and anon key."
       );
+    } else {
+      console.log("🔑 Supabase Config Status:", {
+        hasUrl: !!supabaseUrl,
+        hasKey: !!supabaseAnonKey,
+        urlSource: supabaseUrl ? "env" : "missing",
+        keySource: supabaseAnonKey ? "env" : "missing",
+        urlPrefix: supabaseUrl ? supabaseUrl.substring(0, 12) + "..." : "none",
+        keyPrefix: supabaseAnonKey
+          ? supabaseAnonKey.substring(0, 10) + "..."
+          : "none",
+        constants: "Available",
+      });
     }
   }, []);
 

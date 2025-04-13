@@ -8,7 +8,6 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
-  Keyboard,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -24,18 +23,12 @@ import {
 } from "@/src/utils/supabaseAuthClient";
 import { ROUTES } from "@/src/utils/routes";
 import { LinearGradient } from "expo-linear-gradient";
-import {
-  checkUserStatus,
-  formatPhoneForDisplay,
-} from "@/src/utils/userHelpers";
-import { useAuth } from "@/src/providers/AuthProvider";
-
+import { formatPhoneForDisplay } from "@/src/utils/userHelpers";
 const OTP_LENGTH = 6;
 
 export default function VerifyScreen() {
   const params = useLocalSearchParams();
   const phoneNumber = (params.phone as string) || "+91 XXXXXXXX"; // Get phone from params
-  const { refreshSession, checkOnboardingStatus } = useAuth();
 
   const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(""));
   const [loading, setLoading] = useState(false);
@@ -48,7 +41,6 @@ export default function VerifyScreen() {
   );
   const [error, setError] = useState("");
   const [verificationSuccess, setVerificationSuccess] = useState(false);
-  const [sessionValidationAttempts, setSessionValidationAttempts] = useState(0);
 
   useEffect(() => {
     inputRefs.current[0]?.focus();
@@ -63,47 +55,12 @@ export default function VerifyScreen() {
     }
   }, [otp]);
 
-  // Simplified navigation effect that triggers when verification is successful
+  // Success animation effect - we're now handling navigation in handleVerify
   useEffect(() => {
     if (verificationSuccess) {
-      console.log(
-        "🚀 Verification success detected, navigating to role selection"
-      );
-
-      // Simple navigation with a single backup
-      const navigateToRoleSelection = () => {
-        try {
-          console.log("🚀 Navigating to role selection");
-          router.replace(ROUTES.AUTH_ROLE_SELECTION);
-        } catch (error) {
-          console.error("❌ Navigation error:", error);
-
-          // Backup with direct route string
-          setTimeout(() => {
-            try {
-              console.log("⏱️ Backup navigation attempt");
-              router.replace("/(auth)/role-selection");
-            } catch (backupError) {
-              console.error("❌ Backup navigation failed:", backupError);
-
-              // Final fallback - show alert for manual navigation
-              Alert.alert(
-                "Continue Setup",
-                "Your verification was successful! Tap Continue to proceed with setup.",
-                [
-                  {
-                    text: "Continue",
-                    onPress: () => router.replace(ROUTES.AUTH_ROLE_SELECTION),
-                  },
-                ]
-              );
-            }
-          }, 300);
-        }
-      };
-
-      // Add a small delay before navigation to ensure session is properly set
-      setTimeout(navigateToRoleSelection, 500);
+      console.log("✅ Showing verification success animation");
+      // The navigation is now handled in handleVerify for better performance
+      // This effect is just for showing success animations or UI updates
     }
   }, [verificationSuccess]);
 
@@ -139,7 +96,8 @@ export default function VerifyScreen() {
     }
   };
 
-  const createUserRecord = async (
+  // We're now using the createUserRecord function from supabaseAuthClient
+  const _unused_createUserRecord = async (
     userId: string,
     phoneNumber: string
   ): Promise<boolean> => {
@@ -312,14 +270,32 @@ export default function VerifyScreen() {
         throw new Error("Authentication successful but no user ID returned");
       }
 
-      // Use the new handleSuccessfulVerification function to create user record and refresh session
-      await handleSuccessfulVerification(userId);
+      // Set verification as successful immediately to improve perceived performance
+      console.log("OTP verification successful, showing success UI");
+      setVerificationSuccess(true);
 
-      // Step 4: Set verification as successful
-      console.log("Verification process completed successfully");
+      // Continue with user record creation in the background
+      // This prevents blocking the UI while database operations complete
+      setTimeout(() => {
+        // Use the handleSuccessfulVerification function to create user record and refresh session
+        handleSuccessfulVerification(userId, cleanPhone)
+          .then(() => {
+            console.log("Background user record creation completed");
+            // Navigate to role selection after a short delay
+            setTimeout(() => {
+              router.replace(ROUTES.AUTH_ROLE_SELECTION);
+            }, 500);
+          })
+          .catch((err) => {
+            console.error("Background user creation error:", err);
+            // Still navigate even if there's an error
+            router.replace(ROUTES.AUTH_ROLE_SELECTION);
+          });
+      }, 100);
+
+      // Update UI state
       setLoading(false);
       setVerifying(false);
-      setVerificationSuccess(true);
     } catch (error: any) {
       console.error("Verification error:", error);
       setError(error.message || "Failed to verify code. Please try again.");
