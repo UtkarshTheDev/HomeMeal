@@ -13,6 +13,7 @@ export interface RoleCardType {
   gradient: [string, string];
   customIcon: ReactNode;
   features: string[];
+  badge?: string; // Optional badge text to display on the card
 }
 
 /**

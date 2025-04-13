@@ -26,7 +26,11 @@ import Animated, {
   withDelay,
   Easing,
 } from "react-native-reanimated";
-import { supabase } from "@/src/utils/supabaseClient";
+import {
+  supabase,
+  isDevelopmentMode,
+  DEV_CONFIG,
+} from "@/src/utils/supabaseClient.new";
 import { ROUTES } from "@/src/utils/routes";
 import { FontAwesome } from "@expo/vector-icons";
 
@@ -122,10 +126,30 @@ export default function LoginScreen() {
             `Attempt ${retryCount + 1} to send OTP (${Platform.OS})...`
           );
 
-          const { data, error } = await supabase.auth.signInWithOtp({
-            phone: phoneWithCountryCode,
-            options: platformOptions,
-          });
+          // Check if this is a development phone number
+          const isDevelopmentPhone =
+            isDevelopmentMode() &&
+            DEV_CONFIG.PHONE_NUMBERS.includes(phoneWithCountryCode) &&
+            DEV_CONFIG.SKIP_REAL_OTP;
+
+          let data, error;
+
+          if (isDevelopmentPhone) {
+            // For development phone numbers, simulate success without sending real OTP
+            console.log(
+              "🔑 Development phone detected - skipping real OTP send"
+            );
+            data = { phone: phoneWithCountryCode };
+            error = null;
+          } else {
+            // For regular phone numbers, proceed with normal OTP sending
+            const result = await supabase.auth.signInWithOtp({
+              phone: phoneWithCountryCode,
+              options: platformOptions,
+            });
+            data = result.data;
+            error = result.error;
+          }
 
           if (error) {
             console.error(`Attempt ${retryCount + 1} error:`, error.message);
@@ -223,23 +247,57 @@ export default function LoginScreen() {
       <View className="flex-1 bg-background-light">
         <StatusBar style="light" />
 
-        {/* Top Gradient Section */}
+        {/* Top Gradient Section - Modern, subtle gradient */}
         <LinearGradient
-          colors={["#FFAD00", "#FF6B00", "#FF4D1F"]}
+          colors={["#FF8A00", "#FF6B00", "#FF5400"]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          className="h-[45%] w-full items-center justify-center"
-          style={{ backgroundColor: "#FF6B00" }}
+          className="h-[40%] w-full items-center justify-center rounded-b-[40px] shadow-lg"
+          style={{
+            backgroundColor: "#FF6B00",
+            shadowColor: "#FF6B00",
+            shadowOffset: { width: 0, height: 10 },
+            shadowOpacity: 0.3,
+            shadowRadius: 15,
+            elevation: 10,
+          }}
         >
           <Animated.View className="items-center" style={logoStyle}>
-            <Image
-              source={require("@/assets/images/logo.png")}
-              className="w-32 h-32"
-              style={{ tintColor: "#FFFFFF" }}
-              resizeMode="contain"
-            />
-            <Text className="text-4xl font-bold text-white mt-4">HomeMeal</Text>
-            <Text className="text-white/90 text-lg mt-2">
+            {/* Modern logo with subtle animation */}
+            <View className="relative">
+              <Animated.View
+                style={{
+                  position: "absolute",
+                  width: 120,
+                  height: 120,
+                  borderRadius: 60,
+                  backgroundColor: "rgba(255, 255, 255, 0.2)",
+                  transform: [{ scale: logoScale }],
+                }}
+              />
+              <Image
+                source={require("@/assets/images/logo.png")}
+                className="w-32 h-32"
+                style={{ tintColor: "#FFFFFF" }}
+                resizeMode="contain"
+              />
+            </View>
+
+            <Text
+              className="text-4xl font-bold text-white mt-4"
+              style={{
+                fontFamily:
+                  Platform.OS === "ios" ? "Avenir-Heavy" : "sans-serif-medium",
+              }}
+            >
+              HomeMeal
+            </Text>
+            <Text
+              className="text-white/90 text-lg mt-2"
+              style={{
+                fontFamily: Platform.OS === "ios" ? "Avenir" : "sans-serif",
+              }}
+            >
               Fresh homemade food delivered
             </Text>
           </Animated.View>
@@ -251,72 +309,143 @@ export default function LoginScreen() {
           className="flex-1"
         >
           <Animated.View className="flex-1 px-6" style={formStyle}>
-            <View className="bg-white rounded-3xl -mt-10 p-8 shadow-2xl">
-              <Text className="text-3xl font-bold text-text-primary mb-2">
-                Get Started
-              </Text>
-              <Text className="text-text-secondary text-base mb-8">
-                Enter your phone number to continue
-              </Text>
-
-              {/* Phone Input */}
+            <View className="bg-white rounded-3xl -mt-16 p-8 shadow-xl">
+              {/* Modern, minimalist header */}
               <View className="mb-8">
-                <View className="flex-row items-center bg-background-card rounded-2xl overflow-hidden border-[0.5px] border-gray-200">
-                  <View className="px-4 py-4 border-r border-gray-200">
-                    <Text className="text-text-primary font-semibold">+91</Text>
+                <Text
+                  className="text-3xl font-bold text-text-primary mb-2"
+                  style={{
+                    fontFamily:
+                      Platform.OS === "ios"
+                        ? "Avenir-Heavy"
+                        : "sans-serif-medium",
+                  }}
+                >
+                  Welcome
+                </Text>
+                <Text
+                  className="text-text-secondary text-base"
+                  style={{
+                    fontFamily: Platform.OS === "ios" ? "Avenir" : "sans-serif",
+                  }}
+                >
+                  Enter your phone number to continue
+                </Text>
+              </View>
+
+              {/* Phone Input - Modern, clean design */}
+              <View className="mb-8">
+                <Text
+                  className="text-sm text-gray-500 mb-2 ml-1"
+                  style={{
+                    fontFamily: Platform.OS === "ios" ? "Avenir" : "sans-serif",
+                  }}
+                >
+                  Phone Number
+                </Text>
+                <View className="flex-row items-center bg-background-card rounded-xl overflow-hidden border-[1px] border-gray-100 shadow-sm">
+                  <View className="px-4 py-4 border-r border-gray-100 bg-gray-50">
+                    <Text
+                      className="text-text-primary font-semibold"
+                      style={{
+                        fontFamily:
+                          Platform.OS === "ios"
+                            ? "Avenir-Medium"
+                            : "sans-serif-medium",
+                      }}
+                    >
+                      +91
+                    </Text>
                   </View>
                   <TextInput
                     ref={phoneInputRef}
-                    className="flex-1 px-4 py-4 text-text-primary text-lg font-medium"
-                    placeholder="Enter phone number"
+                    className="flex-1 px-4 py-4 text-text-primary text-lg"
+                    placeholder="Enter 10-digit number"
                     value={phone}
                     onChangeText={handlePhoneChange}
                     keyboardType="phone-pad"
                     maxLength={10}
+                    style={{
+                      fontFamily:
+                        Platform.OS === "ios" ? "Avenir" : "sans-serif",
+                    }}
                   />
+                  {phone.length > 0 && (
+                    <TouchableOpacity
+                      onPress={() => setPhone("")}
+                      className="pr-4"
+                    >
+                      <FontAwesome
+                        name="times-circle"
+                        size={18}
+                        color="#AAAAAA"
+                      />
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
 
-              {/* Get Started Button */}
+              {/* Get Started Button - Modern, minimalist design */}
               <Animated.View style={buttonStyle}>
                 <TouchableOpacity
                   onPress={handleGetStarted}
                   disabled={loading}
                   className="w-full"
+                  activeOpacity={0.8}
                 >
                   <LinearGradient
-                    colors={["#FFAD00", "#FF6B00"]}
+                    colors={["#FF8A00", "#FF6B00"]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
-                    className="h-[56px] rounded-2xl items-center justify-center shadow-lg"
-                    style={{ elevation: 4 }}
+                    className="h-[56px] rounded-xl items-center justify-center shadow-lg"
+                    style={{
+                      elevation: 4,
+                      shadowColor: "#FF6B00",
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.2,
+                      shadowRadius: 8,
+                    }}
                   >
                     {loading ? (
-                      <ActivityIndicator color="#FFFFFF" />
+                      <ActivityIndicator color="#FFFFFF" size="small" />
                     ) : (
-                      <View className="flex-row items-center space-x-4">
-                        <Text className="text-white font-bold text-lg mr-2">
-                          Get Started
+                      <View className="flex-row items-center justify-center w-full">
+                        <Text
+                          className="text-white font-bold text-lg"
+                          style={{
+                            fontFamily:
+                              Platform.OS === "ios"
+                                ? "Avenir-Heavy"
+                                : "sans-serif-medium",
+                          }}
+                        >
+                          Continue
                         </Text>
-                        <FontAwesome
-                          name="arrow-right"
-                          size={18}
-                          color="#FFFFFF"
-                        />
+                        <View className="absolute right-6">
+                          <FontAwesome
+                            name="arrow-right"
+                            size={16}
+                            color="#FFFFFF"
+                          />
+                        </View>
                       </View>
                     )}
                   </LinearGradient>
                 </TouchableOpacity>
               </Animated.View>
 
-              {/* Terms Text */}
-              <Text className="text-text-tertiary text-center text-sm mt-6">
-                By continuing, you agree to our{" "}
-                <Text className="text-primary font-semibold">Terms</Text> and{" "}
-                <Text className="text-primary font-semibold">
-                  Privacy Policy
-                </Text>
+              {/* Privacy note */}
+              <Text
+                className="text-center text-xs text-gray-400 mt-6"
+                style={{
+                  fontFamily: Platform.OS === "ios" ? "Avenir" : "sans-serif",
+                }}
+              >
+                By continuing, you agree to our Terms of Service and Privacy
+                Policy
               </Text>
+
+              {/* No duplicate terms needed */}
             </View>
           </Animated.View>
         </KeyboardAvoidingView>

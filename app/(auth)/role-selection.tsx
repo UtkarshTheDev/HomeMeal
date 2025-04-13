@@ -21,55 +21,118 @@ export default function RoleSelectionScreen() {
   // State for initial loading
   const [initialLoading, setInitialLoading] = useState(true);
 
-  // Define role cards with their properties
+  // Define role cards with their properties - REDESIGNED & REORDERED
   const roleCards: RoleCardType[] = [
-    {
-      role: "chef",
-      title: "Chef",
-      description: "Cook and sell your homemade meals",
-      iconBgColor: "rgba(255, 107, 0, 0.1)",
-      mainColor: "#FF6B00",
-      shadowColor: "rgba(255, 107, 0, 0.2)",
-      gradient: ["#FF8A00", "#FF6B00"] as [string, string],
-      customIcon: <FontAwesome5 name="utensils" size={24} color="#FF6B00" />,
-      features: [
-        "Create and sell your own meals",
-        "Set your own prices and schedule",
-        "Build your cooking reputation",
-        "Earn money from your culinary skills",
-      ],
-    },
+    // Customer card first (most common choice)
     {
       role: "customer",
       title: "Customer",
-      description: "Order homemade meals from local chefs",
-      iconBgColor: "rgba(255, 51, 102, 0.1)",
-      mainColor: "#FF3366",
-      shadowColor: "rgba(255, 51, 102, 0.2)",
-      gradient: ["#FF3366", "#FF6B95"] as [string, string],
-      customIcon: <MaterialIcons name="restaurant" size={24} color="#FF3366" />,
+      description: "Order delicious homemade meals",
+      iconBgColor: "rgba(79, 70, 229, 0.1)", // Indigo background
+      mainColor: "#4F46E5", // Indigo
+      shadowColor: "rgba(79, 70, 229, 0.3)",
+      gradient: ["#4F46E5", "#818CF8"] as [string, string], // Indigo gradient
+      customIcon: (
+        <View style={{ position: "relative" }}>
+          <MaterialIcons name="restaurant-menu" size={24} color="#4F46E5" />
+          <View
+            style={{
+              position: "absolute",
+              right: -4,
+              bottom: -4,
+              backgroundColor: "#4F46E5",
+              borderRadius: 8,
+              width: 12,
+              height: 12,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <FontAwesome5 name="user" size={6} color="#FFFFFF" />
+          </View>
+        </View>
+      ),
       features: [
-        "Order authentic homemade food",
-        "Support local home chefs",
-        "Discover unique culinary experiences",
-        "Convenient delivery options",
+        "Browse and order authentic homemade food",
+        "Discover unique dishes from local chefs",
+        "Convenient delivery to your doorstep",
+        "Rate and favorite your preferred meals",
       ],
+      badge: "MOST POPULAR",
     },
+    // Chef card second
+    {
+      role: "chef",
+      title: "Home Chef",
+      description: "Cook and sell your homemade meals",
+      iconBgColor: "rgba(234, 88, 12, 0.1)", // Orange background
+      mainColor: "#EA580C", // Orange
+      shadowColor: "rgba(234, 88, 12, 0.3)",
+      gradient: ["#EA580C", "#FB923C"] as [string, string], // Orange gradient
+      customIcon: (
+        <View style={{ position: "relative" }}>
+          <FontAwesome5 name="chef-hat" size={24} color="#EA580C" />
+          <View
+            style={{
+              position: "absolute",
+              right: -4,
+              bottom: -4,
+              backgroundColor: "#EA580C",
+              borderRadius: 8,
+              width: 12,
+              height: 12,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <FontAwesome5 name="dollar-sign" size={6} color="#FFFFFF" />
+          </View>
+        </View>
+      ),
+      features: [
+        "Showcase your culinary skills to the community",
+        "Set your own prices and cooking schedule",
+        "Build your reputation as a home chef",
+        "Earn money doing what you love",
+      ],
+      badge: "EARN MONEY",
+    },
+    // Delivery partner card last
     {
       role: "delivery_boy",
       title: "Delivery Partner",
       description: "Deliver meals and earn money",
-      iconBgColor: "rgba(14, 165, 233, 0.1)",
-      mainColor: "#0EA5E9",
-      shadowColor: "rgba(14, 165, 233, 0.2)",
-      gradient: ["#0EA5E9", "#38BDF8"] as [string, string],
-      customIcon: <FontAwesome5 name="motorcycle" size={24} color="#0EA5E9" />,
+      iconBgColor: "rgba(16, 185, 129, 0.1)", // Green background
+      mainColor: "#10B981", // Green
+      shadowColor: "rgba(16, 185, 129, 0.3)",
+      gradient: ["#10B981", "#34D399"] as [string, string], // Green gradient
+      customIcon: (
+        <View style={{ position: "relative" }}>
+          <FontAwesome5 name="motorcycle" size={24} color="#10B981" />
+          <View
+            style={{
+              position: "absolute",
+              right: -4,
+              bottom: -4,
+              backgroundColor: "#10B981",
+              borderRadius: 8,
+              width: 12,
+              height: 12,
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <FontAwesome5 name="dollar-sign" size={6} color="#FFFFFF" />
+          </View>
+        </View>
+      ),
       features: [
-        "Flexible delivery hours",
-        "Earn money on your schedule",
+        "Flexible delivery hours - work when you want",
+        "Earn competitive pay per delivery",
         "No special vehicle requirements",
-        "Quick payment processing",
+        "Fast payment processing",
       ],
+      badge: "FLEXIBLE HOURS",
     },
   ];
 

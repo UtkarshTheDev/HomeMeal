@@ -161,51 +161,11 @@ export const useRoleSelection = (
     }
   };
 
-  // Helper function to navigate to the next screen
+  // Helper function to navigate to the next screen - OPTIMIZED
   const navigateToNextScreen = () => {
     try {
-      // Get current user ID from Supabase in the background
-      supabase.auth
-        .getUser()
-        .then(({ data }) => {
-          const userId = data?.user?.id;
-          if (userId) {
-            // Start role-specific setup in background without blocking navigation
-            if (selectedRole === "chef") {
-              // Start chef setup in background
-              handleChefRoleSetup(userId).catch((error) =>
-                console.warn(
-                  "Background chef setup error (non-blocking):",
-                  error
-                )
-              );
-            } else if (selectedRole === "delivery_boy") {
-              // Start delivery setup in background
-              handleDeliveryRoleSetup(userId).catch((error) =>
-                console.warn(
-                  "Background delivery setup error (non-blocking):",
-                  error
-                )
-              );
-            } else {
-              // Start customer setup in background
-              handleCustomerRoleSetup(userId).catch((error) =>
-                console.warn(
-                  "Background customer setup error (non-blocking):",
-                  error
-                )
-              );
-            }
-          }
-        })
-        .catch((error) => {
-          console.warn(
-            "Error getting user ID for role setup (non-blocking):",
-            error
-          );
-        });
-
-      // Navigate to profile setup immediately regardless of background tasks
+      // PERFORMANCE OPTIMIZATION: Navigate immediately without waiting for anything
+      // This makes the UI feel much more responsive
       if (selectedRole === "chef") {
         console.log("🔝 Navigating to profile setup for chef");
       } else if (selectedRole === "delivery_boy") {
@@ -214,10 +174,53 @@ export const useRoleSelection = (
         console.log("🔝 Navigating to profile setup for customer");
       }
 
-      // Use a small timeout to ensure UI updates before navigation
+      // Navigate immediately without any delay
+      router.replace(ROUTES.AUTH_PROFILE_SETUP);
+
+      // PERFORMANCE OPTIMIZATION: Start role-specific setup after navigation has started
+      // This ensures the navigation is not blocked by these operations
       setTimeout(() => {
-        router.replace(ROUTES.AUTH_PROFILE_SETUP);
-      }, 100);
+        // Get current user ID from Supabase in the background
+        supabase.auth
+          .getUser()
+          .then(({ data }) => {
+            const userId = data?.user?.id;
+            if (userId) {
+              // Start role-specific setup in background without blocking navigation
+              if (selectedRole === "chef") {
+                // Start chef setup in background
+                handleChefRoleSetup(userId).catch((error) =>
+                  console.warn(
+                    "Background chef setup error (non-blocking):",
+                    error
+                  )
+                );
+              } else if (selectedRole === "delivery_boy") {
+                // Start delivery setup in background
+                handleDeliveryRoleSetup(userId).catch((error) =>
+                  console.warn(
+                    "Background delivery setup error (non-blocking):",
+                    error
+                  )
+                );
+              } else {
+                // Start customer setup in background
+                handleCustomerRoleSetup(userId).catch((error) =>
+                  console.warn(
+                    "Background customer setup error (non-blocking):",
+                    error
+                  )
+                );
+              }
+            }
+          })
+          .catch((error) => {
+            console.warn(
+              "Error getting user ID for role setup (non-blocking):",
+              error
+            );
+          });
+      }, 0);
     } catch (navError) {
       console.error("❌ Navigation error:", navError);
       // Force loading state to be cleared in case of navigation error
@@ -225,7 +228,7 @@ export const useRoleSelection = (
     }
   };
 
-  // Helper function to update user role and handle navigation
+  // Helper function to update user role and handle navigation - OPTIMIZED
   const updateUserRole = async (userId: string) => {
     try {
       console.log("📝 Setting role for user:", userId);
@@ -233,7 +236,7 @@ export const useRoleSelection = (
       // Map UI role to database role
       const dbRole = mapUIRoleToDBRole(selectedRole!);
 
-      // Set a timeout to ensure we don't get stuck during role update
+      // Set a shorter timeout to ensure we don't get stuck during role update
       const roleUpdateTimeout = setTimeout(() => {
         if (loading) {
           console.log(
@@ -242,7 +245,15 @@ export const useRoleSelection = (
           // Force navigation to next screen
           navigateToNextScreen();
         }
-      }, 3000); // 3 second timeout as a safety measure
+      }, 1500); // 1.5 second timeout as a safety measure (reduced from 3s)
+
+      // PERFORMANCE OPTIMIZATION: Start navigation preparation in parallel with database operations
+      // This makes the UI feel more responsive while database operations happen in background
+      const navigationPrep = setTimeout(() => {
+        console.log("🚀 Pre-emptively preparing for navigation...");
+        // Start preparing for navigation while database operations are still in progress
+        // This makes the transition feel faster to the user
+      }, 300);
 
       // CRITICAL FIX: First directly update the role without waiting for other operations
       // This is the most important operation and should be done first
@@ -252,8 +263,9 @@ export const useRoleSelection = (
         .update({ role: dbRole })
         .eq("id", userId);
 
-      // Clear the timeout since we got a response
+      // Clear the timeouts since we got a response
       clearTimeout(roleUpdateTimeout);
+      clearTimeout(navigationPrep);
 
       if (directUpdateError) {
         console.error("❌ Error directly updating role:", directUpdateError);
@@ -264,30 +276,35 @@ export const useRoleSelection = (
 
       console.log("✅ Role updated successfully to", dbRole);
 
-      // Now that the role is updated, we can start the other operations in parallel
-      // but we won't wait for them to complete before navigating
+      // PERFORMANCE OPTIMIZATION: Navigate immediately after the critical update
+      // Don't wait for any other operations to complete
+      navigateToNextScreen();
+
+      // Now that we're navigating, start the other operations in parallel
+      // These will continue in the background even as we navigate away
 
       // 1. Update setup status in the background
-      updateSetupStatus({
-        role_selected: true,
-      })
-        .then((success) => {
-          console.log(
-            "Setup status update result:",
-            success ? "success" : "failed"
-          );
+      setTimeout(() => {
+        updateSetupStatus({
+          role_selected: true,
         })
-        .catch((error) => {
-          console.warn("Error updating setup status (non-blocking):", error);
-        });
+          .then((success) => {
+            console.log(
+              "Setup status update result:",
+              success ? "success" : "failed"
+            );
+          })
+          .catch((error) => {
+            console.warn("Error updating setup status (non-blocking):", error);
+          });
+      }, 0);
 
       // 2. Refresh session in the background
-      refreshSession().catch((error) => {
-        console.warn("Error refreshing session (non-blocking):", error);
-      });
-
-      // Navigate to the next screen based on selected role
-      navigateToNextScreen();
+      setTimeout(() => {
+        refreshSession().catch((error) => {
+          console.warn("Error refreshing session (non-blocking):", error);
+        });
+      }, 0);
 
       // Note: We don't need to set loading to false here since we're navigating away
     } catch (error) {

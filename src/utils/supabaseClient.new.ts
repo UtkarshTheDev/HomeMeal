@@ -279,11 +279,12 @@ supabase.auth.onAuthStateChange(async (event, session) => {
           .maybeSingle();
 
         if (userError) {
-          console.warn("Error checking user during auth state change:", userError);
-        } else if (!existingUser) {
-          console.log(
-            "User record missing, creating during auth state change"
+          console.warn(
+            "Error checking user during auth state change:",
+            userError
           );
+        } else if (!existingUser) {
+          console.log("User record missing, creating during auth state change");
           // Create user record if missing
           await createUserRecord(userId, session.user?.phone || "");
         }
@@ -451,7 +452,9 @@ export const forceSessionRefreshWithClaims = async (): Promise<boolean> => {
         if (userError) {
           console.warn("Error checking user record during refresh:", userError);
         } else if (!userData) {
-          console.log("User record missing during refresh, attempting to create");
+          console.log(
+            "User record missing during refresh, attempting to create"
+          );
 
           // Try to extract phone from JWT
           let phoneNumber = "";
@@ -537,10 +540,11 @@ export const forceSessionRefreshWithClaims = async (): Promise<boolean> => {
 };
 
 // Development mode configuration
-const DEV_CONFIG = {
+export const DEV_CONFIG = {
   OTP: "123456", // Fixed OTP for development
   PHONE_NUMBERS: ["+919235420668"], // List of phone numbers that can use fixed OTP
   ENABLED: true, // Master switch for development mode
+  SKIP_REAL_OTP: true, // Skip sending real OTPs to dev phone numbers
 };
 
 // Helper function to check if we're in dev mode
@@ -596,20 +600,24 @@ export const verifyPhoneWithOtp = async (
       token: code,
       type: "sms",
     });
-    
+
     // If verification was successful, ensure we have a valid session
     if (!verifyResult.error && verifyResult.data?.session) {
       console.log("OTP verification successful, ensuring session is valid");
-      
+
       // Wait a moment for the session to be fully established
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
       // Force a session refresh to ensure all claims are properly set
       try {
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-        
+        const { data: refreshData, error: refreshError } =
+          await supabase.auth.refreshSession();
+
         if (refreshError) {
-          console.warn("Session refresh after OTP verification failed:", refreshError.message);
+          console.warn(
+            "Session refresh after OTP verification failed:",
+            refreshError.message
+          );
           // Continue with the original session data
         } else if (refreshData.session) {
           console.log("Session refreshed successfully after OTP verification");
@@ -617,11 +625,14 @@ export const verifyPhoneWithOtp = async (
           verifyResult.data.session = refreshData.session;
         }
       } catch (refreshErr) {
-        console.warn("Error refreshing session after OTP verification:", refreshErr);
+        console.warn(
+          "Error refreshing session after OTP verification:",
+          refreshErr
+        );
         // Continue with the original session data
       }
     }
-    
+
     return verifyResult;
   } catch (error) {
     console.error("Error in verifyPhoneWithOtp:", error);

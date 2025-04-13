@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import Animated, { FadeIn, FadeInRight, ZoomIn } from "react-native-reanimated";
+import Animated, { FadeIn, ZoomIn } from "react-native-reanimated";
 import RoleFeatureList from "./RoleFeatureList";
 import { RoleCardType } from "./types";
 
@@ -52,6 +52,18 @@ const RoleCard = ({ card, index, isSelected, onSelect }: RoleCardProps) => {
               { backgroundColor: isSelected ? card.mainColor : "transparent" },
             ]}
           />
+
+          {/* Badge (if provided) */}
+          {card.badge && (
+            <View
+              style={[
+                styles.badgeContainer,
+                { backgroundColor: card.mainColor },
+              ]}
+            >
+              <Text style={styles.badgeText}>{card.badge}</Text>
+            </View>
+          )}
 
           {/* Card Content */}
           <View style={styles.cardContent}>
@@ -129,13 +141,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
-    transition: "all 0.3s ease",
+    // React Native doesn't support CSS transitions
+    marginHorizontal: 2, // Add slight margin for better spacing
   },
   selectedCard: {
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 6,
-    transform: [{ translateY: -4 }],
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 8,
+    transform: [{ translateY: -6 }], // Lift the card higher when selected
+    borderWidth: 2, // Thicker border when selected
   },
   cardPressable: {
     flexDirection: "row",
@@ -190,6 +204,21 @@ const styles = StyleSheet.create({
     width: 4,
     borderTopRightRadius: 16,
     borderBottomRightRadius: 16,
+  },
+  badgeContainer: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    zIndex: 10,
+  },
+  badgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "bold",
+    letterSpacing: 0.5,
   },
 });
 
