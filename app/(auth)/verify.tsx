@@ -20,7 +20,7 @@ import {
   supabase,
   verifyPhoneWithOtp,
   handleSuccessfulVerification,
-} from "@/src/utils/supabaseAuthClient";
+} from "@/src/utils/enhancedAuthClient";
 import { ROUTES } from "@/src/utils/routes";
 import { LinearGradient } from "expo-linear-gradient";
 import { formatPhoneForDisplay } from "@/src/utils/userHelpers";

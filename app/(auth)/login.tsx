@@ -28,7 +28,7 @@ import Animated, {
 import {
   isDevelopmentMode,
   sendOtpToPhone,
-} from "@/src/utils/supabaseAuthClient";
+} from "@/src/utils/enhancedAuthClient";
 import { ROUTES } from "@/src/utils/routes";
 import { FontAwesome } from "@expo/vector-icons";
 

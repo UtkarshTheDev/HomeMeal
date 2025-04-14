@@ -5,20 +5,22 @@ import {
   ThemeProvider,
 } from "@react-navigation/native";
 import { useFonts } from "expo-font";
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState, createContext } from "react";
 import { View } from "react-native";
 import "react-native-reanimated";
-import { supabase, validateSession } from "@/src/utils/supabaseAuthClient";
+import { supabase } from "@/src/utils/supabaseShared";
 import { supabaseUrl, supabaseAnonKey } from "@/src/utils/supabaseShared";
+import { ROUTES } from "@/src/utils/routes";
 import "./global.css";
 import { useColorScheme } from "@/components/useColorScheme";
-import AuthProvider from "@/src/providers/AuthProviderOptimized";
+import { AuthProvider } from "@/src/providers/AuthProvider";
 import { Session } from "@supabase/supabase-js";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import LoadingProvider from "@/src/providers/LoadingProvider";
 import LoadingInitializer from "@/src/components/LoadingInitializer";
+import ModernLoadingScreen from "@/src/components/ModernLoadingScreen";
 
 // Helper function to check if Supabase is configured
 const isSupabaseConfigured = (): boolean => {
@@ -241,16 +243,41 @@ export default function RootLayout() {
 
   // Handle splash screen and app readiness
   useEffect(() => {
+    // CRITICAL: Force navigation to auth intro after a short delay
+    // This ensures the app never gets stuck on loading screen
+    const forceNavigationTimeout = setTimeout(() => {
+      console.log(
+        "⚠️ CRITICAL: Force navigating to auth intro to prevent stuck state"
+      );
+      try {
+        router.replace(ROUTES.AUTH_INTRO);
+        console.log("Force navigation successful");
+      } catch (error) {
+        console.error(`Force navigation error: ${error}`);
+      }
+    }, 5000);
+
     const splashTimeout = setTimeout(() => {
-      // Force hide splash screen after 3 seconds even if not completely ready
+      // Force hide splash screen after 1.5 seconds even if not completely ready
+      // Reduced timeout for better UX to prevent getting stuck
       console.log("⚠️ Forcing splash screen hide after timeout");
       SplashScreen.hideAsync().catch(() => {});
       setAppReady(true);
+      setIsInitializing(false);
 
       // Set global app ready flag
       // @ts-ignore - This global flag is used by AuthProvider
       global.appReady = true;
-    }, 3000);
+
+      // Force session check completion to prevent getting stuck
+      setHasCheckedSession(true);
+    }, 1500);
+
+    // Clean up timeouts
+    return () => {
+      clearTimeout(forceNavigationTimeout);
+      clearTimeout(splashTimeout);
+    };
 
     if ((fontsLoaded || fontError) && hasCheckedSession) {
       // Hide splash screen once fonts are loaded and we've checked for session
@@ -287,7 +314,10 @@ export default function RootLayout() {
       clearTimeout(splashTimeout);
     }
 
-    return () => clearTimeout(splashTimeout);
+    return () => {
+      clearTimeout(splashTimeout);
+      clearTimeout(forceNavigationTimeout);
+    };
   }, [fontsLoaded, fontError, hasCheckedSession]);
 
   // Create a simpler initial loading screen
@@ -300,7 +330,8 @@ export default function RootLayout() {
               value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
             >
               <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
-                <LoadingInitializer message="Starting HomeMeal..." />
+                {/* Use our simple loading screen directly */}
+                <ModernLoadingScreen isVisible={true} />
                 {/* CRITICAL: Still render the Stack to ensure layout is mounted, but with minimal content */}
                 <View style={{ height: 0, overflow: "hidden" }}>
                   <Stack
@@ -329,9 +360,7 @@ export default function RootLayout() {
             >
               <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
                 {/* Show loading during initial app render */}
-                {isInitializing && (
-                  <LoadingInitializer message="Preparing your experience..." />
-                )}
+                {isInitializing && <ModernLoadingScreen isVisible={true} />}
                 <Stack
                   initialRouteName="(auth)"
                   screenOptions={{

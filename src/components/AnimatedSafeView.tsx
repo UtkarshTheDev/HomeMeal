@@ -16,6 +16,7 @@ interface AnimatedSafeViewProps extends AnimatedProps<ViewProps> {
   entering?: EntryExitAnimationFunction | BaseAnimationBuilder;
   exiting?: EntryExitAnimationFunction | BaseAnimationBuilder;
   layout?: LayoutAnimationFunction | BaseAnimationBuilder;
+  disableLayoutAnimation?: boolean;
 }
 
 const AnimatedSafeView: React.FC<AnimatedSafeViewProps> = ({
@@ -24,8 +25,26 @@ const AnimatedSafeView: React.FC<AnimatedSafeViewProps> = ({
   entering,
   exiting,
   layout,
+  disableLayoutAnimation = false,
   ...props
 }) => {
+  // If we have entering/exiting animations but want to disable layout animations
+  // to avoid conflicts with opacity
+  if ((entering || exiting) && disableLayoutAnimation) {
+    return (
+      <View style={{ overflow: "hidden" }}>
+        <Animated.View
+          style={style}
+          entering={entering}
+          exiting={exiting}
+          {...props}
+        >
+          {children}
+        </Animated.View>
+      </View>
+    );
+  }
+
   // If we have entering/exiting/layout animations, use Animated.View directly
   if (entering || exiting || layout) {
     return (
@@ -41,9 +60,10 @@ const AnimatedSafeView: React.FC<AnimatedSafeViewProps> = ({
     );
   }
 
-  // Otherwise, use a wrapper View to protect against layout animation conflicts
+  // For components that might be affected by layout animations elsewhere
+  // Use a wrapper View to isolate from layout animation conflicts
   return (
-    <View>
+    <View style={{ overflow: "hidden" }}>
       <Animated.View style={style} {...props}>
         {children}
       </Animated.View>

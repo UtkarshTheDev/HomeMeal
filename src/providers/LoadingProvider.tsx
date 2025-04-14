@@ -86,11 +86,26 @@ export const LoadingProvider: React.FC<LoadingProviderProps> = ({
         } else {
           setIsAnimatingOut(false);
         }
-      }, 500); // Slightly longer than animation duration
+      }, 300); // Shorter animation duration for better UX
 
       return () => clearTimeout(timer);
     }
   }, [isAnimatingOut, loadingQueue]);
+
+  // CRITICAL: Force hide loading screen after a timeout
+  // This prevents the app from getting stuck on loading screen
+  useEffect(() => {
+    if (isVisible) {
+      const forceHideTimeout = setTimeout(() => {
+        console.log("⚠️ Force hiding loading screen after timeout");
+        setIsVisible(false);
+        setIsAnimatingOut(false);
+        setLoadingQueue([]);
+      }, 8000); // Force hide after 8 seconds
+
+      return () => clearTimeout(forceHideTimeout);
+    }
+  }, [isVisible]);
 
   // Context value
   const contextValue = {

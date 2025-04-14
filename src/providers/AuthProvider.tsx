@@ -4,18 +4,20 @@ import React, {
   useEffect,
   useContext,
   useRef,
+  useCallback,
+  useMemo,
 } from "react";
-import { ActivityIndicator, View, Text, Alert } from "react-native";
 import { Session, User } from "@supabase/supabase-js";
+import { router, useRouter } from "expo-router";
+import { ROUTES } from "@/src/utils/routes";
+import { useLoading } from "./LoadingProvider";
 import {
   supabase,
   validateSession,
-  cleanSignOut,
+  refreshSession,
+  signOut,
+  createUserRecord,
 } from "@/src/utils/supabaseAuthClient";
-import { router } from "expo-router";
-import { ROUTES } from "@/src/utils/routes";
-import LoadingScreen from "@/src/components/LoadingScreen";
-import SplashAnimation from "@/src/components/animations/SplashAnimation";
 
 // Disable Supabase GoTrueClient verbose logs
 if (process.env.NODE_ENV !== "development") {
