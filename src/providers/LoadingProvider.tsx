@@ -5,8 +5,8 @@ import React, {
   useEffect,
   useCallback,
 } from "react";
-import ModernLoadingScreen from "../components/ModernLoadingScreen";
 
+import InlineLoadingIndicator from "@/src/components/InlineLoadingIndicator";
 // Define the context type
 interface LoadingContextType {
   showLoading: (message?: string) => void;
@@ -114,10 +114,16 @@ export const LoadingProvider: React.FC<LoadingProviderProps> = ({
     isLoading: isVisible || isAnimatingOut,
   };
 
+  // Add a prop to check if app is initializing
+  const isAppInitializing = global.isInitializing === true;
+
   return (
     <LoadingContext.Provider value={contextValue}>
       {children}
-      <ModernLoadingScreen isVisible={isVisible} message={message} />
+      {/* Only show loading indicator if app is not initializing AND we're not showing splash screen */}
+      {!isAppInitializing && !global.isSplashShowing && (
+        <InlineLoadingIndicator isVisible={isVisible} message={message} />
+      )}
     </LoadingContext.Provider>
   );
 };

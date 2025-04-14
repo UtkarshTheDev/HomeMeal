@@ -5,36 +5,29 @@ import {
   ThemeProvider,
 } from "@react-navigation/native";
 import { useFonts } from "expo-font";
-import { Stack, router } from "expo-router";
+import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useEffect, useState, createContext } from "react";
+import { useEffect, useState } from "react";
 import { View } from "react-native";
 import "react-native-reanimated";
 import { supabase } from "@/src/utils/supabaseShared";
 import { supabaseUrl, supabaseAnonKey } from "@/src/utils/supabaseShared";
-import { ROUTES } from "@/src/utils/routes";
+// ROUTES import removed as it's no longer needed
 import "./global.css";
 import { useColorScheme } from "@/components/useColorScheme";
 import { AuthProvider } from "@/src/providers/AuthProvider";
 import { Session } from "@supabase/supabase-js";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import LoadingProvider from "@/src/providers/LoadingProvider";
-import LoadingInitializer from "@/src/components/LoadingInitializer";
-import ModernLoadingScreen from "@/src/components/ModernLoadingScreen";
+// No loading indicator during initialization
 
 // Helper function to check if Supabase is configured
 const isSupabaseConfigured = (): boolean => {
   return !!supabaseUrl && !!supabaseAnonKey;
 };
 
-// Create SupabaseContext for the useSupabase hook
-export const SupabaseContext = createContext<{
-  supabase: typeof supabase;
-  session: Session | null;
-}>({
-  supabase,
-  session: null,
-});
+// Import SupabaseContext from our dedicated context file
+import { SupabaseContext } from "@/src/contexts/SupabaseContext";
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -48,65 +41,9 @@ export const unstable_settings = {
   initialRouteName: "(auth)",
 };
 
-// Custom transition animations for smooth page changes
-const customTransition = {
-  animation: "spring",
-  config: {
-    stiffness: 1000,
-    damping: 500,
-    mass: 3,
-    overshootClamping: true,
-    restDisplacementThreshold: 0.01,
-    restSpeedThreshold: 0.01,
-  },
-};
+// Screen transitions are now defined inline in the Stack component
 
-// Define custom screen options with smooth transitions
-const screenOptions = {
-  headerShown: false,
-  animation: "fade",
-  gestureEnabled: true,
-  animationDuration: 200,
-  contentStyle: { backgroundColor: "white" },
-  // Custom animations
-  transitionSpec: {
-    open: customTransition,
-    close: customTransition,
-  },
-  // Elegant card styling
-  cardStyleInterpolator: ({ current, next, layouts }: any) => {
-    return {
-      cardStyle: {
-        transform: [
-          {
-            translateX: current.progress.interpolate({
-              inputRange: [0, 1],
-              outputRange: [layouts.screen.width, 0],
-            }),
-          },
-          {
-            scale: next
-              ? next.progress.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [1, 0.95],
-                })
-              : 1,
-          },
-        ],
-        opacity: current.progress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, 1],
-        }),
-      },
-      overlayStyle: {
-        opacity: current.progress.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, 0.5],
-        }),
-      },
-    };
-  },
-};
+// Screen options are now defined inline in the Stack component
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
@@ -117,18 +54,18 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [session, setSession] = useState<Session | null>(null);
   const [hasCheckedSession, setHasCheckedSession] = useState(false);
-  // Add a state to track if the root layout is mounted and ready
-  const [isRootMounted, setIsRootMounted] = useState(false);
+  // State for app initialization
   const [appReady, setAppReady] = useState(false);
-  const [sessionValidated, setSessionValidated] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  // Set global flag for initialization state to coordinate loading screens
+  // @ts-ignore - This global flag is used by LoadingProvider
+  global.isInitializing = isInitializing;
 
   // Set root mounted state immediately to help prevent navigation errors
   useEffect(() => {
     console.log("🌳 Root layout component mounting...");
 
-    // Set root layout as mounted immediately
-    setIsRootMounted(true);
+    // Root layout is now mounted
 
     // Set global flag for AuthProvider to check - CRITICAL for navigation
     // @ts-ignore - This global flag is used by AuthProvider
@@ -206,13 +143,13 @@ export default function RootLayout() {
     // Set up auth state change listener
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    } = supabase.auth.onAuthStateChange((_event: any, newSession: any) => {
       console.log("Auth state changed in _layout", _event);
       setSession(newSession);
 
       if (_event === "SIGNED_IN" || _event === "TOKEN_REFRESHED") {
-        // Mark session as not validated so we validate it again
-        setSessionValidated(false);
+        // Session needs to be validated again
+        console.log("Session needs to be validated again");
       }
     });
 
@@ -243,75 +180,112 @@ export default function RootLayout() {
 
   // Handle splash screen and app readiness
   useEffect(() => {
-    // CRITICAL: Force navigation to auth intro after a short delay
+    // This is a complete rewrite of the splash screen and app initialization flow
+    // to ensure the splash animation completes fully before any navigation
+
+    // Step 1: Hide the native splash screen immediately
+    const hideNativeSplash = async () => {
+      try {
+        await SplashScreen.hideAsync();
+        console.log("🎬 Native splash screen hidden");
+      } catch (error) {
+        console.warn("Error hiding native splash screen:", error);
+      }
+    };
+
+    // Call this immediately
+    hideNativeSplash();
+
+    // Step 2: Set up a safety timeout as absolute last resort
     // This ensures the app never gets stuck on loading screen
-    const forceNavigationTimeout = setTimeout(() => {
+    const safetyNavigationTimeout = setTimeout(() => {
       console.log(
-        "⚠️ CRITICAL: Force navigating to auth intro to prevent stuck state"
+        "⚠️ CRITICAL SAFETY: Forcing navigation to intro page to prevent stuck state"
       );
       try {
-        router.replace(ROUTES.AUTH_INTRO);
-        console.log("Force navigation successful");
+        // Only navigate if we're still initializing
+        if (isInitializing) {
+          // Add a log to indicate we're forcing navigation
+          console.log(
+            "Safety timeout triggered after 15 seconds - navigating to intro page"
+          );
+
+          // Force hide any loading screens
+          setIsInitializing(false);
+          // Update global flag
+          // @ts-ignore - This global flag is used by LoadingProvider
+          global.isInitializing = false;
+          setAppReady(true);
+
+          // We need to import router and ROUTES again since we removed them earlier
+          const { router } = require("expo-router");
+          const { ROUTES } = require("@/src/utils/routes");
+
+          // Check if navigation has already occurred
+          // @ts-ignore - This flag is set by app/index.tsx
+          if (global.hasNavigatedToIntro) {
+            console.log(
+              "Safety timeout triggered, but navigation already occurred - skipping"
+            );
+            return;
+          }
+
+          console.log("Safety timeout completed, navigating to intro page");
+
+          // Set a global flag to indicate splash screen is complete
+          // @ts-ignore - This global flag is used by AuthProvider
+          global.splashScreenComplete = true;
+          // @ts-ignore - This flag prevents duplicate navigations
+          global.hasNavigatedToIntro = true;
+
+          // Navigate to intro page immediately
+          router.replace(ROUTES.AUTH_INTRO);
+        }
       } catch (error) {
         console.error(`Force navigation error: ${error}`);
       }
-    }, 8000); // Increased to 8 seconds to allow splash animation to complete
+    }, 15000); // 15 seconds as absolute last resort
 
-    const splashTimeout = setTimeout(() => {
-      // Force hide splash screen after 1.5 seconds even if not completely ready
-      // Reduced timeout for better UX to prevent getting stuck
-      console.log("⚠️ Forcing splash screen hide after timeout");
-      SplashScreen.hideAsync().catch(() => {});
+    // Step 3: Check if fonts are loaded and session has been checked
+    if ((fontsLoaded || fontError) && hasCheckedSession) {
+      console.log("🎬 Showing splash animation...");
+
+      // Additional logging to help debug navigation issues
+      if (session) {
+        console.log("Session available at app ready:", session.user.id);
+      } else {
+        console.log("No session available at app ready");
+      }
+
+      // Step 4: Set a timeout to ensure the app becomes ready even if something goes wrong
+      // This timeout is longer than the splash animation to avoid interference
+      const appReadyTimeout = setTimeout(() => {
+        if (!appReady) {
+          console.log(
+            "⚠️ App ready timeout triggered - forcing app ready state"
+          );
+          setAppReady(true);
+          // Don't set isInitializing to false here - let the splash animation handle that
+          // @ts-ignore - This global flag is used by AuthProvider
+          global.appReady = true;
+        }
+      }, 8000); // 8 second safety timeout - longer than splash animation
+
+      // Step 5: Set app as ready immediately to start the splash animation
+      // This is important - we want to show the splash animation as soon as possible
       setAppReady(true);
-      setIsInitializing(false);
-
-      // Set global app ready flag
+      // Don't set isInitializing to false yet - that will happen after splash animation
       // @ts-ignore - This global flag is used by AuthProvider
       global.appReady = true;
+      console.log("🚀 App ready to render, global flags set");
 
-      // Force session check completion to prevent getting stuck
-      setHasCheckedSession(true);
-    }, 3000); // Increased to 3 seconds to allow splash animation to complete
-
-    // Check if fonts are loaded and session has been checked
-    if ((fontsLoaded || fontError) && hasCheckedSession) {
-      // Hide splash screen once fonts are loaded and we've checked for session
-      SplashScreen.hideAsync()
-        .then(() => {
-          console.log("🎬 Native splash screen hidden");
-          // Set app as ready immediately
-          setAppReady(true);
-          // Set isInitializing to false
-          setIsInitializing(false);
-          // Set global app ready flag
-          // @ts-ignore - This global flag is used by AuthProvider
-          global.appReady = true;
-          console.log("🚀 App ready to render, global flags set");
-
-          // Additional logging to help debug navigation issues
-          if (session) {
-            console.log("Session available at app ready:", session.user.id);
-          } else {
-            console.log("No session available at app ready");
-          }
-        })
-        .catch((error) => {
-          console.warn("Error hiding splash screen:", error);
-          // Still mark app as ready even if splash screen hide fails
-          setAppReady(true);
-          // Set isInitializing to false
-          setIsInitializing(false);
-          // @ts-ignore - This global flag is used by AuthProvider
-          global.appReady = true;
-        });
-
-      // Clear the timeout since we successfully hid the splash screen
-      clearTimeout(splashTimeout);
+      return () => {
+        clearTimeout(appReadyTimeout);
+      };
     }
 
     return () => {
-      clearTimeout(splashTimeout);
-      clearTimeout(forceNavigationTimeout);
+      clearTimeout(safetyNavigationTimeout);
     };
   }, [fontsLoaded, fontError, hasCheckedSession]);
 
@@ -325,8 +299,7 @@ export default function RootLayout() {
               value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
             >
               <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
-                {/* Use our simple loading screen directly */}
-                <ModernLoadingScreen isVisible={true} />
+                {/* Loading screen is now handled by SplashScreen */}
                 {/* CRITICAL: Still render the Stack to ensure layout is mounted, but with minimal content */}
                 <View style={{ height: 0, overflow: "hidden" }}>
                   <Stack
@@ -354,8 +327,8 @@ export default function RootLayout() {
               value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
             >
               <View style={{ flex: 1, backgroundColor: "#FFFFFF" }}>
-                {/* Show loading during initial app render */}
-                {isInitializing && <ModernLoadingScreen isVisible={true} />}
+                {/* We're now using the splash screen from app/index.tsx instead */}
+                {/* No loading indicator during initialization - only splash screen */}
                 <Stack
                   initialRouteName="(auth)"
                   screenOptions={{
@@ -390,5 +363,3 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
-
-export default RootLayout;
