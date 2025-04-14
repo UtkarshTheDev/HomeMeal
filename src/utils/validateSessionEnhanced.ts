@@ -1,12 +1,21 @@
 // Enhanced session validation with better JWT claim handling
 // This is a replacement for validateSession.ts with improved error recovery
 
-// We'll get the supabase instance passed to us when the function is called
-let supabase: any;
+// Import supabase directly to avoid dependency issues
+import { supabase as supabaseInstance } from "./supabaseShared";
+
+// We'll use the imported instance as a fallback
+let supabase: any = supabaseInstance;
 
 // Set the supabase instance
 export const setSupabaseInstance = (instance: any) => {
-  supabase = instance;
+  if (instance && instance.auth) {
+    supabase = instance;
+  } else {
+    // If the passed instance is invalid, use the imported one
+    console.warn("Invalid supabase instance provided, using imported instance");
+    supabase = supabaseInstance;
+  }
 };
 
 // Helper function to create a user record
@@ -61,6 +70,23 @@ export const validateSession = async (
   const MAX_RETRIES = 2;
 
   try {
+    // Safety check for supabase client
+    if (!supabase || !supabase.auth) {
+      console.error("Supabase client not properly initialized, using fallback");
+      // Use the imported instance as a fallback
+      supabase = supabaseInstance;
+
+      // If still not available, return an error
+      if (!supabase || !supabase.auth) {
+        console.error("CRITICAL: No valid Supabase client available");
+        return {
+          valid: false,
+          error: "Supabase client not initialized",
+          user: null,
+        };
+      }
+    }
+
     // First check if we have a session at all
     const { data: sessionData, error: sessionError } =
       await supabase.auth.getSession();
@@ -157,13 +183,16 @@ export const validateSession = async (
                   await supabase.rpc("fix_user_jwt_claims", {
                     p_user_id: userId,
                   });
-                  
+
                   // Force a complete session refresh
-                  const { data: refreshData } = await supabase.auth.refreshSession();
-                  
+                  const { data: refreshData } =
+                    await supabase.auth.refreshSession();
+
                   // If we got a refreshed session, use it
                   if (refreshData?.session) {
-                    console.log("Successfully refreshed session after fixing JWT claims");
+                    console.log(
+                      "Successfully refreshed session after fixing JWT claims"
+                    );
                     return {
                       valid: true,
                       error: null,
@@ -193,10 +222,11 @@ export const validateSession = async (
                 try {
                   // Create user record
                   await createUserRecord(userId, phone || "");
-                  
+
                   // Try to refresh session after creating user
                   try {
-                    const { data: refreshData } = await supabase.auth.refreshSession();
+                    const { data: refreshData } =
+                      await supabase.auth.refreshSession();
                     if (refreshData?.session) {
                       return {
                         valid: true,
@@ -206,7 +236,10 @@ export const validateSession = async (
                       };
                     }
                   } catch (refreshError) {
-                    console.warn("Failed to refresh after creating user:", refreshError);
+                    console.warn(
+                      "Failed to refresh after creating user:",
+                      refreshError
+                    );
                   }
 
                   // Return valid session since we created the user

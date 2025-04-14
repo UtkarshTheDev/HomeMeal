@@ -22,8 +22,13 @@ import {
 // Set the supabase instance in validateSession
 setSupabaseInstance(supabase);
 
-// Re-export the validateSession function
-export const validateSession = validateSessionImported;
+// Create an enhanced version of validateSession that always sets the supabase instance
+const originalValidateSession = validateSessionImported;
+export const validateSession = async (...args: any[]) => {
+  // Reset the supabase instance before validation
+  setSupabaseInstance(supabase);
+  return originalValidateSession(...args);
+};
 
 // Function to force a session refresh with claims - ENHANCED
 export const forceSessionRefreshWithClaims = async () => {
@@ -99,15 +104,15 @@ export const forceSessionRefreshWithClaims = async () => {
 export const refreshSession = async () => {
   try {
     // Use the standard refresh method
-    const { error } = await supabase.auth.refreshSession();
+    const { data, error } = await supabase.auth.refreshSession();
     if (error) {
       console.warn("Session refresh failed:", error.message);
-      return false;
+      return null;
     }
-    return true;
+    return data.session;
   } catch (error) {
     console.error("Exception in refreshSession:", error);
-    return false;
+    return null;
   }
 };
 
@@ -122,6 +127,9 @@ export const cleanSignOut = async () => {
     return false;
   }
 };
+
+// Alias for cleanSignOut for better naming consistency
+export const signOut = cleanSignOut;
 
 // Send OTP to phone number
 export const sendOtpToPhone = async (phone: string): Promise<any> => {

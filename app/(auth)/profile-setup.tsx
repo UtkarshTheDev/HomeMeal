@@ -32,7 +32,7 @@ import Animated, {
   withDelay,
   Easing,
 } from "react-native-reanimated";
-import { supabase } from "@/src/utils/supabaseClient.new";
+import { supabase } from "@/src/utils/supabaseClient";
 import { uploadImage as uploadImageUtil } from "@/src/utils/userHelpers";
 import ScreenTransition from "@/src/components/ScreenTransition";
 import AnimatedButton from "@/src/components/AnimatedButton";

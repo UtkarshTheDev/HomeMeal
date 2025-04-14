@@ -770,3 +770,5 @@ export default function LocationSetupScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+export default LocationSetupScreen;

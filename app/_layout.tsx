@@ -255,7 +255,7 @@ export default function RootLayout() {
       } catch (error) {
         console.error(`Force navigation error: ${error}`);
       }
-    }, 5000);
+    }, 8000); // Increased to 8 seconds to allow splash animation to complete
 
     const splashTimeout = setTimeout(() => {
       // Force hide splash screen after 1.5 seconds even if not completely ready
@@ -271,14 +271,9 @@ export default function RootLayout() {
 
       // Force session check completion to prevent getting stuck
       setHasCheckedSession(true);
-    }, 1500);
+    }, 3000); // Increased to 3 seconds to allow splash animation to complete
 
-    // Clean up timeouts
-    return () => {
-      clearTimeout(forceNavigationTimeout);
-      clearTimeout(splashTimeout);
-    };
-
+    // Check if fonts are loaded and session has been checked
     if ((fontsLoaded || fontError) && hasCheckedSession) {
       // Hide splash screen once fonts are loaded and we've checked for session
       SplashScreen.hideAsync()
@@ -395,3 +390,5 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default RootLayout;

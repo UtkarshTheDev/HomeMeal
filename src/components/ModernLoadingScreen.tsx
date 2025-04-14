@@ -8,9 +8,16 @@ import Animated, {
   withSequence,
   withDelay,
 } from "react-native-reanimated";
+
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
-import { FontAwesome, MaterialCommunityIcons, Ionicons } from "@expo/vector-icons";
+import {
+  FontAwesome,
+  MaterialCommunityIcons,
+  Ionicons,
+} from "@expo/vector-icons";
+
+// Note: We removed setGlobalConfiguration as it's not available in this version of Reanimated
 
 // Import app logo
 import AppLogo from "@/assets/images/logo.png";
@@ -33,7 +40,7 @@ const ModernLoadingScreen: React.FC<ModernLoadingScreenProps> = ({
   const logoTranslateY = useSharedValue(20);
   const forkRotation = useSharedValue(0);
   const forkOpacity = useSharedValue(0);
-  
+
   // Background animation values
   const bgElement1Opacity = useSharedValue(0);
   const bgElement2Opacity = useSharedValue(0);
@@ -46,118 +53,118 @@ const ModernLoadingScreen: React.FC<ModernLoadingScreenProps> = ({
   useEffect(() => {
     if (isVisible) {
       // Main container fade in
-      opacity.value = withTiming(1, { 
-        duration: 400
+      opacity.value = withTiming(1, {
+        duration: 400,
       });
-      
+
       // Logo animations - smooth fade up
-      logoScale.value = withTiming(1, { 
-        duration: 800
+      logoScale.value = withTiming(1, {
+        duration: 800,
       });
-      
-      logoTranslateY.value = withTiming(0, { 
-        duration: 800
+
+      logoTranslateY.value = withTiming(0, {
+        duration: 800,
       });
-      
+
       // Fork icon animations - appear after logo and start rotating
       forkOpacity.value = withDelay(
         600,
-        withTiming(1, { 
-          duration: 400
+        withTiming(1, {
+          duration: 400,
         })
       );
-      
+
       // Complex rotation animation for fork
       forkRotation.value = withDelay(
         800,
         withRepeat(
           withSequence(
             // Start slow
-            withTiming(120, { 
-              duration: 800
+            withTiming(120, {
+              duration: 800,
             }),
             // Speed up
-            withTiming(240, { 
-              duration: 600
+            withTiming(240, {
+              duration: 600,
             }),
             // Continue at medium speed
-            withTiming(480, { 
-              duration: 1000
+            withTiming(480, {
+              duration: 1000,
             }),
             // Slow down
-            withTiming(720, { 
-              duration: 1200
+            withTiming(720, {
+              duration: 1200,
             })
           ),
           -1, // Infinite repetitions
           false
         )
       );
-      
+
       // Background elements animations - staggered appearance
       bgElement1Opacity.value = withDelay(
         900,
-        withTiming(0.7, { 
-          duration: 600
+        withTiming(0.7, {
+          duration: 600,
         })
       );
-      
+
       bgElement2Opacity.value = withDelay(
         1100,
-        withTiming(0.7, { 
-          duration: 600
+        withTiming(0.7, {
+          duration: 600,
         })
       );
-      
+
       bgElement3Opacity.value = withDelay(
         1300,
-        withTiming(0.7, { 
-          duration: 600
+        withTiming(0.7, {
+          duration: 600,
         })
       );
-      
+
       // Subtle floating animations for background elements
       bgElement1Position.value = withDelay(
         900,
         withRepeat(
           withSequence(
-            withTiming(10, { 
-              duration: 2000
+            withTiming(10, {
+              duration: 2000,
             }),
-            withTiming(-10, { 
-              duration: 2000
+            withTiming(-10, {
+              duration: 2000,
             })
           ),
           -1,
           true
         )
       );
-      
+
       bgElement2Position.value = withDelay(
         1100,
         withRepeat(
           withSequence(
-            withTiming(-15, { 
-              duration: 2500
+            withTiming(-15, {
+              duration: 2500,
             }),
-            withTiming(15, { 
-              duration: 2500
+            withTiming(15, {
+              duration: 2500,
             })
           ),
           -1,
           true
         )
       );
-      
+
       bgElement3Position.value = withDelay(
         1300,
         withRepeat(
           withSequence(
-            withTiming(20, { 
-              duration: 3000
+            withTiming(20, {
+              duration: 3000,
             }),
-            withTiming(-20, { 
-              duration: 3000
+            withTiming(-20, {
+              duration: 3000,
             })
           ),
           -1,
@@ -166,8 +173,8 @@ const ModernLoadingScreen: React.FC<ModernLoadingScreenProps> = ({
       );
     } else {
       // Fade out everything
-      opacity.value = withTiming(0, { 
-        duration: 300
+      opacity.value = withTiming(0, {
+        duration: 300,
       });
     }
   }, [isVisible]);
@@ -183,7 +190,7 @@ const ModernLoadingScreen: React.FC<ModernLoadingScreenProps> = ({
     return {
       transform: [
         { scale: logoScale.value },
-        { translateY: logoTranslateY.value }
+        { translateY: logoTranslateY.value },
       ],
     };
   });
@@ -194,33 +201,33 @@ const ModernLoadingScreen: React.FC<ModernLoadingScreenProps> = ({
       transform: [{ rotate: `${forkRotation.value}deg` }],
     };
   });
-  
+
   const bgElement1AnimatedStyle = useAnimatedStyle(() => {
     return {
       opacity: bgElement1Opacity.value,
       transform: [
         { translateY: bgElement1Position.value },
-        { translateX: bgElement1Position.value * 0.5 }
+        { translateX: bgElement1Position.value * 0.5 },
       ],
     };
   });
-  
+
   const bgElement2AnimatedStyle = useAnimatedStyle(() => {
     return {
       opacity: bgElement2Opacity.value,
       transform: [
         { translateY: bgElement2Position.value * -0.7 },
-        { translateX: bgElement2Position.value }
+        { translateX: bgElement2Position.value },
       ],
     };
   });
-  
+
   const bgElement3AnimatedStyle = useAnimatedStyle(() => {
     return {
       opacity: bgElement3Opacity.value,
       transform: [
         { translateY: bgElement3Position.value },
-        { translateX: bgElement3Position.value * -0.8 }
+        { translateX: bgElement3Position.value * -0.8 },
       ],
     };
   });
@@ -234,7 +241,7 @@ const ModernLoadingScreen: React.FC<ModernLoadingScreenProps> = ({
     <View style={styles.container}>
       <Animated.View style={containerOpacityStyle}>
         <StatusBar style="light" />
-        
+
         {/* Background gradient - using app theme colors */}
         <LinearGradient
           colors={["#FF8A00", "#FF6B00", "#FF5400"]}
@@ -245,34 +252,34 @@ const ModernLoadingScreen: React.FC<ModernLoadingScreenProps> = ({
           {/* Background decorative elements */}
           <View style={styles.bgElement1}>
             <Animated.View style={bgElement1AnimatedStyle}>
-              <MaterialCommunityIcons 
-                name="food-variant" 
-                size={60} 
-                color="rgba(255, 255, 255, 0.15)" 
+              <MaterialCommunityIcons
+                name="food-variant"
+                size={60}
+                color="rgba(255, 255, 255, 0.15)"
               />
             </Animated.View>
           </View>
-          
+
           <View style={styles.bgElement2}>
             <Animated.View style={bgElement2AnimatedStyle}>
-              <Ionicons 
-                name="restaurant-outline" 
-                size={70} 
-                color="rgba(255, 255, 255, 0.15)" 
+              <Ionicons
+                name="restaurant-outline"
+                size={70}
+                color="rgba(255, 255, 255, 0.15)"
               />
             </Animated.View>
           </View>
-          
+
           <View style={styles.bgElement3}>
             <Animated.View style={bgElement3AnimatedStyle}>
-              <MaterialCommunityIcons 
-                name="chef-hat" 
-                size={65} 
-                color="rgba(255, 255, 255, 0.15)" 
+              <MaterialCommunityIcons
+                name="chef-hat"
+                size={65}
+                color="rgba(255, 255, 255, 0.15)"
               />
             </Animated.View>
           </View>
-          
+
           {/* Main content container */}
           <View style={styles.contentContainer}>
             {/* App logo with fade up animation */}
@@ -285,7 +292,7 @@ const ModernLoadingScreen: React.FC<ModernLoadingScreenProps> = ({
                 />
               </Animated.View>
             </View>
-            
+
             {/* Fork icon with rotation animation */}
             <View style={styles.forkContainer}>
               <Animated.View style={forkAnimatedStyle}>

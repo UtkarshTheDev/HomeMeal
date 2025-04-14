@@ -14,10 +14,12 @@ import { useLoading } from "./LoadingProvider";
 import {
   supabase,
   validateSession,
-  refreshSession,
-  signOut,
+  cleanSignOut, // Import cleanSignOut
   createUserRecord,
 } from "@/src/utils/supabaseAuthClient";
+import SplashAnimation from "../components/animations/SplashAnimation";
+import LoadingScreen from "../components/LoadingScreen";
+import { Alert } from "react-native";
 
 // Disable Supabase GoTrueClient verbose logs
 if (process.env.NODE_ENV !== "development") {
@@ -77,7 +79,7 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   isInitializing: true,
   signOut: async () => {},
-  refreshSession: async () => null,
+  refreshSession: async () => null, // This will be replaced with refreshSessionWrapper
   checkOnboardingStatus: async () => ({ isComplete: false }),
   updateSetupStatus: async () => false,
 });
@@ -368,8 +370,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const INIT_TIMEOUT = 3000; // 3 seconds max for initialization
   const SPLASH_TIMEOUT = 2000; // 2 seconds max for splash screen
 
-  // Move to the exported refreshSession
+  // Wrapper for the refreshSession function
   const refreshSessionWrapper = async (): Promise<Session | null> => {
+    // Call the local refreshSession function
     const newSession = await refreshSession();
 
     if (newSession) {

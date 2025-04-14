@@ -2,11 +2,11 @@ import { useState, useEffect, useRef } from "react";
 import { Alert } from "react-native";
 import { router } from "expo-router";
 import { useSharedValue } from "react-native-reanimated";
+import { supabase } from "@/src/utils/supabaseShared";
 import {
-  supabase,
   validateSession,
   refreshSession,
-} from "@/src/utils/supabaseClient.new";
+} from "@/src/utils/supabaseAuthClient";
 import { ROUTES } from "@/src/utils/routes";
 import { useAuth } from "@/src/providers/AuthProvider";
 import { RoleCardType, UseRoleSelectionReturn } from "./types";
@@ -124,36 +124,10 @@ export const useRoleSelection = (
   // Helper function to handle customer role setup
   const handleCustomerRoleSetup = async (userId: string) => {
     try {
-      // Check if customer preferences record already exists
-      const { data: existingPrefs, error: prefsCheckError } = await supabase
-        .from("customer_preferences")
-        .select("id")
-        .eq("user_id", userId)
-        .maybeSingle();
-
-      if (prefsCheckError) {
-        console.error("Error checking customer preferences:", prefsCheckError);
-      }
-
-      if (!existingPrefs) {
-        // Create customer preferences record
-        const { error: prefsError } = await supabase
-          .from("customer_preferences")
-          .insert({
-            user_id: userId,
-            dietary_restrictions: [],
-            favorite_cuisines: [],
-          });
-
-        if (prefsError) {
-          console.error("Error creating customer preferences:", prefsError);
-        } else {
-          console.log("Customer preferences created successfully");
-        }
-      } else {
-        console.log("Customer preferences already exist");
-      }
-
+      // Based on the database schema, we don't need to create customer_preferences
+      // The customer_preferences table doesn't exist in the current schema
+      // Just log success and return true
+      console.log("Customer role setup completed successfully");
       return true;
     } catch (error) {
       console.error("Exception in customer role setup:", error);
