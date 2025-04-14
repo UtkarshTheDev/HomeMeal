@@ -461,10 +461,12 @@ const AIMealPlanDialog: React.FC<AIMealPlanDialogProps> = ({
         {!isUser && (
           <View style={styles.assistantAvatarContainer}>
             <LinearGradient
-              colors={["#6366F1", "#8B5CF6"]}
+              colors={["#FF8A00", "#FF6B00", "#FF5400"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
               style={styles.assistantAvatar}
             >
-              <Ionicons name="sparkles" size={14} color="#FFF" />
+              <Ionicons name="restaurant" size={14} color="#FFF" />
             </LinearGradient>
           </View>
         )}
@@ -502,18 +504,18 @@ const AIMealPlanDialog: React.FC<AIMealPlanDialogProps> = ({
         >
           {/* Dialog Header */}
           <LinearGradient
-            colors={["#6366F1", "#8B5CF6", "#EC4899"]}
+            colors={["#FF8A00", "#FF6B00", "#FF5400"]}
             start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
+            end={{ x: 1, y: 1 }}
             style={styles.header}
           >
             <View style={styles.headerContent}>
-              <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-                <Ionicons name="close" size={22} color="#FFF" />
+              <TouchableOpacity style={styles.backButton} onPress={onClose}>
+                <Ionicons name="arrow-back" size={24} color="#FFF" />
               </TouchableOpacity>
               <View style={styles.headerTitleContainer}>
                 <Ionicons
-                  name="flash"
+                  name="sparkles"
                   size={24}
                   color="#FFF"
                   style={styles.headerIcon}
@@ -522,6 +524,11 @@ const AIMealPlanDialog: React.FC<AIMealPlanDialogProps> = ({
               </View>
               <View style={styles.headerRightPlaceholder} />
             </View>
+
+            {/* Decorative elements */}
+            <View style={styles.headerDecoration1} />
+            <View style={styles.headerDecoration2} />
+            <View style={styles.headerDecoration3} />
           </LinearGradient>
 
           {/* Conversation Area */}
@@ -537,41 +544,82 @@ const AIMealPlanDialog: React.FC<AIMealPlanDialogProps> = ({
                 entering={FadeInDown.duration(500)}
                 style={styles.welcomeContainer}
               >
-                <LinearGradient
-                  colors={["#6366F1", "#8B5CF6", "#EC4899"]}
-                  style={styles.welcomeIconContainer}
-                >
-                  <Ionicons name="nutrition-outline" size={40} color="#FFF" />
-                </LinearGradient>
-                <Text style={styles.welcomeTitle}>
-                  AI-Powered Meal Planning
-                </Text>
+                <View style={styles.welcomeHeader}>
+                  <LinearGradient
+                    colors={["#FF8A00", "#FF6B00", "#FF5400"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.welcomeGradientBg}
+                  >
+                    <View style={styles.welcomeDecoration1} />
+                    <View style={styles.welcomeDecoration2} />
+                    <View style={styles.welcomeDecoration3} />
+
+                    <View style={styles.welcomeIconContainer}>
+                      <Ionicons name="restaurant" size={40} color="#FFF" />
+                    </View>
+
+                    <Text style={styles.welcomeTitle}>
+                      Your Personal AI Chef
+                    </Text>
+
+                    <Text style={styles.welcomeSubtitle}>
+                      Creating delicious meal plans just for you
+                    </Text>
+                  </LinearGradient>
+                </View>
+
                 <Text style={styles.welcomeText}>
                   I'll create a personalized meal plan based on your preferences
                   using advanced AI technology. Just tell me what you're looking
-                  for!
+                  for and I'll handle the rest!
                 </Text>
+
                 <View style={styles.aiFeaturesList}>
                   <View style={styles.aiFeatureItem}>
-                    <Ionicons name="flash" size={18} color="#6366F1" />
+                    <LinearGradient
+                      colors={["#FF8A00", "#FF6B00"]}
+                      style={styles.featureIconBg}
+                    >
+                      <Ionicons name="flash" size={18} color="#FFF" />
+                    </LinearGradient>
                     <Text style={styles.aiFeatureText}>
                       Smart Food Combinations
                     </Text>
                   </View>
+
                   <View style={styles.aiFeatureItem}>
-                    <Ionicons name="time-outline" size={18} color="#8B5CF6" />
+                    <LinearGradient
+                      colors={["#FF6B00", "#FF5400"]}
+                      style={styles.featureIconBg}
+                    >
+                      <Ionicons name="time-outline" size={18} color="#FFF" />
+                    </LinearGradient>
                     <Text style={styles.aiFeatureText}>Quick Generation</Text>
                   </View>
+
                   <View style={styles.aiFeatureItem}>
-                    <Ionicons
-                      name="sparkles-outline"
-                      size={18}
-                      color="#EC4899"
-                    />
+                    <LinearGradient
+                      colors={["#FF5400", "#FF8A00"]}
+                      style={styles.featureIconBg}
+                    >
+                      <Ionicons
+                        name="sparkles-outline"
+                        size={18}
+                        color="#FFF"
+                      />
+                    </LinearGradient>
                     <Text style={styles.aiFeatureText}>
                       Personalized Suggestions
                     </Text>
                   </View>
+                </View>
+
+                <View style={styles.startPromptContainer}>
+                  <Text style={styles.startPromptText}>
+                    Ready to begin? Just send your first message!
+                  </Text>
+                  <Ionicons name="arrow-down" size={20} color="#FF6B00" />
                 </View>
               </Animated.View>
             )}
@@ -587,7 +635,9 @@ const AIMealPlanDialog: React.FC<AIMealPlanDialogProps> = ({
               >
                 <View style={styles.loadingBubble}>
                   <LinearGradient
-                    colors={["#6366F1", "#8B5CF6", "#EC4899"]}
+                    colors={["#FF8A00", "#FF6B00", "#FF5400"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
                     style={styles.loadingGradient}
                   >
                     <ActivityIndicator size="small" color="#FFF" />
@@ -653,7 +703,7 @@ const AIMealPlanDialog: React.FC<AIMealPlanDialogProps> = ({
                     activeOpacity={0.8}
                   >
                     <LinearGradient
-                      colors={["#6366F1", "#8B5CF6", "#EC4899"]}
+                      colors={["#FF8A00", "#FF6B00", "#FF5400"]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
                       style={styles.acceptButtonGradient}
@@ -702,7 +752,9 @@ const AIMealPlanDialog: React.FC<AIMealPlanDialogProps> = ({
                   <ActivityIndicator size="small" color="#FFF" />
                 ) : (
                   <LinearGradient
-                    colors={["#6366F1", "#8B5CF6", "#EC4899"]}
+                    colors={["#FF8A00", "#FF6B00", "#FF5400"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
                     style={styles.sendButtonGradient}
                   >
                     <Ionicons name="send" size={20} color="#FFF" />
@@ -721,33 +773,28 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.6)",
-    justifyContent: "center",
-    alignItems: "center",
   },
   modalContent: {
-    width: SCREEN_WIDTH * 0.9,
-    height: SCREEN_HEIGHT * 0.85,
+    flex: 1,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
     backgroundColor: "#F9FAFB",
-    borderRadius: 20,
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 15,
-    marginTop: 20,
   },
   header: {
-    paddingTop: 20,
-    paddingBottom: 16,
+    paddingTop: 50,
+    paddingBottom: 20,
+    position: "relative",
+    overflow: "hidden",
   },
   headerContent: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
+    zIndex: 2,
   },
-  closeButton: {
+  backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -763,12 +810,45 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "700",
     color: "#FFF",
+    textShadowColor: "rgba(0, 0, 0, 0.2)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   headerRightPlaceholder: {
     width: 40,
+  },
+  headerDecoration1: {
+    position: "absolute",
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    top: -50,
+    right: -50,
+    zIndex: 1,
+  },
+  headerDecoration2: {
+    position: "absolute",
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    bottom: -30,
+    left: 30,
+    zIndex: 1,
+  },
+  headerDecoration3: {
+    position: "absolute",
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    top: 30,
+    left: -20,
+    zIndex: 1,
   },
   conversationContainer: {
     flex: 1,
@@ -779,8 +859,7 @@ const styles = StyleSheet.create({
   welcomeContainer: {
     alignItems: "center",
     justifyContent: "center",
-    marginVertical: 30,
-    padding: 24,
+    marginVertical: 20,
     backgroundColor: "#FFF",
     borderRadius: 20,
     shadowColor: "#000",
@@ -788,20 +867,70 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 12,
     elevation: 5,
+    overflow: "hidden",
   },
-  welcomeIconContainer: {
+  welcomeHeader: {
+    width: "100%",
+    overflow: "hidden",
+  },
+  welcomeGradientBg: {
+    width: "100%",
+    paddingVertical: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  welcomeDecoration1: {
+    position: "absolute",
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    top: -30,
+    right: -30,
+  },
+  welcomeDecoration2: {
+    position: "absolute",
     width: 80,
     height: 80,
     borderRadius: 40,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    bottom: -20,
+    left: 20,
+  },
+  welcomeDecoration3: {
+    position: "absolute",
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    top: 20,
+    left: -20,
+  },
+  welcomeIconContainer: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
     marginBottom: 20,
+    borderWidth: 2,
+    borderColor: "rgba(255, 255, 255, 0.3)",
   },
   welcomeTitle: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: "700",
-    color: "#333",
-    marginBottom: 12,
+    color: "#FFF",
+    marginBottom: 8,
+    textAlign: "center",
+    textShadowColor: "rgba(0, 0, 0, 0.2)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  welcomeSubtitle: {
+    fontSize: 16,
+    color: "rgba(255, 255, 255, 0.9)",
     textAlign: "center",
   },
   welcomeText: {
@@ -809,7 +938,19 @@ const styles = StyleSheet.create({
     color: "#666",
     textAlign: "center",
     lineHeight: 24,
-    marginBottom: 16,
+    marginVertical: 20,
+    paddingHorizontal: 24,
+  },
+  startPromptContainer: {
+    alignItems: "center",
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  startPromptText: {
+    fontSize: 15,
+    color: "#666",
+    marginBottom: 8,
+    fontStyle: "italic",
   },
   messageContainer: {
     marginBottom: 16,
@@ -846,7 +987,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   userMessageBubble: {
-    backgroundColor: "#6366F1",
+    backgroundColor: "#FF6B00",
     borderTopRightRadius: 4,
     marginLeft: 36, // To align with assistant avatar
   },
@@ -1086,17 +1227,28 @@ const styles = StyleSheet.create({
     width: "100%",
     flexDirection: "row",
     justifyContent: "space-around",
-    marginTop: 16,
-    paddingHorizontal: 8,
+    paddingHorizontal: 16,
   },
   aiFeatureItem: {
     alignItems: "center",
     padding: 12,
     maxWidth: "30%",
   },
+  featureIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
   aiFeatureText: {
-    marginTop: 8,
-    fontSize: 12,
+    fontSize: 13,
     color: "#666",
     fontWeight: "500",
     textAlign: "center",

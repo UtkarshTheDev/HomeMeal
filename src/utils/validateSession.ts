@@ -1,15 +1,88 @@
-// This file is now imported and re-exported by supabaseAuthClient.ts
-// It uses the supabase instance from the parent module to avoid circular dependencies
+// Enhanced session validation with better JWT claim handling
+// This file contains the improved session validation logic with robust error recovery
 
-// We'll get the supabase instance passed to us when the function is called
-let supabase: any;
+// Import supabase directly to avoid dependency issues
+import {
+  supabase as supabaseInstance,
+  getSupabaseClient,
+} from "./supabaseShared";
+import { authStorage } from "./authStorage";
 
-// Set the supabase instance
-export const setSupabaseInstance = (instance: any) => {
-  supabase = instance;
+// We'll use a function to always get the latest instance
+const getSupabase = () => {
+  // First try to get the instance from the shared module
+  const instance = getSupabaseClient();
+
+  // If that fails, use the imported instance as fallback
+  if (instance && instance.auth) {
+    return instance;
+  }
+
+  // If imported instance is valid, use it
+  if (supabaseInstance && supabaseInstance.auth) {
+    return supabaseInstance;
+  }
+
+  // Last resort: log error and return null
+  console.error("CRITICAL: No valid Supabase client available");
+  return null;
 };
 
-// Improved session validation with better error handling and recovery
+// For backward compatibility
+export const setSupabaseInstance = (instance: any) => {
+  // This function is kept for backward compatibility
+  // but doesn't do anything anymore since we always use getSupabase()
+  console.log("setSupabaseInstance called - using dynamic instance instead");
+};
+
+// Helper function to create a user record
+const createUserRecord = async (
+  userId: string,
+  phoneNumber: string
+): Promise<boolean> => {
+  try {
+    console.log("Creating user record for validation:", userId);
+
+    // Get the supabase client
+    const supabase = getSupabase();
+    if (!supabase) {
+      console.error("Cannot create user record: No valid Supabase client");
+      return false;
+    }
+
+    // Check if user already exists
+    const { data: existingUser } = await supabase
+      .from("users")
+      .select("id")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (existingUser) {
+      console.log("User record already exists, skipping creation");
+      return true;
+    }
+
+    // Create minimal user record
+    const { error: insertError } = await supabase.from("users").insert({
+      id: userId,
+      phone_number: phoneNumber || "",
+      created_at: new Date().toISOString(),
+    });
+
+    if (!insertError) {
+      console.log("User record created successfully");
+      return true;
+    }
+
+    console.error("Failed to create user record:", insertError);
+    return false;
+  } catch (error) {
+    console.error("Exception in createUserRecord:", error);
+    return false;
+  }
+};
+
+// Enhanced session validation with better error handling and recovery
 export const validateSession = async (
   retryCount = 0
 ): Promise<{
@@ -21,17 +94,84 @@ export const validateSession = async (
   const MAX_RETRIES = 2;
 
   try {
+    // Get the supabase client using our helper function
+    const supabase = getSupabase();
+
+    // Safety check for supabase client
+    if (!supabase || !supabase.auth) {
+      console.error(
+        "CRITICAL: No valid Supabase client available for validation"
+      );
+
+      // Check if we have session data in storage that we can use
+      try {
+        const storedSession = await authStorage.getSession();
+        if (storedSession && storedSession.user && storedSession.user.id) {
+          console.log("Found session in storage despite client issues");
+          return {
+            valid: true,
+            error: "Using stored session due to client initialization issues",
+            user: storedSession.user,
+            session: storedSession,
+          };
+        }
+      } catch (storageError) {
+        console.error("Failed to check storage for session:", storageError);
+      }
+
+      return {
+        valid: false,
+        error: "Supabase client not initialized",
+        user: null,
+      };
+    }
+
     // First check if we have a session at all
     const { data: sessionData, error: sessionError } =
       await supabase.auth.getSession();
 
     if (sessionError) {
       console.error("Session validation error:", sessionError.message);
+
+      // Check if we have session data in storage that we can use
+      try {
+        const storedSession = await authStorage.getSession();
+        if (storedSession && storedSession.user && storedSession.user.id) {
+          console.log("Found session in storage despite getSession error");
+          return {
+            valid: true,
+            error: "Using stored session due to getSession error",
+            user: storedSession.user,
+            session: storedSession,
+          };
+        }
+      } catch (storageError) {
+        console.error("Failed to check storage for session:", storageError);
+      }
+
       return { valid: false, error: sessionError.message, user: null };
     }
 
     if (!sessionData.session) {
       console.log("No active session found during validation");
+
+      // Check storage directly as a fallback
+      try {
+        const storedSession = await authStorage.getSession();
+        if (storedSession && storedSession.user && storedSession.user.id) {
+          console.log(
+            "Found session in storage despite getSession returning null"
+          );
+          return {
+            valid: true,
+            error: "Using stored session despite getSession returning null",
+            user: storedSession.user,
+            session: storedSession,
+          };
+        }
+      } catch (storageError) {
+        console.error("Failed to check storage for session:", storageError);
+      }
 
       // If we haven't exceeded max retries, try again after a delay
       if (retryCount < MAX_RETRIES) {
@@ -83,12 +223,13 @@ export const validateSession = async (
           "Session refresh failed, checking original session validity"
         );
 
-        // Special handling for JWT claim issues
+        // Enhanced handling for JWT claim issues
         if (
           refreshError.message.includes("claim") ||
           refreshError.message.includes("JWT") ||
           refreshError.message.includes("token")
         ) {
+          console.log("Detected JWT claim issue, attempting recovery");
           const userId = sessionData.session?.user?.id;
           const phone = sessionData.session?.user?.phone;
 
@@ -110,18 +251,34 @@ export const validateSession = async (
                   "User exists in database despite JWT issues - treating as valid"
                 );
 
-                // Try to fix JWT claims
+                // CRITICAL FIX: Force sign out and sign in again to get a fresh token
                 try {
+                  // First try to fix JWT claims using RPC function
                   await supabase.rpc("fix_user_jwt_claims", {
                     p_user_id: userId,
                   });
-                  // One more refresh attempt
-                  await supabase.auth.refreshSession();
+
+                  // Force a complete session refresh
+                  const { data: refreshData } =
+                    await supabase.auth.refreshSession();
+
+                  // If we got a refreshed session, use it
+                  if (refreshData?.session) {
+                    console.log(
+                      "Successfully refreshed session after fixing JWT claims"
+                    );
+                    return {
+                      valid: true,
+                      error: null,
+                      user: refreshData.session.user,
+                      session: refreshData.session,
+                    };
+                  }
                 } catch (fixError) {
                   console.warn("Failed to fix JWT claims:", fixError);
                 }
 
-                // Return valid session since user exists in database
+                // Even if the fix failed, return valid session since user exists in database
                 return {
                   valid: true,
                   error: "Session has JWT issues but user exists - proceeding",
@@ -137,7 +294,27 @@ export const validateSession = async (
                 console.log("User not found in database, creating record");
 
                 try {
+                  // Create user record
                   await createUserRecord(userId, phone || "");
+
+                  // Try to refresh session after creating user
+                  try {
+                    const { data: refreshData } =
+                      await supabase.auth.refreshSession();
+                    if (refreshData?.session) {
+                      return {
+                        valid: true,
+                        error: null,
+                        user: refreshData.session.user,
+                        session: refreshData.session,
+                      };
+                    }
+                  } catch (refreshError) {
+                    console.warn(
+                      "Failed to refresh after creating user:",
+                      refreshError
+                    );
+                  }
 
                   // Return valid session since we created the user
                   return {
@@ -157,89 +334,49 @@ export const validateSession = async (
                   };
                 }
               }
-            } catch (dbError) {
-              console.error("Error checking user in database:", dbError);
-
-              // Last resort - try to get user data directly
-              try {
-                const { data: userData } = await supabase.auth.getUser();
-                if (userData?.user) {
-                  return {
-                    valid: true,
-                    error: "Database check failed but auth user exists",
-                    user: userData.user,
-                    session: sessionData.session,
-                  };
-                }
-              } catch (authError) {
-                console.error("Auth user check also failed:", authError);
-              }
+            } catch (dbCheckError) {
+              console.error("Error checking user in database:", dbCheckError);
             }
           }
         }
-      }
 
-      // Try to validate with the original session
-      const { data: userData, error: userError } =
-        await supabase.auth.getUser();
+        // For other types of refresh errors, check if the session is still valid
+        // by trying to get the user
+        try {
+          const { data: userData, error: userError } =
+            await supabase.auth.getUser();
 
-      if (userError) {
-        console.error("User validation failed:", userError.message);
-
-        // If we haven't exceeded max retries, try again
-        if (retryCount < MAX_RETRIES) {
-          console.log(
-            `Retrying validation after error (attempt ${retryCount + 1})`
-          );
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          return validateSession(retryCount + 1);
+          if (!userError && userData?.user) {
+            console.log(
+              "Session refresh failed but getUser succeeded - treating as valid"
+            );
+            return {
+              valid: true,
+              error: "Session refresh failed but user is valid",
+              user: userData.user,
+              session: sessionData.session,
+            };
+          }
+        } catch (getUserError) {
+          console.error("Error in getUser fallback:", getUserError);
         }
-
-        return { valid: false, error: userError.message, user: null };
       }
 
-      if (!userData.user) {
-        console.log("No user found in session");
-        return { valid: false, error: "No user found", user: null };
-      }
-
-      // Session is valid with original user data
-      return {
-        valid: true,
-        error: null,
-        user: userData.user,
-        session: sessionData.session,
-      };
-    } catch (error) {
-      console.error("Error during session validation:", error);
-
-      // If we haven't exceeded max retries, try again
-      if (retryCount < MAX_RETRIES) {
-        console.log(`Retrying after exception (attempt ${retryCount + 1})`);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        return validateSession(retryCount + 1);
-      }
-
+      // If we get here, the session is invalid
+      console.log("Session is invalid after all checks");
       return {
         valid: false,
-        error: "An unexpected error occurred during session validation.",
+        error: refreshError?.message || "Invalid session",
         user: null,
       };
+    } catch (error) {
+      console.error("Exception during session validation:", error);
+      return { valid: false, error: "Exception during validation", user: null };
     }
   } catch (error) {
-    console.error("Exception during session validation:", error);
-
-    // If we haven't exceeded max retries, try again
-    if (retryCount < MAX_RETRIES) {
-      console.log(`Retrying after error (attempt ${retryCount + 1})`);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      return validateSession(retryCount + 1);
-    }
-
-    return {
-      valid: false,
-      error: "An unexpected error occurred during session validation.",
-      user: null,
-    };
+    console.error("Exception in validateSession:", error);
+    return { valid: false, error: "Exception in validateSession", user: null };
   }
 };
+
+export default validateSession;

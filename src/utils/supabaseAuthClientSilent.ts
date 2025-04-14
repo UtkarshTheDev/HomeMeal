@@ -5,28 +5,36 @@
  */
 
 // Import from the shared file to avoid circular dependencies
-import { supabase, customStorageAdapter } from "./supabaseShared";
+import {
+  supabase,
+  getSupabaseClient,
+  customStorageAdapter,
+} from "./supabaseShared";
+import { authStorage } from "./authStorage";
 
 // Import validateSession
-import {
-  validateSession as validateSessionImported,
-  setSupabaseInstance,
-} from "./validateSessionEnhanced";
-
-// Set the supabase instance in validateSession
-setSupabaseInstance(supabase);
+import { validateSession as validateSessionImported } from "./validateSession";
 
 // Re-export the validateSession function
 export const validateSession = validateSessionImported;
+
+// Helper function to ensure we always have a valid supabase client
+export const getAuthClient = () => {
+  const client = getSupabaseClient();
+  if (!client || !client.auth) {
+    return supabase;
+  }
+  return client;
+};
 
 // Function to force a session refresh with claims - SILENT VERSION
 export const forceSessionRefreshWithClaims = async () => {
   try {
     // First get the current session to check user ID - silently
     const { data: sessionData } = await supabase.auth.getSession();
-    
+
     const userId = sessionData?.session?.user?.id;
-    
+
     if (userId) {
       // Try to fix JWT claims if possible - silently
       try {
@@ -37,7 +45,7 @@ export const forceSessionRefreshWithClaims = async () => {
         // Continue silently even if this fails
       }
     }
-    
+
     // Use the standard refresh method - silently
     const { data, error } = await supabase.auth.refreshSession();
 
@@ -45,17 +53,17 @@ export const forceSessionRefreshWithClaims = async () => {
       // If there's a JWT claim error, try a more aggressive approach - silently
       if (error.message.includes("claim") || error.message.includes("JWT")) {
         // Wait a moment and try again
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
         const { data: retryData } = await supabase.auth.refreshSession();
-        
+
         if (retryData?.session) {
           return true;
         }
-        
+
         return false;
       }
-      
+
       return false;
     }
 
@@ -88,7 +96,23 @@ export const refreshSession = async () => {
 // Function to sign out and clean up - SILENT VERSION
 export const cleanSignOut = async () => {
   try {
-    await supabase.auth.signOut();
+    // Get the auth client
+    const client = getAuthClient();
+
+    // Try to sign out using the Supabase client
+    try {
+      await client.auth.signOut();
+    } catch (signOutError) {
+      // Fail silently
+    }
+
+    // Always clear auth data from storage to ensure complete sign out
+    try {
+      await authStorage.clearAuthData();
+    } catch (clearError) {
+      // Fail silently
+    }
+
     return true;
   } catch (error) {
     // Fail silently
@@ -168,7 +192,7 @@ export const createUserRecord = async (
 ): Promise<boolean> => {
   try {
     // Validate UUID format to avoid database errors
-    if (!userId || userId.length !== 36 || !userId.includes('-')) {
+    if (!userId || userId.length !== 36 || !userId.includes("-")) {
       return false;
     }
 
@@ -249,7 +273,7 @@ export const createUserRecord = async (
       } catch (walletErr) {
         // Continue silently
       }
-      
+
       return true;
     }
 
@@ -263,7 +287,7 @@ export const createUserRecord = async (
       if (!rpcError) {
         return true;
       }
-      
+
       return false;
     } catch (rpcError) {
       return false;

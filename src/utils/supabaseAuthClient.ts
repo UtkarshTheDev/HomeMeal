@@ -9,25 +9,26 @@
 // Import from the shared file to avoid circular dependencies
 import {
   supabase,
+  getSupabaseClient,
   customStorageAdapter,
   isDevelopmentMode,
 } from "./supabaseShared";
 
-// Import enhanced validateSession
-import {
-  validateSession as validateSessionImported,
-  setSupabaseInstance,
-} from "./validateSessionEnhanced";
+// Import validateSession and auth storage
+import { validateSession as validateSessionImported } from "./validateSession";
+import { authStorage } from "./authStorage";
 
-// Set the supabase instance in validateSession
-setSupabaseInstance(supabase);
+// Export the validateSession function directly
+export const validateSession = validateSessionImported;
 
-// Create an enhanced version of validateSession that always sets the supabase instance
-const originalValidateSession = validateSessionImported;
-export const validateSession = async (...args: any[]) => {
-  // Reset the supabase instance before validation
-  setSupabaseInstance(supabase);
-  return originalValidateSession(...args);
+// Helper function to ensure we always have a valid supabase client
+export const getAuthClient = () => {
+  const client = getSupabaseClient();
+  if (!client || !client.auth) {
+    console.error("Failed to get auth client, using imported instance");
+    return supabase;
+  }
+  return client;
 };
 
 // Function to force a session refresh with claims - ENHANCED
@@ -120,10 +121,32 @@ export const refreshSession = async () => {
 export const cleanSignOut = async () => {
   try {
     console.log("Signing out and cleaning up...");
-    await supabase.auth.signOut();
+
+    // Get the auth client
+    const client = getAuthClient();
+
+    // Try to sign out using the Supabase client
+    try {
+      await client.auth.signOut();
+    } catch (signOutError) {
+      console.warn("Error during Supabase signOut:", signOutError);
+    }
+
+    // Always clear auth data from storage to ensure complete sign out
+    await authStorage.clearAuthData();
+
+    console.log("Sign out complete");
     return true;
   } catch (error) {
     console.error("Error in cleanSignOut:", error);
+
+    // Try to clear auth data even if there was an error
+    try {
+      await authStorage.clearAuthData();
+    } catch (clearError) {
+      console.error("Failed to clear auth data:", clearError);
+    }
+
     return false;
   }
 };

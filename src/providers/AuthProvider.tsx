@@ -13,10 +13,12 @@ import { ROUTES } from "@/src/utils/routes";
 import { useLoading } from "./LoadingProvider";
 import {
   supabase,
+  getAuthClient,
   validateSession,
   cleanSignOut, // Import cleanSignOut
   createUserRecord,
 } from "@/src/utils/supabaseAuthClient";
+import { authStorage } from "@/src/utils/authStorage";
 import SplashAnimation from "../components/animations/SplashAnimation";
 import LoadingScreen from "../components/LoadingScreen";
 import { Alert } from "react-native";
@@ -102,8 +104,11 @@ const refreshSession = async (): Promise<Session | null> => {
       validationResult.error
     );
 
+    // Get the auth client
+    const client = getAuthClient();
+
     // Try to refresh the session
-    const { data, error } = await supabase.auth.refreshSession();
+    const { data, error } = await client.auth.refreshSession();
 
     if (error) {
       console.error("Failed to refresh token:", error);
@@ -117,14 +122,15 @@ const refreshSession = async (): Promise<Session | null> => {
       ) {
         console.log("JWT claim issue detected, checking user record");
 
-        // Try to get the session even if it has claim issues
-        const { data: sessionData } = await supabase.auth.getSession();
-        if (sessionData?.session?.user?.id) {
-          const userId = sessionData.session.user.id;
+        // Try to get the session from storage directly
+        const storedSession = await authStorage.getSession();
+        if (storedSession?.user?.id) {
+          const userId = storedSession.user.id;
+          console.log("Found user ID in stored session:", userId);
 
           // Check if user record exists in database
           try {
-            const { data: userRecord, error: userError } = await supabase
+            const { data: userRecord, error: userError } = await client
               .from("users")
               .select("id, phone_number, role")
               .eq("id", userId)
@@ -136,16 +142,40 @@ const refreshSession = async (): Promise<Session | null> => {
               console.log("User record exists despite JWT claim issues");
 
               // One more attempt to refresh the session
-              await supabase.auth.refreshSession();
+              try {
+                await client.auth.refreshSession();
+              } catch (refreshError) {
+                console.warn("Final refresh attempt failed:", refreshError);
+              }
 
               // Get the latest session
-              const { data: refreshedData } = await supabase.auth.getSession();
+              try {
+                const { data: refreshedData } = await client.auth.getSession();
 
-              // If we have a session, return it even if it has claim issues
-              if (refreshedData?.session) {
-                console.log("Using existing session despite claim issues");
-                return refreshedData.session;
+                // If we have a session, return it even if it has claim issues
+                if (refreshedData?.session) {
+                  console.log("Using existing session despite claim issues");
+                  return refreshedData.session;
+                }
+              } catch (getSessionError) {
+                console.warn(
+                  "Failed to get refreshed session:",
+                  getSessionError
+                );
               }
+
+              // If we still don't have a valid session but have user data,
+              // construct a minimal session object
+              console.log("Constructing minimal session from stored data");
+              return {
+                user: {
+                  id: userId,
+                  phone: userRecord.phone_number,
+                  role: userRecord.role,
+                },
+                access_token: storedSession.access_token || "invalid",
+                refresh_token: storedSession.refresh_token || "invalid",
+              };
             }
           } catch (checkError) {
             console.error("Error checking user record:", checkError);
@@ -1146,11 +1176,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         setIsLoading(true);
         setShouldShowLoadingScreen(true);
 
-        // Call Supabase signOut
-        const { error } = await supabase.auth.signOut();
-        if (error) {
-          console.error("Error signing out:", error);
-          throw error;
+        // Use our enhanced cleanSignOut function
+        const success = await cleanSignOut();
+        if (!success) {
+          console.warn(
+            "Clean sign out failed, trying to clear auth data manually"
+          );
+          // Try to clear auth data manually
+          await authStorage.clearAuthData();
         }
 
         // Reset state
