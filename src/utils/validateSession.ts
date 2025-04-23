@@ -8,6 +8,12 @@ import {
 } from "./supabaseShared";
 import { authStorage } from "./authStorage";
 
+// Add a global flag to track session validation attempts
+// This helps prevent excessive validation attempts
+let sessionValidationInProgress = false;
+let lastValidationTime = 0;
+const MIN_VALIDATION_INTERVAL = 2000; // 2 seconds
+
 // We'll use a function to always get the latest instance
 const getSupabase = () => {
   // First try to get the instance from the shared module
@@ -92,6 +98,25 @@ export const validateSession = async (
   session?: any;
 }> => {
   const MAX_RETRIES = 2;
+
+  // Check if validation is already in progress or was recently performed
+  const now = Date.now();
+  if (sessionValidationInProgress) {
+    console.log(
+      "Session validation already in progress, skipping duplicate call"
+    );
+    return { valid: true, error: "Validation in progress", user: null };
+  }
+
+  // Check if we've validated recently
+  if (now - lastValidationTime < MIN_VALIDATION_INTERVAL && retryCount === 0) {
+    console.log("Session was validated recently, skipping duplicate call");
+    return { valid: true, error: "Recent validation", user: null };
+  }
+
+  // Set the flag to prevent concurrent validations
+  sessionValidationInProgress = true;
+  lastValidationTime = now;
 
   try {
     // Get the supabase client using our helper function
@@ -376,6 +401,9 @@ export const validateSession = async (
   } catch (error) {
     console.error("Exception in validateSession:", error);
     return { valid: false, error: "Exception in validateSession", user: null };
+  } finally {
+    // Reset the flag to allow future validations
+    sessionValidationInProgress = false;
   }
 };
 

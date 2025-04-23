@@ -30,6 +30,7 @@ interface AuthContextType {
   refreshSession: () => Promise<void>;
   updateUserDetails: (details: Partial<UserDetails>) => void;
   updateUserRole: (role: UserRole) => void;
+  updateSetupStatus: (status: Record<string, boolean>) => Promise<boolean>;
   checkOnboardingStatus: () => Promise<{
     isComplete: boolean;
     route?: string;
@@ -50,6 +51,7 @@ const AuthContext = createContext<AuthContextType>({
   refreshSession: async () => {},
   updateUserDetails: () => {},
   updateUserRole: () => {},
+  updateSetupStatus: async () => false,
   checkOnboardingStatus: async () => ({ isComplete: false }),
 });
 
@@ -130,19 +132,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // Check if role is selected
       if (!details.role) {
-        console.log("Role not selected, redirecting to role selection");
-        return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
+        console.log("📊 Checking role in database for user:", user.id);
+
+        // Double-check directly in the database
+        const { data: userRecord, error: recordError } = await supabase
+          .from("users")
+          .select("role")
+          .eq("id", user.id)
+          .single();
+
+        if (recordError) {
+          console.error("Error checking user role:", recordError);
+        } else if (userRecord?.role) {
+          console.log("✅ User already has role:", userRecord.role);
+          // Update local state
+          setUserRole(userRecord.role as any);
+          // Continue with the updated role
+          if (userRecord.role === "chef") {
+            return { isComplete: false, route: ROUTES.AUTH_PROFILE_SETUP };
+          }
+        } else {
+          console.log("Role not selected, redirecting to role selection");
+          return { isComplete: false, route: ROUTES.AUTH_ROLE_SELECTION };
+        }
       }
 
       // Check if profile is completed
-      if (!details.profile_completed) {
+      const hasCompletedProfile =
+        details.profile_completed ||
+        (details.name && details.phone && details.address);
+
+      if (!hasCompletedProfile) {
         console.log("Profile not completed, redirecting to profile setup");
         return {
           isComplete: false,
-          route:
-            details.role === "customer"
-              ? ROUTES.AUTH_PROFILE_SETUP
-              : ROUTES.AUTH_PROFILE_SETUP,
+          route: ROUTES.AUTH_PROFILE_SETUP,
         };
       }
 
@@ -153,7 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
 
       // For chefs, check if meal creation is completed
-      if (details.role === "customer" && !details.meal_creation_completed) {
+      if (details.role === "chef" && !details.meal_creation_completed) {
         console.log(
           "Chef meal creation not completed, redirecting to meal creation"
         );
@@ -194,16 +218,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // Function to refresh the session
   const refreshSession = useCallback(async () => {
     try {
-      const { data, error } = await supabase.auth.refreshSession();
-      if (error) throw error;
+      // Don't show loading indicator for background refreshes
+      console.log("Pre-emptively refreshing session before role update...");
 
-      if (data.session) {
+      // Use a timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Session refresh timed out")), 5000);
+      });
+
+      // Actual refresh operation
+      const refreshPromise = supabase.auth.refreshSession();
+
+      // Race between timeout and actual operation
+      const { data, error } = (await Promise.race([
+        refreshPromise,
+        timeoutPromise.then(() => ({
+          data: null,
+          error: new Error("Timeout"),
+        })),
+      ])) as any;
+
+      if (error) {
+        console.error("Error refreshing session:", error);
+        return null;
+      }
+
+      if (data?.session) {
         setSession(data.session);
         setUser(data.session.user);
+        return data.session;
       }
     } catch (error) {
-      console.error("Error refreshing session:", error);
+      console.error("Exception refreshing session:", error);
     }
+    return null;
   }, [supabase]);
 
   // Function to update user details
@@ -215,6 +263,76 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const updateUserRole = useCallback((role: UserRole) => {
     setUserRole(role);
   }, []);
+
+  // Function to update setup status in the database
+  const updateSetupStatus = useCallback(
+    async (status: Record<string, boolean>): Promise<boolean> => {
+      try {
+        if (!user) {
+          console.error("Cannot update setup status: No user logged in");
+          return false;
+        }
+
+        console.log("Updating setup status for user", user.id, status);
+
+        // First get current setup_status
+        const { data: currentData, error: fetchError } = await supabase
+          .from("users")
+          .select("setup_status")
+          .eq("id", user.id)
+          .single();
+
+        if (fetchError) {
+          console.error("Error fetching current setup status:", fetchError);
+        }
+
+        // Merge current status with new status
+        const currentSetupStatus = currentData?.setup_status || {};
+        const updatedStatus = {
+          ...currentSetupStatus,
+          ...status,
+        };
+
+        // Update the database
+        const { error: updateError } = await supabase
+          .from("users")
+          .update({ setup_status: updatedStatus })
+          .eq("id", user.id);
+
+        if (updateError) {
+          console.error("Error updating setup status:", updateError);
+          return false;
+        }
+
+        // Also update local state if we have userDetails
+        if (userDetails) {
+          // Map setup status fields to UserDetails fields
+          const detailsUpdate: Partial<UserDetails> = {};
+
+          if (status.profile_completed !== undefined) {
+            detailsUpdate.profile_completed = status.profile_completed;
+          }
+
+          if (status.meal_creation_completed !== undefined) {
+            detailsUpdate.meal_creation_completed =
+              status.meal_creation_completed;
+          }
+
+          // Update local state if we have any mappable fields
+          if (Object.keys(detailsUpdate).length > 0) {
+            updateUserDetails(detailsUpdate);
+          }
+        }
+
+        console.log("Setup status updated successfully");
+        return true;
+      } catch (error) {
+        console.error("Exception updating setup status:", error);
+        return false;
+      }
+    },
+    [user, userDetails, supabase, updateUserDetails]
+  );
 
   // Listen for auth state changes
   useEffect(() => {
@@ -505,12 +623,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     let mounted = true;
     let sessionValidationInterval: NodeJS.Timeout;
+    let lastValidationTime = 0;
+    const MIN_VALIDATION_INTERVAL = 30000; // 30 seconds
 
     const validateCurrentSession = async () => {
       if (!mounted) return;
 
+      // Prevent excessive validations
+      const now = Date.now();
+      if (now - lastValidationTime < MIN_VALIDATION_INTERVAL) {
+        console.log("Skipping session validation - too soon since last check");
+        return;
+      }
+
+      lastValidationTime = now;
+
       try {
         if (session) {
+          console.log("Performing periodic session validation check");
           const { valid } = await validateSession();
           if (!valid && mounted) {
             console.log("Session validation failed, signing out");
@@ -522,17 +652,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     };
 
-    // Initial validation
-    validateCurrentSession();
+    // Initial validation after a short delay
+    const initialValidationTimeout = setTimeout(validateCurrentSession, 5000);
 
     // Set up interval for periodic validation
     sessionValidationInterval = setInterval(
       validateCurrentSession,
-      5 * 60 * 1000
-    ); // Every 5 minutes
+      10 * 60 * 1000
+    ); // Every 10 minutes
 
     return () => {
       mounted = false;
+      clearTimeout(initialValidationTimeout);
       clearInterval(sessionValidationInterval);
     };
   }, [session, signOut, supabase]);
@@ -560,6 +691,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     refreshSession,
     updateUserDetails,
     updateUserRole,
+    updateSetupStatus,
     checkOnboardingStatus,
   };
 
