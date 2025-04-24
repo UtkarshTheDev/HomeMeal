@@ -1,5 +1,6 @@
 import { useContext } from "react";
-import { SupabaseContext } from "@/app/_layout";
+import SupabaseContext from "../contexts/SupabaseContext";
+// import { SupabaseContext } from "@/app/_layout";
 
 /**
  * Hook to access the Supabase client and session

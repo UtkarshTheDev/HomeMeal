@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import { View, ViewProps } from "react-native";
 import Animated, {
   EntryExitAnimationFunction,
@@ -28,35 +28,53 @@ const AnimatedSafeView: React.FC<AnimatedSafeViewProps> = ({
   disableLayoutAnimation = false,
   ...props
 }) => {
-  // If we have entering/exiting animations but want to disable layout animations
-  // to avoid conflicts with opacity
-  if ((entering || exiting) && disableLayoutAnimation) {
-    return (
-      <View style={{ overflow: "hidden" }}>
+  // Use a ref to track if the component is mounted
+  const isMounted = useRef(true);
+
+  // Safely wrap animations to prevent errors
+  const safeEntering = entering ? entering : undefined;
+  const safeExiting = exiting ? exiting : undefined;
+  const safeLayout = layout ? layout : undefined;
+
+  try {
+    // If we have entering/exiting animations but want to disable layout animations
+    // to avoid conflicts with opacity
+    if ((safeEntering || safeExiting) && disableLayoutAnimation) {
+      return (
+        <View style={{ overflow: "hidden" }}>
+          <Animated.View
+            style={style}
+            entering={safeEntering}
+            exiting={safeExiting}
+            {...props}
+          >
+            {children}
+          </Animated.View>
+        </View>
+      );
+    }
+
+    // If we have entering/exiting/layout animations, use Animated.View directly
+    if (safeEntering || safeExiting || safeLayout) {
+      return (
         <Animated.View
           style={style}
-          entering={entering}
-          exiting={exiting}
+          entering={safeEntering}
+          exiting={safeExiting}
+          layout={safeLayout}
           {...props}
         >
           {children}
         </Animated.View>
-      </View>
-    );
-  }
-
-  // If we have entering/exiting/layout animations, use Animated.View directly
-  if (entering || exiting || layout) {
+      );
+    }
+  } catch (error) {
+    console.error("Error in AnimatedSafeView:", error);
+    // Fall back to regular View on error
     return (
-      <Animated.View
-        style={style}
-        entering={entering}
-        exiting={exiting}
-        layout={layout}
-        {...props}
-      >
+      <View style={[{ overflow: "hidden" }, style]} {...props}>
         {children}
-      </Animated.View>
+      </View>
     );
   }
 

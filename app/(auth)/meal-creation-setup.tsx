@@ -28,11 +28,6 @@ import Animated, {
   FadeIn,
   FadeInDown,
   FadeInUp,
-  useSharedValue,
-  useAnimatedStyle,
-  withTiming,
-  withSequence,
-  withSpring,
 } from "react-native-reanimated";
 import { useSupabase } from "@/src/hooks/useSupabase";
 import { useAuth } from "@/src/providers/AuthProvider";
@@ -40,7 +35,7 @@ import { ROUTES } from "@/src/utils/routes";
 import LoadingIndicator from "@/src/components/LoadingIndicator";
 import { COLORS } from "@/src/theme/colors";
 import AnimatedSafeView from "@/src/components/AnimatedSafeView";
-import { useAnimatedSafeValue } from "@/src/hooks/useAnimatedValues";
+import { useButtonAnimation } from "@/src/hooks/useButtonAnimation";
 
 const { width } = Dimensions.get("window");
 
@@ -110,32 +105,9 @@ export default function MealCreationSetupScreen() {
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const insets = useSafeAreaInsets();
 
-  // Animation values - use safe hooks
-  const { sharedValue: exploreButtonScale, setValue: setExploreButtonScale } =
-    useAnimatedSafeValue(1);
-  const { sharedValue: skipButtonScale, setValue: setSkipButtonScale } =
-    useAnimatedSafeValue(1);
-  const { sharedValue: createButtonScale, setValue: setCreateButtonScale } =
-    useAnimatedSafeValue(1);
-  const { sharedValue: saveButtonScale, setValue: setSaveButtonScale } =
-    useAnimatedSafeValue(1);
-
-  // Animated styles
-  const exploreButtonAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: exploreButtonScale.value }],
-  }));
-
-  const skipButtonAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: skipButtonScale.value }],
-  }));
-
-  const createButtonAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: createButtonScale.value }],
-  }));
-
-  const saveButtonAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: saveButtonScale.value }],
-  }));
+  // Use our new button animation hook
+  const { handlePressIn, handlePressOut, animatedStyles } =
+    useButtonAnimation();
 
   // Fetch user's meal plans on mount
   useEffect(() => {
@@ -163,34 +135,7 @@ export default function MealCreationSetupScreen() {
     }
   };
 
-  // Handle button press animations
-  const handlePressIn = (
-    buttonType: "explore" | "skip" | "create" | "save"
-  ) => {
-    if (buttonType === "explore") {
-      setExploreButtonScale(0.95);
-    } else if (buttonType === "skip") {
-      setSkipButtonScale(0.95);
-    } else if (buttonType === "create") {
-      setCreateButtonScale(0.95);
-    } else if (buttonType === "save") {
-      setSaveButtonScale(0.95);
-    }
-  };
-
-  const handlePressOut = (
-    buttonType: "explore" | "skip" | "create" | "save"
-  ) => {
-    if (buttonType === "explore") {
-      setExploreButtonScale(1);
-    } else if (buttonType === "skip") {
-      setSkipButtonScale(1);
-    } else if (buttonType === "create") {
-      setCreateButtonScale(1);
-    } else if (buttonType === "save") {
-      setSaveButtonScale(1);
-    }
-  };
+  // We're now using the handlePressIn and handlePressOut from useButtonAnimation
 
   const handleCreateMeal = async () => {
     if (isLoading) return;
@@ -422,7 +367,7 @@ export default function MealCreationSetupScreen() {
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>Your Meal Plans</Text>
             <AnimatedPressable
-              style={[styles.createButton, createButtonAnimatedStyle]}
+              style={[styles.createButton, animatedStyles.create]}
               onPress={handleCreateMeal}
               onPressIn={() => handlePressIn("create")}
               onPressOut={() => handlePressOut("create")}
@@ -514,7 +459,7 @@ export default function MealCreationSetupScreen() {
       >
         <View style={styles.buttonRow}>
           <AnimatedPressable
-            style={[styles.skipButton, skipButtonAnimatedStyle]}
+            style={[styles.skipButton, animatedStyles.skip]}
             onPress={handleSkipSetup}
             onPressIn={() => handlePressIn("skip")}
             onPressOut={() => handlePressOut("skip")}
@@ -529,7 +474,7 @@ export default function MealCreationSetupScreen() {
 
           {selectedMealPlan ? (
             <AnimatedPressable
-              style={[styles.exploreButton, saveButtonAnimatedStyle]}
+              style={[styles.exploreButton, animatedStyles.save]}
               onPress={saveMealPlanSchedule}
               onPressIn={() => handlePressIn("save")}
               onPressOut={() => handlePressOut("save")}
@@ -543,7 +488,7 @@ export default function MealCreationSetupScreen() {
             </AnimatedPressable>
           ) : (
             <AnimatedPressable
-              style={[styles.exploreButton, exploreButtonAnimatedStyle]}
+              style={[styles.exploreButton, animatedStyles.explore]}
               onPress={handleCreateMeal}
               onPressIn={() => handlePressIn("explore")}
               onPressOut={() => handlePressOut("explore")}
