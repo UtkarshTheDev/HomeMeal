@@ -9,78 +9,59 @@ import { useCallback, useRef, useEffect } from "react";
  * @returns An object containing the shared value and a function to get its current value
  */
 export const useAnimatedSafeValue = <T>(initialValue: T) => {
-  // Create the shared value with a try-catch to handle potential errors
-  const sharedValueRef = useRef<any>(null);
-
-  try {
-    if (!sharedValueRef.current) {
-      sharedValueRef.current = useSharedValue<T>(initialValue);
-    }
-  } catch (error) {
-    console.error("Error creating shared value:", error);
-    // If there's an error, we'll use a fallback mechanism
-  }
+  // ALWAYS create the shared value at the top level to maintain hooks order
+  const sharedValue = useSharedValue<T>(initialValue);
 
   // Store the latest value in a ref to avoid direct access during render
   const latestValueRef = useRef<T>(initialValue);
 
-  // Ensure we have a valid shared value or create a fallback
-  const getSharedValue = useCallback(() => {
-    if (!sharedValueRef.current) {
-      // Create a fallback object that mimics the shared value interface
-      sharedValueRef.current = {
-        value: latestValueRef.current,
-        _value: latestValueRef.current,
-      };
-    }
-    return sharedValueRef.current;
-  }, []);
+  // We always initialize at the top level now, so no need for additional tracking
 
-  // Update the ref whenever the value changes
-  // This will be called in useEffect or event handlers, not during render
+  // Update the ref with the initial value
+  useEffect(() => {
+    latestValueRef.current = initialValue;
+    if (sharedValue) {
+      sharedValue.value = initialValue;
+    }
+  }, [initialValue]);
+
+  // Update the value safely
   const setValue = useCallback(
     (newValue: T) => {
       try {
-        const sv = getSharedValue();
-        sv.value = newValue;
+        if (sharedValue) {
+          sharedValue.value = newValue;
+        }
         latestValueRef.current = newValue;
       } catch (error) {
         console.error("Error setting animated value:", error);
         latestValueRef.current = newValue;
       }
     },
-    [getSharedValue]
+    [sharedValue]
   );
 
-  // This function should be called outside of render,
-  // such as in event handlers or useEffect
+  // Get the current value safely
   const getValue = useCallback(() => {
     try {
-      // Update the ref with the latest value
-      const sv = getSharedValue();
-      latestValueRef.current = sv.value;
+      if (sharedValue) {
+        latestValueRef.current = sharedValue.value;
+      }
     } catch (error) {
       console.error("Error getting animated value:", error);
     }
     return latestValueRef.current;
-  }, [getSharedValue]);
+  }, [sharedValue]);
 
   // For render-time access, use the ref value, not the sharedValue.value directly
   const getCurrentValue = useCallback(() => {
     return latestValueRef.current;
   }, []);
 
-  // Clean up on unmount
-  useEffect(() => {
-    return () => {
-      // Clean up any resources if needed
-    };
-  }, []);
-
   return {
-    sharedValue: getSharedValue(),
-    getValue, // Use in useEffect/event handlers to get fresh value
-    getCurrentValue, // Safe to use during render
-    setValue, // Safe way to update value
+    sharedValue,
+    getValue,
+    getCurrentValue,
+    setValue,
   };
 };

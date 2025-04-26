@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect } from "react";
+import React, { useCallback, useState, useEffect, memo } from "react";
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import Animated, {
   FadeIn,
   FadeInDown,
   FadeInUp,
+  FadeInRight,
   SlideInUp,
   useAnimatedStyle,
   withTiming,
@@ -30,6 +31,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { COLORS } from "@/src/theme/colors";
 import { useAnimatedSafeValue } from "@/src/hooks/useAnimatedValues";
+import { useAnimatedItemStyles } from "@/src/hooks/useAnimatedStyles";
 import AnimatedSafeView from "@/src/components/AnimatedSafeView";
 import { useSupabase } from "@/src/hooks/useSupabase";
 import { useAuth } from "@/src/providers/AuthProvider";
@@ -37,6 +39,267 @@ import AIMealPlanDialog from "@/src/components/AIMealPlanDialog";
 import { FoodItem } from "@/src/types/food";
 import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+
+// FoodPreviewList component - memoized for better performance
+const FoodPreviewList = memo(
+  ({
+    mealTypeId,
+    mealTypeColor,
+    selectedFoodIds,
+    availableFoods,
+    onRetry,
+  }: {
+    mealTypeId: string;
+    mealTypeColor: string;
+    selectedFoodIds: string[];
+    availableFoods: FoodItem[];
+    onRetry: () => void;
+  }) => {
+    console.log(
+      `FoodPreviewList rendering for ${mealTypeId} with ${selectedFoodIds.length} selected foods`
+    );
+    console.log(`Available foods count: ${availableFoods.length}`);
+
+    // If we have no selected food IDs, show the "no foods" message
+    if (selectedFoodIds.length === 0) {
+      return (
+        <View style={styles.noFoodsFoundContainer}>
+          <Text style={styles.noFoodsFoundText}>No foods selected</Text>
+          <TouchableOpacity
+            onPress={onRetry}
+            style={[
+              styles.retryButton,
+              { backgroundColor: mealTypeColor + "20" },
+            ]}
+          >
+            <Text style={[styles.retryButtonText, { color: mealTypeColor }]}>
+              Tap to select foods
+            </Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    // If we have no available foods data, show a loading indicator
+    if (availableFoods.length === 0) {
+      return (
+        <View style={styles.loadingFoodsContainer}>
+          <ActivityIndicator size="small" color={mealTypeColor} />
+          <Text style={styles.loadingFoodsText}>Loading food details...</Text>
+        </View>
+      );
+    }
+
+    // Create a map of food IDs to food details for faster lookup
+    const foodMap = new Map(availableFoods.map((food) => [food.id, food]));
+
+    // Check if we can find any of the selected food IDs in the available foods
+    const foundFoodIds = selectedFoodIds.filter((id) => foodMap.has(id));
+    console.log(
+      `Found ${foundFoodIds.length} out of ${selectedFoodIds.length} food IDs in available foods`
+    );
+
+    // If we can't find any of the selected food IDs, use fallback data
+    if (foundFoodIds.length === 0) {
+      console.log(
+        `No food details found for ${mealTypeId}, using fallback data`
+      );
+
+      // Create fallback foods based on the meal type
+      const fallbackFoods = selectedFoodIds.map((foodId, index) => {
+        // For fallback foods (like "lunch-1", "dinner-2"), check if they're in the format "mealType-number"
+        if (foodId.includes("-")) {
+          const [type, number] = foodId.split("-");
+          return {
+            id: foodId,
+            name:
+              type === "lunch"
+                ? `Lunch Item ${number}`
+                : type === "dinner"
+                ? `Dinner Item ${number}`
+                : type === "breakfast"
+                ? `Breakfast Item ${number}`
+                : `Food Item ${number}`,
+            price:
+              type === "lunch"
+                ? 150
+                : type === "dinner"
+                ? 180
+                : type === "breakfast"
+                ? 120
+                : 100,
+            category: `${
+              type.charAt(0).toUpperCase() + type.slice(1)
+            }, Vegetarian`,
+            image_url: `https://source.unsplash.com/random/300x200/?${type}`,
+            is_available: true,
+          };
+        }
+
+        // Return a generic fallback food if not in the expected format
+        return {
+          id: foodId,
+          name: `${
+            mealTypeId.charAt(0).toUpperCase() + mealTypeId.slice(1)
+          } Item ${index + 1}`,
+          price:
+            mealTypeId === "lunch"
+              ? 150
+              : mealTypeId === "dinner"
+              ? 180
+              : mealTypeId === "breakfast"
+              ? 120
+              : 100,
+          is_available: true,
+          image_url: `https://source.unsplash.com/random/300x200/?${mealTypeId}`,
+          category: `${
+            mealTypeId.charAt(0).toUpperCase() + mealTypeId.slice(1)
+          }, Vegetarian`,
+        };
+      });
+
+      // Use the fallback foods instead of mapping
+      return (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.foodPreviewScrollContent}
+          testID={`food-preview-scroll-${mealTypeId}`}
+        >
+          {fallbackFoods.map((food) => (
+            <Animated.View
+              key={food.id}
+              entering={FadeInRight.duration(300)}
+              style={styles.foodPreviewItem}
+              testID={`food-preview-${mealTypeId}-${food.id}`}
+            >
+              <Image
+                source={{
+                  uri:
+                    food.image_url ||
+                    "https://via.placeholder.com/50?text=Food",
+                }}
+                style={[
+                  styles.foodPreviewImage,
+                  { borderColor: mealTypeColor + "40" },
+                ]}
+              />
+              <Text style={styles.foodPreviewName} numberOfLines={1}>
+                {food.name}
+              </Text>
+              <Text style={[styles.foodPreviewPrice, { color: mealTypeColor }]}>
+                ₹{food.price}
+              </Text>
+            </Animated.View>
+          ))}
+        </ScrollView>
+      );
+    }
+
+    // Map food IDs to food objects if we found some matches
+    const foodDetails = selectedFoodIds.map((foodId) => {
+      // Find the food in available foods using the map
+      const food = foodMap.get(foodId);
+      if (food) {
+        console.log(`Found food for ID ${foodId}:`, food.name);
+        return food;
+      } else {
+        console.log(`Food not found for ID ${foodId}, using fallback`);
+
+        // For fallback foods (like "lunch-1", "dinner-2"), check if they're in the format "mealType-number"
+        if (foodId.includes("-")) {
+          const [type, number] = foodId.split("-");
+          return {
+            id: foodId,
+            name:
+              type === "lunch"
+                ? `Lunch Item ${number}`
+                : type === "dinner"
+                ? `Dinner Item ${number}`
+                : type === "snacks"
+                ? `Snack Item ${number}`
+                : `Food Item ${number}`,
+            price:
+              type === "lunch"
+                ? 150
+                : type === "dinner"
+                ? 180
+                : type === "breakfast"
+                ? 120
+                : type === "snacks"
+                ? 80
+                : 100,
+            category: `${
+              type.charAt(0).toUpperCase() + type.slice(1)
+            }, Vegetarian`,
+            image_url: `https://source.unsplash.com/random/300x200/?${type}`,
+            is_available: true,
+          };
+        }
+
+        // Return a generic fallback food if not found
+        return {
+          id: foodId,
+          name: `${
+            mealTypeId.charAt(0).toUpperCase() + mealTypeId.slice(1)
+          } Food`,
+          price:
+            mealTypeId === "lunch"
+              ? 150
+              : mealTypeId === "dinner"
+              ? 180
+              : mealTypeId === "breakfast"
+              ? 120
+              : mealTypeId === "snacks"
+              ? 80
+              : 100,
+          is_available: true,
+          image_url: `https://source.unsplash.com/random/300x200/?${mealTypeId}`,
+          category: `${
+            mealTypeId.charAt(0).toUpperCase() + mealTypeId.slice(1)
+          }, Vegetarian`,
+        };
+      }
+    });
+
+    console.log(`Returning ${foodDetails.length} foods for ${mealTypeId}`);
+
+    return (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.foodPreviewScrollContent}
+        testID={`food-preview-scroll-${mealTypeId}`}
+      >
+        {foodDetails.map((food) => (
+          <Animated.View
+            key={food.id}
+            entering={FadeInRight.duration(300)}
+            style={styles.foodPreviewItem}
+            testID={`food-preview-${mealTypeId}-${food.id}`}
+          >
+            <Image
+              source={{
+                uri:
+                  food.image_url || "https://via.placeholder.com/50?text=Food",
+              }}
+              style={[
+                styles.foodPreviewImage,
+                { borderColor: mealTypeColor + "40" },
+              ]}
+            />
+            <Text style={styles.foodPreviewName} numberOfLines={1}>
+              {food.name}
+            </Text>
+            <Text style={[styles.foodPreviewPrice, { color: mealTypeColor }]}>
+              ₹{food.price}
+            </Text>
+          </Animated.View>
+        ))}
+      </ScrollView>
+    );
+  }
+);
 
 // Define meal types with their properties
 const MEAL_TYPES = [
@@ -100,16 +363,26 @@ export default function MealCreationScreen() {
     ? parseInt(params.itemsCount as string)
     : 0;
   const totalPrice = params.totalPrice
-    ? parseInt(params.totalPrice as string)
+    ? parseFloat(params.totalPrice as string)
     : 0;
+  const mealNameParam = params.mealName as string | undefined;
+  const mealIdParam = params.mealId as string | undefined;
+  const selectedMealTypesParam = params.selectedMealTypes as string | undefined;
+  const selectedFoodsForMealTypeParam = params.selectedFoodsForMealType as
+    | string
+    | undefined;
 
   // State for loading and meal plan data
   const [isLoading, setIsLoading] = useState(false);
   const [mealName, setMealName] = useState("");
   const [selectedMealTypes, setSelectedMealTypes] = useState<string[]>([]);
-  const [selectedWeekdays, setSelectedWeekdays] = useState<string[]>([]);
+  // Weekday selection is now handled in meal-creation-setup
   const [selectedFoodsCount, setSelectedFoodsCount] = useState<{
     [key: string]: number;
+  }>({});
+  // Store the selected foods for each meal type
+  const [selectedFoodsByMealType, setSelectedFoodsByMealType] = useState<{
+    [key: string]: string[];
   }>({});
   const [availableFoods, setAvailableFoods] = useState<FoodItem[]>([]);
   const [showAIDialog, setShowAIDialog] = useState(false);
@@ -136,37 +409,410 @@ export default function MealCreationScreen() {
     transform: [{ scale: aiButtonScale.value }],
   }));
 
-  // Create animated scales for meal type cards with improved hook
-  const mealTypeScales = MEAL_TYPES.reduce((acc, mealType) => {
-    acc[mealType.id] = useAnimatedSafeValue<number>(1);
-    return acc;
-  }, {} as { [key: string]: ReturnType<typeof useAnimatedSafeValue<number>> });
+  // Use our custom hook to create animated styles for meal types and weekdays
+  // This ensures all hooks are called at the top level, following React's rules of hooks
+  const { scales: mealTypeScales, animatedStyles: mealTypeAnimatedStyles } =
+    useAnimatedItemStyles(MEAL_TYPES, 1);
 
-  // Create animated scales for weekday buttons
-  const weekdayScales = WEEKDAYS.reduce((acc, day) => {
-    acc[day.id] = useAnimatedSafeValue<number>(1);
-    return acc;
-  }, {} as { [key: string]: ReturnType<typeof useAnimatedSafeValue<number>> });
+  const { scales: weekdayScales, animatedStyles: weekdayAnimatedStyles } =
+    useAnimatedItemStyles(WEEKDAYS, 1);
 
-  // Update food counts from params if coming back from meal-type-foods
+  // Update food counts, meal name, and selected meal types when coming back from meal-type-foods
   useEffect(() => {
     if (updatedMealType && itemsCount > 0) {
+      // Update food count for this meal type
       setSelectedFoodsCount((prev) => ({
         ...prev,
         [updatedMealType]: itemsCount,
       }));
+
+      // Make sure this meal type is selected
+      setSelectedMealTypes((prev) => {
+        if (!prev.includes(updatedMealType)) {
+          return [...prev, updatedMealType];
+        }
+        return prev;
+      });
     }
-  }, [updatedMealType, itemsCount]);
+
+    // Set meal name if it was passed back from meal-type-foods
+    if (mealNameParam && mealNameParam.trim() !== "") {
+      setMealName(mealNameParam);
+    }
+
+    // Restore selected meal types if they were passed back
+    if (selectedMealTypesParam) {
+      try {
+        const parsedMealTypes = JSON.parse(selectedMealTypesParam);
+        if (Array.isArray(parsedMealTypes)) {
+          console.log("Received selected meal types:", parsedMealTypes);
+
+          // Store in AsyncStorage for persistence
+          AsyncStorage.setItem(
+            "selectedMealTypes",
+            JSON.stringify(parsedMealTypes)
+          )
+            .then(() => {
+              console.log("Stored selected meal types in AsyncStorage");
+              setSelectedMealTypes(parsedMealTypes);
+            })
+            .catch((err) =>
+              console.error("Error storing selected meal types:", err)
+            );
+        }
+      } catch (error) {
+        console.error("Error parsing selected meal types:", error);
+      }
+    }
+
+    // Store selected foods for meal type if they were passed back
+    if (selectedFoodsForMealTypeParam) {
+      try {
+        const parsedFoods = JSON.parse(selectedFoodsForMealTypeParam);
+        if (parsedFoods && parsedFoods.mealType && parsedFoods.foods) {
+          console.log("Received selected foods:", parsedFoods);
+
+          // First, load any existing data from AsyncStorage to ensure we don't lose previous selections
+          const loadAndMergeData = async () => {
+            try {
+              // Load existing data
+              const storedFoodsByMealTypeStr = await AsyncStorage.getItem(
+                "selectedFoodsByMealType"
+              );
+              const storedFoodsCountStr = await AsyncStorage.getItem(
+                "selectedFoodsCount"
+              );
+              const storedAvailableFoodsStr = await AsyncStorage.getItem(
+                "availableFoods"
+              );
+
+              // Parse stored data or use empty objects if none exists
+              const storedFoodsByMealType = storedFoodsByMealTypeStr
+                ? JSON.parse(storedFoodsByMealTypeStr)
+                : {};
+              const storedFoodsCount = storedFoodsCountStr
+                ? JSON.parse(storedFoodsCountStr)
+                : {};
+              const storedAvailableFoods = storedAvailableFoodsStr
+                ? JSON.parse(storedAvailableFoodsStr)
+                : [];
+
+              console.log("Loaded stored data before merging:", {
+                foodsByMealType: storedFoodsByMealType,
+                foodsCount: storedFoodsCount,
+              });
+
+              // Merge the new data with existing data
+              const mergedFoodsByMealType = {
+                ...storedFoodsByMealType,
+                [parsedFoods.mealType]: parsedFoods.foods,
+              };
+
+              const mergedFoodsCount = {
+                ...storedFoodsCount,
+                [parsedFoods.mealType]: parsedFoods.foods.length,
+              };
+
+              // Create a map of existing foods by ID for quick lookup
+              const foodMap = new Map(
+                storedAvailableFoods.map((food: FoodItem) => [food.id, food])
+              );
+
+              // Add or update foods from the selected foods
+              if (
+                parsedFoods.foodObjects &&
+                parsedFoods.foodObjects.length > 0
+              ) {
+                parsedFoods.foodObjects.forEach((food: FoodItem) => {
+                  foodMap.set(food.id, food);
+                });
+              }
+
+              // Convert map back to array
+              const mergedAvailableFoods = Array.from(foodMap.values());
+
+              console.log("Merged data:", {
+                foodsByMealType: mergedFoodsByMealType,
+                foodsCount: mergedFoodsCount,
+                availableFoodsCount: mergedAvailableFoods.length,
+              });
+
+              // Store the merged data back in AsyncStorage
+              await AsyncStorage.setItem(
+                "selectedFoodsByMealType",
+                JSON.stringify(mergedFoodsByMealType)
+              );
+              await AsyncStorage.setItem(
+                "selectedFoodsCount",
+                JSON.stringify(mergedFoodsCount)
+              );
+              await AsyncStorage.setItem(
+                "availableFoods",
+                JSON.stringify(mergedAvailableFoods)
+              );
+
+              // Update the state with the merged data
+              setSelectedFoodsByMealType(mergedFoodsByMealType);
+              setSelectedFoodsCount(mergedFoodsCount);
+              setAvailableFoods(mergedAvailableFoods as FoodItem[]);
+            } catch (error) {
+              console.error("Error loading and merging data:", error);
+
+              // Fallback to direct state updates if AsyncStorage fails
+              setSelectedFoodsByMealType((prev) => ({
+                ...prev,
+                [parsedFoods.mealType]: parsedFoods.foods,
+              }));
+
+              setSelectedFoodsCount((prev) => ({
+                ...prev,
+                [parsedFoods.mealType]: parsedFoods.foods.length,
+              }));
+
+              if (
+                parsedFoods.foodObjects &&
+                parsedFoods.foodObjects.length > 0
+              ) {
+                setAvailableFoods((prevFoods) => {
+                  const foodMap = new Map(
+                    prevFoods.map((food) => [food.id, food])
+                  );
+                  parsedFoods.foodObjects.forEach((food: FoodItem) => {
+                    foodMap.set(food.id, food);
+                  });
+                  return Array.from(foodMap.values());
+                });
+              }
+            }
+          };
+
+          // Execute the async function
+          loadAndMergeData();
+        }
+      } catch (error) {
+        console.error("Error parsing selected foods for meal type:", error);
+      }
+    }
+  }, [
+    updatedMealType,
+    itemsCount,
+    mealNameParam,
+    selectedMealTypesParam,
+    selectedFoodsForMealTypeParam,
+  ]);
 
   // Fetch available foods when component mounts
   useEffect(() => {
-    fetchAvailableFoods();
     // Clear any previously stored AI meal plan data
     AsyncStorage.removeItem(AI_MEAL_PLAN_STORAGE_KEY);
 
-    // Default to all weekdays selected
-    setSelectedWeekdays(WEEKDAYS.map((day) => day.id));
+    // Load any previously stored selected foods data
+    const loadStoredData = async () => {
+      try {
+        console.log("Loading stored data on component mount...");
+
+        // First try to load stored available foods
+        const storedAvailableFoodsStr = await AsyncStorage.getItem(
+          "availableFoods"
+        );
+
+        // Then load selected foods data
+        const storedFoodsByMealTypeStr = await AsyncStorage.getItem(
+          "selectedFoodsByMealType"
+        );
+        const storedFoodsCountStr = await AsyncStorage.getItem(
+          "selectedFoodsCount"
+        );
+
+        // Also load selected meal types
+        const storedSelectedMealTypesStr = await AsyncStorage.getItem(
+          "selectedMealTypes"
+        );
+
+        // Process all data together to ensure consistency
+        let availableFoodsLoaded = false;
+        let storedFoodsByMealType: Record<string, string[]> = {};
+        let storedFoodsCount: Record<string, number> = {};
+        let storedAvailableFoods: FoodItem[] = [];
+
+        // Parse available foods first and set them immediately
+        if (storedAvailableFoodsStr) {
+          try {
+            storedAvailableFoods = JSON.parse(
+              storedAvailableFoodsStr
+            ) as FoodItem[];
+            console.log(
+              "Loaded stored available foods:",
+              storedAvailableFoods.length
+            );
+
+            // Log some sample food IDs for debugging
+            if (storedAvailableFoods.length > 0) {
+              console.log(
+                "Sample available food IDs:",
+                storedAvailableFoods.slice(0, 5).map((f) => f.id)
+              );
+            }
+
+            // Immediately set available foods to ensure they're available for rendering
+            setAvailableFoods(storedAvailableFoods);
+            availableFoodsLoaded = true;
+          } catch (e) {
+            console.error("Error parsing stored available foods:", e);
+          }
+        }
+
+        // We no longer clear previously stored selected meal types
+        // This allows meal types to remain selected even if they don't have foods yet
+
+        // Parse selected foods by meal type
+        if (storedFoodsByMealTypeStr) {
+          try {
+            storedFoodsByMealType = JSON.parse(storedFoodsByMealTypeStr);
+            console.log(
+              "Loaded stored foods by meal type:",
+              storedFoodsByMealType
+            );
+          } catch (e) {
+            console.error("Error parsing stored foods by meal type:", e);
+          }
+        }
+
+        // Parse selected foods count
+        if (storedFoodsCountStr) {
+          try {
+            storedFoodsCount = JSON.parse(storedFoodsCountStr);
+            console.log("Loaded stored foods count:", storedFoodsCount);
+          } catch (e) {
+            console.error("Error parsing stored foods count:", e);
+          }
+        }
+
+        // Parse selected meal types
+        let storedSelectedMealTypes: string[] = [];
+        if (storedSelectedMealTypesStr) {
+          try {
+            storedSelectedMealTypes = JSON.parse(storedSelectedMealTypesStr);
+            console.log(
+              "Loaded stored selected meal types:",
+              storedSelectedMealTypes
+            );
+          } catch (e) {
+            console.error("Error parsing stored selected meal types:", e);
+          }
+        }
+
+        // Apply the loaded data to state in the correct order
+
+        // First set the selected foods by meal type
+        if (Object.keys(storedFoodsByMealType).length > 0) {
+          console.log(
+            "Setting selectedFoodsByMealType:",
+            storedFoodsByMealType
+          );
+          setSelectedFoodsByMealType(storedFoodsByMealType);
+        }
+
+        // Then set the food counts
+        if (Object.keys(storedFoodsCount).length > 0) {
+          console.log("Setting selectedFoodsCount:", storedFoodsCount);
+          setSelectedFoodsCount(storedFoodsCount);
+        }
+
+        // Finally set the selected meal types
+        // ONLY select meal types that have foods
+        const mealTypesWithFoods = Object.keys(storedFoodsByMealType).filter(
+          (mealType) =>
+            storedFoodsByMealType[mealType] &&
+            storedFoodsByMealType[mealType].length > 0
+        );
+
+        if (mealTypesWithFoods.length > 0) {
+          console.log("Meal types with foods:", mealTypesWithFoods);
+
+          // ONLY use meal types with foods - ignore stored selected meal types
+          console.log(
+            "Using ONLY meal types with foods as selected meal types"
+          );
+          setSelectedMealTypes(mealTypesWithFoods);
+
+          // Store the updated selected meal types in AsyncStorage
+          await AsyncStorage.setItem(
+            "selectedMealTypes",
+            JSON.stringify(mealTypesWithFoods)
+          );
+          console.log(
+            "Stored updated selected meal types:",
+            mealTypesWithFoods
+          );
+        } else if (storedSelectedMealTypes.length > 0) {
+          // If we have stored selected meal types but no foods, use those
+          console.log(
+            "No meal types with foods but we have stored selected meal types - using those"
+          );
+          setSelectedMealTypes(storedSelectedMealTypes);
+        } else {
+          // If no meal types have foods and no stored selected meal types, don't select any
+          console.log(
+            "No meal types with foods and no stored selected meal types - not selecting any meal types"
+          );
+          setSelectedMealTypes([]);
+        }
+
+        if (availableFoodsLoaded) {
+          setAvailableFoods(storedAvailableFoods);
+        } else {
+          // If no stored foods or error parsing, fetch from the server
+          fetchAvailableFoods();
+        }
+
+        // Log the combined data for debugging
+        console.log("Combined loaded data:", {
+          availableFoodsCount: storedAvailableFoods.length,
+          foodsByMealType: storedFoodsByMealType,
+          foodsCount: storedFoodsCount,
+        });
+      } catch (error) {
+        console.error("Error loading stored selected foods data:", error);
+        // If there's an error loading stored data, fetch from the server
+        fetchAvailableFoods();
+      }
+    };
+
+    loadStoredData();
   }, []);
+
+  // Update selected foods count and store in AsyncStorage
+  useEffect(() => {
+    // Update selected foods count based on selected foods by meal type
+    const newCounts: { [key: string]: number } = {};
+    Object.entries(selectedFoodsByMealType).forEach(([mealType, foods]) => {
+      newCounts[mealType] = foods ? foods.length : 0;
+    });
+    setSelectedFoodsCount(newCounts);
+
+    // Log the current state for debugging
+    console.log("Updated selected foods count:", newCounts);
+    console.log("Current selectedFoodsByMealType:", selectedFoodsByMealType);
+
+    // Store the current state in AsyncStorage for persistence
+    const storeData = async () => {
+      try {
+        await AsyncStorage.setItem(
+          "selectedFoodsByMealType",
+          JSON.stringify(selectedFoodsByMealType)
+        );
+        await AsyncStorage.setItem(
+          "selectedFoodsCount",
+          JSON.stringify(newCounts)
+        );
+      } catch (error) {
+        console.error("Error storing selected foods data:", error);
+      }
+    };
+
+    storeData();
+  }, [selectedFoodsByMealType]);
 
   // Fetch available foods from Supabase
   const fetchAvailableFoods = async () => {
@@ -222,61 +868,152 @@ export default function MealCreationScreen() {
     }
   };
 
-  // Handle weekday selection
-  const toggleWeekday = (weekdayId: string) => {
-    // Animate the button press effect using setValue
-    weekdayScales[weekdayId].setValue(0.9);
-    // Then back to normal after a short delay
-    setTimeout(() => {
-      weekdayScales[weekdayId].setValue(1);
-    }, 150);
+  // Get food details from food IDs
+  const getFoodDetailsForMealType = (mealTypeId: string): FoodItem[] => {
+    // Get the food IDs for this meal type
+    const foodIds = selectedFoodsByMealType[mealTypeId] || [];
+    if (foodIds.length === 0) {
+      console.log(`No food IDs found for meal type ${mealTypeId}`);
+      return [];
+    }
 
-    setSelectedWeekdays((prev) => {
-      if (prev.includes(weekdayId)) {
-        // Prevent deselecting all days
-        if (prev.length <= 1) {
-          return prev;
-        }
-        // If already selected, remove it
-        return prev.filter((id) => id !== weekdayId);
+    console.log(`Getting food details for ${mealTypeId}, IDs:`, foodIds);
+    console.log(`Available foods count: ${availableFoods.length}`);
+    console.log(
+      `Available food IDs:`,
+      availableFoods.map((f) => f.id).slice(0, 5),
+      "..."
+    );
+
+    // Create a map of food IDs to food details for faster lookup
+    const foodMap = new Map(availableFoods.map((food) => [food.id, food]));
+
+    // Debug log the food map size
+    console.log(`Food map size: ${foodMap.size}`);
+
+    // Check if any of the food IDs are in the food map
+    const foundIds = foodIds.filter((id) => foodMap.has(id));
+    console.log(
+      `Found ${foundIds.length} out of ${foodIds.length} food IDs in the food map`
+    );
+
+    // Map food IDs to food objects
+    const foods = foodIds.map((foodId) => {
+      // Find the food in available foods using the map
+      const food = foodMap.get(foodId);
+      if (food) {
+        console.log(`Found food for ID ${foodId}:`, food.name);
+        return food;
       } else {
-        // If not selected, add it
-        return [...prev, weekdayId];
+        console.log(`Food not found for ID ${foodId}, using fallback`);
+
+        // For fallback foods (like "lunch-1", "dinner-2"), check if they're in the format "mealType-number"
+        if (foodId.includes("-")) {
+          const [type, number] = foodId.split("-");
+          return {
+            id: foodId,
+            name:
+              type === "lunch"
+                ? `Lunch Item ${number}`
+                : type === "dinner"
+                ? `Dinner Item ${number}`
+                : `Food Item ${number}`,
+            price: type === "lunch" ? 150 : type === "dinner" ? 180 : 100,
+            category: `${
+              type.charAt(0).toUpperCase() + type.slice(1)
+            }, Vegetarian`,
+            image_url: `https://source.unsplash.com/random/300x200/?${type}`,
+            is_available: true,
+          };
+        }
+
+        // Return a generic fallback food if not found
+        return {
+          id: foodId,
+          name: "Unknown Food",
+          price: 0,
+          is_available: true,
+          image_url: "https://via.placeholder.com/50?text=Food",
+          category: "Unknown",
+        };
       }
     });
+
+    console.log(`Returning ${foods.length} foods for ${mealTypeId}`);
+    return foods;
   };
 
-  // Handle meal type selection
-  const toggleMealType = (mealTypeId: string) => {
+  // Calculate total price for a meal type
+  const calculateTotalPriceForMealType = (mealTypeId: string): number => {
+    const foods = getFoodDetailsForMealType(mealTypeId);
+    return foods.reduce((total, food) => total + food.price, 0);
+  };
+
+  // Weekday selection is now handled in meal-creation-setup
+
+  // Handle meal type selection - now navigates directly to food selection
+  const handleMealTypeClick = (mealTypeId: string) => {
     // Animate the button press effect using setValue
-    mealTypeScales[mealTypeId].setValue(0.95);
-    // Then back to normal after a short delay
-    setTimeout(() => {
-      mealTypeScales[mealTypeId].setValue(1);
-    }, 150);
+    if (mealTypeScales[mealTypeId]) {
+      mealTypeScales[mealTypeId].setValue(0.95);
+      // Then back to normal after a short delay
+      setTimeout(() => {
+        mealTypeScales[mealTypeId].setValue(1);
+      }, 150);
+    }
 
-    setSelectedMealTypes((prev) => {
-      if (prev.includes(mealTypeId)) {
-        // If already selected, remove it
-        return prev.filter((id) => id !== mealTypeId);
-      } else {
-        // If not selected, add it
-        return [...prev, mealTypeId];
-      }
-    });
+    // Add this meal type to selected types if not already selected
+    if (!selectedMealTypes.includes(mealTypeId)) {
+      console.log(`Adding meal type ${mealTypeId} to selected types`);
+      setSelectedMealTypes((prev) => {
+        const newSelectedTypes = [...prev, mealTypeId];
+        console.log("Updated selected meal types:", newSelectedTypes);
 
-    // Reset the food counts if deselecting a meal type
-    if (selectedMealTypes.includes(mealTypeId)) {
-      setSelectedFoodsCount((prev) => {
-        const newCounts = { ...prev };
-        delete newCounts[mealTypeId];
-        return newCounts;
+        // Store in AsyncStorage for persistence
+        AsyncStorage.setItem(
+          "selectedMealTypes",
+          JSON.stringify(newSelectedTypes)
+        )
+          .then(() => console.log("Stored selected meal types in AsyncStorage"))
+          .catch((err) =>
+            console.error("Error storing selected meal types:", err)
+          );
+
+        return newSelectedTypes;
       });
     }
+
+    // Validate meal name before proceeding
+    if (!mealName.trim()) {
+      Alert.alert(
+        "Missing Information",
+        "Please enter a name for your meal plan before selecting meal types"
+      );
+      return;
+    }
+
+    // Navigate to meal-type-foods for this meal type WITHOUT creating a meal in the database
+    router.push({
+      pathname: "/meal-type-foods",
+      params: {
+        mealType: mealTypeId,
+        mealName: mealName,
+        isAiGenerated:
+          aiGeneratedFoodsByMealType &&
+          Object.keys(aiGeneratedFoodsByMealType).length > 0
+            ? "true"
+            : "false",
+        selectedMealTypes: JSON.stringify(selectedMealTypes),
+        // Pass any previously selected foods for this meal type
+        preSelectedFoods: selectedFoodsByMealType[mealTypeId]
+          ? JSON.stringify(selectedFoodsByMealType[mealTypeId])
+          : "",
+      },
+    });
   };
 
-  // Save the meal plan to Supabase
-  const saveMealPlan = async () => {
+  // Complete the meal creation and go to meal-creation-setup
+  const completeMealCreation = async () => {
     // Validate input
     if (!mealName.trim()) {
       Alert.alert(
@@ -294,8 +1031,15 @@ export default function MealCreationScreen() {
       return;
     }
 
-    if (selectedWeekdays.length === 0) {
-      Alert.alert("Missing Information", "Please select at least one weekday");
+    // Check if any meal types have foods
+    const hasFoods = Object.values(selectedFoodsCount).some(
+      (count) => count > 0
+    );
+    if (!hasFoods) {
+      Alert.alert(
+        "No Foods Selected",
+        "Please select foods for at least one meal type by clicking on a meal type card"
+      );
       return;
     }
 
@@ -318,21 +1062,19 @@ export default function MealCreationScreen() {
         return;
       }
 
-      console.log("Creating meal with selected meal types:", selectedMealTypes);
-      console.log("Selected weekdays:", selectedWeekdays);
+      // Get all selected foods from all meal types
+      const allSelectedFoods = Object.values(selectedFoodsByMealType).flat();
 
-      // According to Backend-Guidelines.md:
-      // 1. First create a meal in the meals table
-      // 2. Then create a meal_plan in the meal_plans table that references the meal
+      console.log("Creating meal with selected foods:", allSelectedFoods);
 
-      // Step 1: Create meal in the meals table
-      const { data: mealData, error: mealError } = await supabase
+      // Now create the meal in the database
+      const { error: mealError } = await supabase
         .from("meals")
         .insert({
           name: mealName,
           created_by: user.id,
           meal_type: selectedMealTypes[0], // Store the first selected meal type
-          foods: [], // Initialize with empty array, will be updated in meal-type-foods
+          foods: allSelectedFoods, // Use all selected foods
           created_at: new Date().toISOString(),
         })
         .select("id")
@@ -340,44 +1082,11 @@ export default function MealCreationScreen() {
 
       if (mealError) {
         console.error("Error creating meal:", mealError);
-        throw mealError;
+        Alert.alert("Error", "Failed to create meal. Please try again.");
+        return;
       }
 
-      console.log("Meal created successfully:", mealData);
-
-      // Step 2: Create meal plan in the meal_plans table
-      const { error: mealPlanError } = await supabase
-        .from("meal_plans")
-        .insert({
-          user_id: user.id,
-          meal_id: mealData.id,
-          applicable_days: selectedWeekdays, // Store selected weekdays
-          created_at: new Date().toISOString(),
-        });
-
-      if (mealPlanError) {
-        console.error("Error creating meal plan:", mealPlanError);
-        throw mealPlanError;
-      }
-
-      // Store AI-generated food selections in AsyncStorage if available
-      if (Object.keys(aiGeneratedFoodsByMealType).length > 0) {
-        try {
-          await AsyncStorage.setItem(
-            AI_MEAL_PLAN_STORAGE_KEY,
-            JSON.stringify({
-              mealPlanId: mealData.id,
-              selectedFoodsByMealType: aiGeneratedFoodsByMealType,
-            })
-          );
-          console.log("AI meal plan data stored in AsyncStorage");
-        } catch (storageError) {
-          console.error("Error storing AI meal plan data:", storageError);
-          // Continue even if storage fails
-        }
-      }
-
-      // Update the user's setup status if this is their first meal plan
+      // Update the user's setup status
       const updateResult = await updateSetupStatus({
         meal_creation_completed: true,
       });
@@ -386,23 +1095,19 @@ export default function MealCreationScreen() {
         console.warn("Failed to update meal creation setup status");
       }
 
-      // Navigate to the first meal type selection screen
-      if (selectedMealTypes.length > 0) {
-        router.push({
-          pathname: "/meal-type-foods",
-          params: {
-            mealType: selectedMealTypes[0],
-            mealId: mealData.id,
-            isAiGenerated:
-              Object.keys(aiGeneratedFoodsByMealType).length > 0
-                ? "true"
-                : "false",
-          },
-        });
-      }
+      // Show success message
+      Alert.alert("Success", "Your meal plan has been created successfully!", [
+        {
+          text: "Continue",
+          onPress: () => router.replace("/meal-creation-setup"),
+        },
+      ]);
     } catch (error) {
-      console.error("Error saving meal plan:", error);
-      Alert.alert("Error", "Failed to save meal plan. Please try again.");
+      console.error("Error completing meal creation:", error);
+      Alert.alert(
+        "Error",
+        "Failed to complete meal creation. Please try again."
+      );
     } finally {
       setIsLoading(false);
     }
@@ -428,6 +1133,20 @@ export default function MealCreationScreen() {
     selectedMealTypes: string[];
     selectedFoodsByMealType: Record<string, FoodItem[]>;
   }) => {
+    console.log("Accepting AI meal plan:", {
+      selectedMealTypes: aiSelectedMealTypes,
+      selectedFoodsByMealType,
+    });
+
+    // Validate the data
+    if (!aiSelectedMealTypes || aiSelectedMealTypes.length === 0) {
+      Alert.alert(
+        "Error",
+        "No meal types were selected in the AI plan. Please try again."
+      );
+      return;
+    }
+
     // Update selected meal types
     setSelectedMealTypes(aiSelectedMealTypes);
 
@@ -436,10 +1155,23 @@ export default function MealCreationScreen() {
 
     // Update selected foods count
     const newCounts: { [key: string]: number } = {};
-    Object.entries(selectedFoodsByMealType).forEach(([mealType, foods]) => {
-      newCounts[mealType] = foods.length;
-    });
+
+    // Update selected foods by meal type
+    const newSelectedFoodsByMealType: { [key: string]: string[] } = {};
+
+    if (selectedFoodsByMealType) {
+      Object.entries(selectedFoodsByMealType).forEach(([mealType, foods]) => {
+        if (foods && foods.length) {
+          newCounts[mealType] = foods.length;
+
+          // Store food IDs for each meal type
+          newSelectedFoodsByMealType[mealType] = foods.map((food) => food.id);
+        }
+      });
+    }
+
     setSelectedFoodsCount(newCounts);
+    setSelectedFoodsByMealType(newSelectedFoodsByMealType);
 
     // Set a default name if none is provided
     if (!mealName.trim()) {
@@ -458,21 +1190,8 @@ export default function MealCreationScreen() {
     );
   };
 
-  // Create animated styles for each weekday button
-  const getWeekdayAnimatedStyle = (weekdayId: string) =>
-    useAnimatedStyle(() => ({
-      transform: [
-        { scale: weekdayScales[weekdayId].sharedValue.value as number },
-      ],
-    }));
-
-  // Create animated styles for each meal type card
-  const getMealTypeAnimatedStyle = (mealTypeId: string) =>
-    useAnimatedStyle(() => ({
-      transform: [
-        { scale: mealTypeScales[mealTypeId].sharedValue.value as number },
-      ],
-    }));
+  // We're now using the useAnimatedItemStyles hook to create all animated styles
+  // This ensures all hooks are called at the top level, following React's rules of hooks
 
   return (
     <SafeAreaView style={styles.container}>
@@ -500,7 +1219,7 @@ export default function MealCreationScreen() {
       >
         {/* AI Meal Plan Button */}
         <AnimatedSafeView
-          entering={FadeInDown.delay(300).duration(500)}
+          entering={FadeInUp.delay(300).duration(500)}
           style={[styles.aiButtonContainer, aiButtonAnimatedStyle]}
         >
           <TouchableOpacity
@@ -527,7 +1246,7 @@ export default function MealCreationScreen() {
 
         {/* Meal Plan Name Input */}
         <AnimatedSafeView
-          entering={FadeInDown.delay(400).duration(500)}
+          entering={FadeInUp.delay(400).duration(500)}
           style={styles.inputContainer}
         >
           <Text style={styles.inputLabel}>Meal Plan Name</Text>
@@ -540,50 +1259,11 @@ export default function MealCreationScreen() {
           />
         </AnimatedSafeView>
 
-        {/* Weekday Selection */}
-        <AnimatedSafeView
-          entering={FadeInDown.delay(500).duration(500)}
-          style={styles.sectionContainer}
-        >
-          <Text style={styles.sectionTitle}>Weekdays</Text>
-          <Text style={styles.sectionSubtitle}>
-            Select days when this meal plan applies
-          </Text>
-
-          <View style={styles.weekdaysContainer}>
-            {WEEKDAYS.map((day) => {
-              const isSelected = selectedWeekdays.includes(day.id);
-              return (
-                <AnimatedSafeView
-                  key={day.id}
-                  style={[
-                    styles.weekdayButton,
-                    isSelected && styles.weekdayButtonSelected,
-                  ]}
-                >
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => toggleWeekday(day.id)}
-                    style={styles.weekdayButtonTouchable}
-                  >
-                    <Text
-                      style={[
-                        styles.weekdayText,
-                        isSelected && styles.weekdayTextSelected,
-                      ]}
-                    >
-                      {day.name}
-                    </Text>
-                  </TouchableOpacity>
-                </AnimatedSafeView>
-              );
-            })}
-          </View>
-        </AnimatedSafeView>
+        {/* Weekday Selection removed - will be handled in meal-creation-setup */}
 
         {/* Meal Types Section */}
         <AnimatedSafeView
-          entering={FadeInDown.delay(600).duration(500)}
+          entering={FadeInUp.delay(500).duration(500)}
           style={styles.sectionContainer}
         >
           <Text style={styles.sectionTitle}>Select Meal Types</Text>
@@ -597,9 +1277,18 @@ export default function MealCreationScreen() {
               const isSelected = selectedMealTypes.includes(mealType.id);
               const foodCount = selectedFoodsCount[mealType.id] || 0;
 
+              // Debug logging for each meal type
+              console.log(
+                `Rendering meal type card: ${mealType.id}, isSelected: ${isSelected}, foodCount: ${foodCount}`
+              );
+              console.log(
+                `Selected foods for ${mealType.id}:`,
+                selectedFoodsByMealType[mealType.id] || []
+              );
+
               return (
                 <AnimatedSafeView
-                  entering={FadeInDown.delay(700 + index * 100).duration(500)}
+                  entering={FadeInUp.delay(600 + index * 100).duration(500)}
                   key={mealType.id}
                   style={[
                     styles.mealTypeCard,
@@ -609,66 +1298,156 @@ export default function MealCreationScreen() {
                     },
                   ]}
                 >
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => toggleMealType(mealType.id)}
-                    style={styles.mealTypeCardContent}
-                  >
-                    {/* Meal Type Icon */}
-                    <View
-                      style={[
-                        styles.mealTypeIconContainer,
-                        { backgroundColor: mealType.color + "20" },
-                      ]}
+                  <Animated.View style={mealTypeAnimatedStyles[mealType.id]}>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => handleMealTypeClick(mealType.id)}
+                      style={styles.mealTypeCardContent}
                     >
-                      <Ionicons
-                        name={mealType.icon as any}
-                        size={24}
-                        color={mealType.color}
-                      />
-                    </View>
-
-                    {/* Meal Type Details */}
-                    <View style={styles.mealTypeDetails}>
-                      <Text style={styles.mealTypeName}>{mealType.name}</Text>
-                      <Text style={styles.mealTypeDescription}>
-                        {mealType.description}
-                      </Text>
-                      <Text style={styles.mealTypeTimeRange}>
-                        {mealType.timeRange}
-                      </Text>
-                    </View>
-
-                    {/* Selection Status */}
-                    {isSelected ? (
+                      {/* Meal Type Icon */}
                       <View
                         style={[
-                          styles.selectedIndicator,
-                          { backgroundColor: mealType.color },
+                          styles.mealTypeIconContainer,
+                          { backgroundColor: mealType.color + "20" },
                         ]}
                       >
-                        <Ionicons name="checkmark" size={16} color="#FFF" />
+                        <Ionicons
+                          name={mealType.icon as any}
+                          size={24}
+                          color={mealType.color}
+                        />
                       </View>
-                    ) : (
-                      <View style={styles.unselectedIndicator}>
-                        <Ionicons name="add" size={16} color="#9CA3AF" />
-                      </View>
-                    )}
 
-                    {/* Food Count Badge */}
-                    {isSelected && foodCount > 0 && (
-                      <View
-                        style={[
-                          styles.foodCountBadge,
-                          { backgroundColor: mealType.color },
-                        ]}
-                      >
-                        <Text style={styles.foodCountText}>
-                          {foodCount} items
+                      {/* Meal Type Details */}
+                      <View style={styles.mealTypeDetails}>
+                        <Text style={styles.mealTypeName}>{mealType.name}</Text>
+                        <Text style={styles.mealTypeDescription}>
+                          {mealType.description}
+                        </Text>
+                        <Text style={styles.mealTypeTimeRange}>
+                          {mealType.timeRange}
                         </Text>
                       </View>
-                    )}
-                  </TouchableOpacity>
+
+                      {/* Selection Status */}
+                      {isSelected ? (
+                        <View
+                          style={[
+                            styles.selectedIndicator,
+                            { backgroundColor: mealType.color },
+                          ]}
+                          testID={`selected-indicator-${mealType.id}`}
+                        >
+                          <Ionicons name="checkmark" size={16} color="#FFF" />
+                        </View>
+                      ) : (
+                        <View
+                          style={styles.unselectedIndicator}
+                          testID={`unselected-indicator-${mealType.id}`}
+                        >
+                          <Ionicons name="add" size={16} color="#9CA3AF" />
+                        </View>
+                      )}
+
+                      {/* Food Count Badge */}
+                      {isSelected && foodCount > 0 && (
+                        <View
+                          style={[
+                            styles.foodCountBadge,
+                            { backgroundColor: mealType.color },
+                          ]}
+                        >
+                          <Text style={styles.foodCountText}>
+                            {foodCount} items
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+
+                    {/* Food Preview Section - Always show for all meal types */}
+                    <View style={styles.foodPreviewSection}>
+                      {/* Total Price */}
+                      <View style={styles.totalPriceContainer}>
+                        <Text style={styles.totalPriceLabel}>
+                          {foodCount > 0
+                            ? `${foodCount} items selected`
+                            : "No items selected"}
+                        </Text>
+                        {foodCount > 0 && (
+                          <Text
+                            style={[
+                              styles.totalPriceValue,
+                              { color: mealType.color },
+                            ]}
+                            testID={`total-price-${mealType.id}`}
+                          >
+                            ₹{calculateTotalPriceForMealType(mealType.id)}
+                          </Text>
+                        )}
+                      </View>
+
+                      {/* Scrollable Food Preview */}
+                      {foodCount > 0 ? (
+                        <View>
+                          {/* Debug info */}
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              color: "#666",
+                              marginBottom: 8,
+                            }}
+                          >
+                            {mealType.id}: {foodCount} items -{" "}
+                            {calculateTotalPriceForMealType(
+                              mealType.id
+                            ).toFixed(2)}
+                            ₹
+                          </Text>
+
+                          {availableFoods.length > 0 ? (
+                            <FoodPreviewList
+                              mealTypeId={mealType.id}
+                              mealTypeColor={mealType.color}
+                              selectedFoodIds={
+                                selectedFoodsByMealType[mealType.id] || []
+                              }
+                              availableFoods={availableFoods}
+                              onRetry={() => handleMealTypeClick(mealType.id)}
+                            />
+                          ) : (
+                            <View style={styles.loadingFoodsContainer}>
+                              <ActivityIndicator
+                                size="small"
+                                color={mealType.color}
+                              />
+                              <Text style={styles.loadingFoodsText}>
+                                Loading food details...
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      ) : (
+                        <TouchableOpacity
+                          onPress={() => handleMealTypeClick(mealType.id)}
+                          style={styles.addFoodsButton}
+                        >
+                          <Text
+                            style={[
+                              styles.addFoodsButtonText,
+                              { color: mealType.color },
+                            ]}
+                          >
+                            Tap to add foods
+                          </Text>
+                          <Ionicons
+                            name="add-circle-outline"
+                            size={18}
+                            color={mealType.color}
+                          />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </Animated.View>
                 </AnimatedSafeView>
               );
             })}
@@ -676,27 +1455,31 @@ export default function MealCreationScreen() {
         </AnimatedSafeView>
       </ScrollView>
 
-      {/* Save Button */}
+      {/* Bottom Buttons */}
       <AnimatedSafeView
-        entering={SlideInUp.delay(800).duration(500)}
-        style={[
-          styles.saveButtonContainer,
-          { bottom: insets.bottom + 20 },
-          saveButtonAnimatedStyle,
-        ]}
+        entering={SlideInUp.delay(300).duration(500).springify().damping(15)}
+        style={[styles.bottomButtonsContainer, { bottom: insets.bottom + 20 }]}
       >
+        {/* We only need one Complete Meal button */}
+
+        {/* Complete Meal Button */}
         <TouchableOpacity
           activeOpacity={0.8}
-          onPress={saveMealPlan}
-          style={styles.saveButton}
+          onPress={completeMealCreation}
+          style={[
+            styles.saveButton,
+            saveButtonAnimatedStyle,
+            Object.values(selectedFoodsCount).some((count) => count > 0) &&
+              styles.saveButtonWithComplete,
+          ]}
           disabled={isLoading}
         >
           {isLoading ? (
             <ActivityIndicator color="#FFFFFF" size="small" />
           ) : (
             <>
-              <Text style={styles.saveButtonText}>Continue</Text>
-              <Ionicons name="arrow-forward" size={20} color="#FFF" />
+              <Text style={styles.saveButtonText}>Complete Meal</Text>
+              <Ionicons name="checkmark-circle" size={20} color="#FFF" />
             </>
           )}
         </TouchableOpacity>
@@ -888,12 +1671,15 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#FFF",
   },
-  saveButtonContainer: {
+  bottomButtonsContainer: {
     position: "absolute",
     left: 20,
     right: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   saveButton: {
+    flex: 1,
     backgroundColor: COLORS.primary,
     borderRadius: 12,
     flexDirection: "row",
@@ -906,7 +1692,31 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 4,
   },
+  saveButtonWithComplete: {
+    // No flex change needed - we want it to take full width
+  },
   saveButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#FFF",
+    marginRight: 8,
+  },
+  completeMealButton: {
+    flex: 0.48,
+    backgroundColor: "#34C759", // Green color for completion
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
+    marginRight: 8,
+  },
+  completeMealButtonText: {
     fontSize: 16,
     fontWeight: "600",
     color: "#FFF",
@@ -942,5 +1752,126 @@ const styles = StyleSheet.create({
   },
   weekdayTextSelected: {
     color: "#FFFFFF",
+  },
+  // Food preview styles
+  foodPreviewSection: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    marginTop: 8,
+  },
+  addFoodsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F9FAFB",
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+  },
+  addFoodsButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+    marginRight: 8,
+  },
+  totalPriceContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+    paddingVertical: 8,
+  },
+  totalPriceLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  totalPriceValue: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.primary,
+  },
+  foodPreviewScrollContent: {
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    gap: 16,
+  },
+  foodPreviewItem: {
+    width: 90,
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    marginHorizontal: 4,
+  },
+  foodPreviewImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    marginBottom: 8,
+    borderWidth: 2,
+    borderColor: "#F3F4F6",
+  },
+  foodPreviewName: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#374151",
+    textAlign: "center",
+    width: 80,
+    marginBottom: 4,
+  },
+  foodPreviewPrice: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.primary,
+    marginTop: 2,
+  },
+  noFoodsFoundContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 8,
+    width: 200,
+  },
+  noFoodsFoundText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#6B7280",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  retryButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  retryButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  loadingFoodsContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 8,
+    width: 200,
+    flexDirection: "row",
+  },
+  loadingFoodsText: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#6B7280",
+    marginLeft: 8,
   },
 });

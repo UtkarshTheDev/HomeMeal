@@ -492,15 +492,23 @@ const AIMealPlanDialog: React.FC<AIMealPlanDialogProps> = ({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType="fade" // Changed from slide to fade for better UX
       transparent={true}
       onRequestClose={onClose}
+      statusBarTranslucent={true} // Ensure modal covers status bar
     >
-      <View style={styles.modalOverlay}>
+      <TouchableOpacity
+        style={styles.modalOverlay}
+        activeOpacity={1}
+        onPress={onClose} // Close when tapping outside
+      >
         <Animated.View
           entering={SlideInUp.duration(300)}
           exiting={SlideOutDown.duration(300)}
           style={styles.modalContent}
+          // Prevent touches from propagating to the overlay
+          onStartShouldSetResponder={() => true}
+          onTouchEnd={(e) => e.stopPropagation()}
         >
           {/* Dialog Header */}
           <LinearGradient
@@ -764,7 +772,7 @@ const AIMealPlanDialog: React.FC<AIMealPlanDialogProps> = ({
             </Animated.View>
           </Animated.View>
         </Animated.View>
-      </View>
+      </TouchableOpacity>
     </Modal>
   );
 };
@@ -772,7 +780,14 @@ const AIMealPlanDialog: React.FC<AIMealPlanDialogProps> = ({
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
   },
   modalContent: {
     flex: 1,
@@ -780,6 +795,12 @@ const styles = StyleSheet.create({
     height: SCREEN_HEIGHT,
     backgroundColor: "#F9FAFB",
     overflow: "hidden",
+    borderRadius: 16, // Add rounded corners
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 10,
   },
   header: {
     paddingTop: 50,

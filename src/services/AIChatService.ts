@@ -279,62 +279,128 @@ Please ONLY use foods from the above list in your meal plan.`;
    * Convert AI meal plan to app data structure
    */
   convertToAppFormat(mealPlan: AIMealPlan, availableFoods: FoodItem[]) {
-    // Map of meal types to their corresponding IDs in the app
-    const mealTypeMapping: Record<string, string> = {
-      breakfast: "breakfast",
-      lunch: "lunch",
-      dinner: "dinner",
-      snack: "snacks",
-    };
+    try {
+      console.log(
+        "Converting AI meal plan to app format:",
+        JSON.stringify(mealPlan)
+      );
 
-    // Selected meal types
-    const selectedMealTypes: string[] = [];
+      // Map of meal types to their corresponding IDs in the app
+      const mealTypeMapping: Record<string, string> = {
+        breakfast: "breakfast",
+        lunch: "lunch",
+        dinner: "dinner",
+        snack: "snacks",
+        snacks: "snacks", // Handle both variations
+      };
 
-    // Map to store selected foods for each meal type
-    const selectedFoodsByMealType: Record<string, FoodItem[]> = {};
+      // Selected meal types
+      const selectedMealTypes: string[] = [];
 
-    // Process each meal type in the AI plan
-    Object.entries(mealPlan.meals).forEach(([mealType, meal]) => {
-      if (meal && meal.foods && meal.foods.length > 0) {
-        const appMealType = mealTypeMapping[mealType];
+      // Map to store selected foods for each meal type
+      const selectedFoodsByMealType: Record<string, FoodItem[]> = {};
 
-        if (appMealType) {
-          selectedMealTypes.push(appMealType);
-
-          // Process foods for this meal type
-          const selectedFoods = meal.foods
-            .map((aiFood) => {
-              // Find matching food in available foods
-              const matchedFood = availableFoods.find(
-                (food) => food.name.toLowerCase() === aiFood.name.toLowerCase()
-              );
-
-              if (matchedFood) {
-                // Parse quantity if possible
-                let quantity = 1;
-                const quantityMatch = aiFood.quantity.match(/\d+/);
-                if (quantityMatch) {
-                  quantity = parseInt(quantityMatch[0], 10) || 1;
-                }
-
-                return {
-                  ...matchedFood,
-                  quantity: quantity,
-                };
-              }
-              return null;
-            })
-            .filter(Boolean) as FoodItem[];
-
-          selectedFoodsByMealType[appMealType] = selectedFoods;
-        }
+      // Ensure mealPlan.meals exists
+      if (!mealPlan || !mealPlan.meals) {
+        console.error("Invalid meal plan structure:", mealPlan);
+        // Return default structure with empty data
+        return {
+          selectedMealTypes: [],
+          selectedFoodsByMealType: {},
+        };
       }
-    });
 
-    return {
-      selectedMealTypes,
-      selectedFoodsByMealType,
-    };
+      // Process each meal type in the AI plan
+      Object.entries(mealPlan.meals).forEach(([mealType, meal]) => {
+        if (meal && meal.foods && meal.foods.length > 0) {
+          const appMealType = mealTypeMapping[mealType.toLowerCase()];
+
+          if (appMealType) {
+            // Only add meal type if not already added
+            if (!selectedMealTypes.includes(appMealType)) {
+              selectedMealTypes.push(appMealType);
+            }
+
+            // Process foods for this meal type
+            const selectedFoods = meal.foods
+              .map((aiFood) => {
+                // Skip if no name
+                if (!aiFood.name) return null;
+
+                // Find matching food in available foods - use fuzzy matching
+                const matchedFood = this.findBestMatchingFood(
+                  aiFood.name,
+                  availableFoods
+                );
+
+                if (matchedFood) {
+                  // Parse quantity if possible
+                  let quantity = 1;
+                  if (aiFood.quantity) {
+                    const quantityMatch = aiFood.quantity.match(/\d+/);
+                    if (quantityMatch) {
+                      quantity = parseInt(quantityMatch[0], 10) || 1;
+                    }
+                  }
+
+                  return {
+                    ...matchedFood,
+                    quantity: quantity,
+                  };
+                }
+                return null;
+              })
+              .filter(Boolean) as FoodItem[];
+
+            selectedFoodsByMealType[appMealType] = selectedFoods;
+          }
+        }
+      });
+
+      console.log("Converted meal plan:", {
+        selectedMealTypes,
+        selectedFoodsByMealType,
+      });
+
+      return {
+        selectedMealTypes,
+        selectedFoodsByMealType,
+      };
+    } catch (error) {
+      console.error("Error converting AI meal plan to app format:", error);
+      // Return default structure with empty data
+      return {
+        selectedMealTypes: [],
+        selectedFoodsByMealType: {},
+      };
+    }
+  }
+
+  /**
+   * Find the best matching food from available foods
+   */
+  private findBestMatchingFood(
+    foodName: string,
+    availableFoods: FoodItem[]
+  ): FoodItem | null {
+    // First try exact match
+    const exactMatch = availableFoods.find(
+      (food) => food.name.toLowerCase() === foodName.toLowerCase()
+    );
+
+    if (exactMatch) return exactMatch;
+
+    // Try partial match
+    const partialMatch = availableFoods.find(
+      (food) =>
+        food.name.toLowerCase().includes(foodName.toLowerCase()) ||
+        foodName.toLowerCase().includes(food.name.toLowerCase())
+    );
+
+    if (partialMatch) return partialMatch;
+
+    // If no match found, return the first food as fallback
+    return availableFoods.length > 0 ? availableFoods[0] : null;
   }
 }
 

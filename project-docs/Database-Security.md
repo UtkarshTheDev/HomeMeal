@@ -201,37 +201,47 @@ USING (EXISTS (
 ### Meals Table
 
 ```sql
+-- Allow authenticated users to view their own meals
+CREATE POLICY "Users can view their created meals"
+ON meals
+FOR SELECT
+USING (auth.uid() = created_by);
+
+-- Allow authenticated users to create meals
+CREATE POLICY "Users can create meals"
+ON meals
+FOR INSERT
+WITH CHECK (auth.uid() = created_by);
+
+-- Allow authenticated users to manage their own meals
 CREATE POLICY "Users can create and manage their own meals"
 ON meals
 FOR ALL
-USING (auth.uid() = created_by)
+USING (auth.uid() IS NOT NULL)
 WITH CHECK (auth.uid() = created_by);
-
--- Allow users to share meals with specific permissions (if needed)
-CREATE POLICY "Users can view shared meals"
-ON meals
-FOR SELECT
-USING (
-  -- Either the user created it
-  auth.uid() = created_by
-  -- Or it's been shared with them (implement as needed)
-);
 ```
 
 ### Meal_Plans Table
 
 ```sql
-CREATE POLICY "Users can manage their own meal plans"
-ON meal_plans
-FOR ALL
-USING (auth.uid() = user_id)
-WITH CHECK (auth.uid() = user_id);
-
--- Allow service role to read meal plans (for automated order generation)
-CREATE POLICY "Service role can read meal plans"
+-- Allow users to view their own meal plans
+CREATE POLICY "Users can view their own meal plans"
 ON meal_plans
 FOR SELECT
-USING ((auth.jwt() ? auth.jwt()->>'role' = 'service_role'));
+USING (auth.uid() = user_id);
+
+-- Allow users to create meal plans
+CREATE POLICY "Users can create meal plans"
+ON meal_plans
+FOR INSERT
+WITH CHECK (auth.uid() = user_id);
+
+-- Allow users to update their own meal plans
+CREATE POLICY "Users can update their own meal plans"
+ON meal_plans
+FOR UPDATE
+USING (auth.uid() = user_id)
+WITH CHECK (auth.uid() = user_id);
 ```
 
 ### Orders Table

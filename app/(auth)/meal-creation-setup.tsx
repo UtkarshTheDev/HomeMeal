@@ -33,6 +33,7 @@ import { useSupabase } from "@/src/hooks/useSupabase";
 import { useAuth } from "@/src/providers/AuthProvider";
 import { ROUTES } from "@/src/utils/routes";
 import LoadingIndicator from "@/src/components/LoadingIndicator";
+import ButtonLoadingIndicator from "@/src/components/ButtonLoadingIndicator";
 import { COLORS } from "@/src/theme/colors";
 import AnimatedSafeView from "@/src/components/AnimatedSafeView";
 import { useButtonAnimation } from "@/src/hooks/useButtonAnimation";
@@ -87,6 +88,7 @@ interface MealPlan {
   foods: string[];
   created_at: string;
   applicable_days?: string[];
+  foodDetails?: any[]; // Food details fetched from the database
 }
 
 // Animated Pressable component for better user interaction
@@ -94,7 +96,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export default function MealCreationSetupScreen() {
   const { supabase } = useSupabase();
-  const { user, updateSetupStatus, refreshSession, userDetails } = useAuth();
+  const { user, updateSetupStatus } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingMealPlans, setIsFetchingMealPlans] = useState(true);
   const [mealPlans, setMealPlans] = useState<MealPlan[]>([]);
@@ -120,14 +122,41 @@ export default function MealCreationSetupScreen() {
 
     setIsFetchingMealPlans(true);
     try {
+      // Fetch meals with their food items
       const { data, error } = await supabase
         .from("meals")
-        .select("*")
+        .select("*, foods")
         .eq("created_by", user.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      setMealPlans(data || []);
+
+      // Fetch food details for each meal
+      const mealsWithFoodDetails = await Promise.all(
+        (data || []).map(async (meal: MealPlan) => {
+          if (!meal.foods || meal.foods.length === 0) {
+            return meal;
+          }
+
+          // Fetch food details for the meal
+          const { data: foodData, error: foodError } = await supabase
+            .from("food")
+            .select("*")
+            .in("id", meal.foods);
+
+          if (foodError) {
+            console.error("Error fetching food details:", foodError);
+            return meal;
+          }
+
+          return {
+            ...meal,
+            foodDetails: foodData || [],
+          };
+        })
+      );
+
+      setMealPlans(mealsWithFoodDetails || []);
     } catch (error) {
       console.error("Error fetching meal plans:", error);
     } finally {
@@ -145,8 +174,7 @@ export default function MealCreationSetupScreen() {
 
     try {
       // Get current user
-      const { data: userData, error: userError } =
-        await supabase.auth.getUser();
+      const { error: userError } = await supabase.auth.getUser();
       if (userError) throw userError;
 
       // Update setup status to mark meal creation as in progress
@@ -176,8 +204,7 @@ export default function MealCreationSetupScreen() {
 
     try {
       // Get current user
-      const { data: userData, error: userError } =
-        await supabase.auth.getUser();
+      const { error: userError } = await supabase.auth.getUser();
       if (userError) throw userError;
 
       // Mark meal creation as completed even though we skipped
@@ -215,13 +242,38 @@ export default function MealCreationSetupScreen() {
 
     setIsLoading(true);
     try {
-      // Update the meal plan with applicable days
-      const { error } = await supabase
-        .from("meals")
-        .update({ applicable_days: selectedDays })
-        .eq("id", selectedMealPlan.id);
+      // First, check if a meal plan already exists for this meal
+      const { data: existingMealPlans, error: fetchError } = await supabase
+        .from("meal_plans")
+        .select("*")
+        .eq("meal_id", selectedMealPlan.id);
 
-      if (error) throw error;
+      if (fetchError) throw fetchError;
+
+      if (existingMealPlans && existingMealPlans.length > 0) {
+        // Update existing meal plan
+        const { error: updateError } = await supabase
+          .from("meal_plans")
+          .update({
+            applicable_days: selectedDays,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("meal_id", selectedMealPlan.id);
+
+        if (updateError) throw updateError;
+      } else {
+        // Create new meal plan
+        const { error: insertError } = await supabase
+          .from("meal_plans")
+          .insert({
+            user_id: user?.id,
+            meal_id: selectedMealPlan.id,
+            applicable_days: selectedDays,
+            created_at: new Date().toISOString(),
+          });
+
+        if (insertError) throw insertError;
+      }
 
       // Mark meal creation as completed
       await updateSetupStatus({
@@ -254,10 +306,10 @@ export default function MealCreationSetupScreen() {
     const isSelected = selectedMealPlan?.id === item.id;
     const mealTypeInfo =
       MEAL_TYPES.find((type) => type.id === item.meal_type) || MEAL_TYPES[0];
-    const mealTypeNames = (item.foods || [])
-      .map((typeId) => MEAL_TYPES.find((t) => t.id === typeId)?.name || "")
-      .filter(Boolean)
-      .join(", ");
+
+    // Get food details if available
+    const foodDetails = item.foodDetails || [];
+    const foodCount = item.foods?.length || 0;
 
     return (
       <AnimatedSafeView
@@ -288,7 +340,18 @@ export default function MealCreationSetupScreen() {
 
           <View style={styles.mealPlanDetails}>
             <Text style={styles.mealPlanName}>{item.name}</Text>
-            <Text style={styles.mealPlanTypes}>{mealTypeNames}</Text>
+
+            {/* Food count and preview */}
+            <View style={styles.foodPreviewContainer}>
+              {foodCount > 0 ? (
+                <Text style={styles.foodCountText}>
+                  {foodCount} food item{foodCount !== 1 ? "s" : ""}
+                </Text>
+              ) : (
+                <Text style={styles.noFoodsText}>No foods added yet</Text>
+              )}
+            </View>
+
             <Text style={styles.mealPlanDate}>
               Created {new Date(item.created_at).toLocaleDateString()}
             </Text>
@@ -305,6 +368,35 @@ export default function MealCreationSetupScreen() {
             {isSelected && <Ionicons name="checkmark" size={16} color="#FFF" />}
           </View>
         </TouchableOpacity>
+
+        {/* Food preview images - only show if there are foods and the card is selected */}
+        {isSelected && foodDetails.length > 0 && (
+          <View style={styles.foodPreviewImagesContainer}>
+            {foodDetails.slice(0, 3).map((food: any, index: number) => (
+              <View
+                key={food.id}
+                style={[
+                  styles.foodPreviewImageWrapper,
+                  { marginLeft: index > 0 ? -15 : 0 },
+                ]}
+              >
+                <Image
+                  source={{
+                    uri: food.image_url || "https://via.placeholder.com/50",
+                  }}
+                  style={styles.foodPreviewImage}
+                />
+              </View>
+            ))}
+            {foodDetails.length > 3 && (
+              <View style={styles.moreItemsContainer}>
+                <Text style={styles.moreItemsText}>
+                  +{foodDetails.length - 3}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
       </AnimatedSafeView>
     );
   };
@@ -466,7 +558,7 @@ export default function MealCreationSetupScreen() {
             disabled={isLoading}
           >
             {isLoading && actionType === "skip" ? (
-              <LoadingIndicator color={COLORS.text} />
+              <ButtonLoadingIndicator color={COLORS.text} />
             ) : (
               <Text style={styles.skipButtonText}>Skip for Now</Text>
             )}
@@ -481,7 +573,7 @@ export default function MealCreationSetupScreen() {
               disabled={isLoading || selectedDays.length === 0}
             >
               {isLoading ? (
-                <LoadingIndicator color={COLORS.white} />
+                <ButtonLoadingIndicator color={COLORS.white} />
               ) : (
                 <Text style={styles.exploreButtonText}>Save Schedule</Text>
               )}
@@ -495,7 +587,7 @@ export default function MealCreationSetupScreen() {
               disabled={isLoading}
             >
               {isLoading && actionType === "explore" ? (
-                <LoadingIndicator color={COLORS.white} />
+                <ButtonLoadingIndicator color={COLORS.white} />
               ) : (
                 <Text style={styles.exploreButtonText}>Create Meal Plan</Text>
               )}
@@ -716,6 +808,53 @@ const styles = StyleSheet.create({
   mealPlanDate: {
     fontSize: 12,
     color: "#9CA3AF",
+  },
+  foodPreviewContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  foodCountText: {
+    fontSize: 14,
+    color: COLORS.primary,
+    fontWeight: "500",
+  },
+  noFoodsText: {
+    fontSize: 14,
+    color: COLORS.textLight,
+    fontStyle: "italic",
+  },
+  foodPreviewImagesContainer: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    alignItems: "center",
+  },
+  foodPreviewImageWrapper: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: "hidden",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  foodPreviewImage: {
+    width: "100%",
+    height: "100%",
+  },
+  moreItemsContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: -15,
+  },
+  moreItemsText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.text,
   },
   selectionIndicator: {
     width: 24,
