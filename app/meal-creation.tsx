@@ -11,6 +11,16 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
+
+// Function to generate a UUID (v4)
+function generateUUID() {
+  // This is a simple implementation of UUID v4
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 import { StatusBar } from "expo-status-bar";
 import {
   SafeAreaView,
@@ -719,21 +729,24 @@ export default function MealCreationScreen() {
           setSelectedFoodsCount(storedFoodsCount);
         }
 
-        // Finally set the selected meal types
-        // ONLY select meal types that have foods
+        // Get meal types that have foods
         const mealTypesWithFoods = Object.keys(storedFoodsByMealType).filter(
           (mealType) =>
             storedFoodsByMealType[mealType] &&
             storedFoodsByMealType[mealType].length > 0
         );
 
-        if (mealTypesWithFoods.length > 0) {
-          console.log("Meal types with foods:", mealTypesWithFoods);
+        console.log("Meal types with foods:", mealTypesWithFoods);
 
-          // ONLY use meal types with foods - ignore stored selected meal types
+        // Only consider meal types with foods as selected
+        // This ensures meal types are only selected when they actually have foods
+        if (mealTypesWithFoods.length > 0) {
           console.log(
-            "Using ONLY meal types with foods as selected meal types"
+            "Setting selected meal types to only those with foods:",
+            mealTypesWithFoods
           );
+
+          // Set the meal types with foods as selected
           setSelectedMealTypes(mealTypesWithFoods);
 
           // Store the updated selected meal types in AsyncStorage
@@ -745,18 +758,15 @@ export default function MealCreationScreen() {
             "Stored updated selected meal types:",
             mealTypesWithFoods
           );
-        } else if (storedSelectedMealTypes.length > 0) {
-          // If we have stored selected meal types but no foods, use those
-          console.log(
-            "No meal types with foods but we have stored selected meal types - using those"
-          );
-          setSelectedMealTypes(storedSelectedMealTypes);
         } else {
-          // If no meal types have foods and no stored selected meal types, don't select any
+          // If no meal types have foods, don't select any
           console.log(
-            "No meal types with foods and no stored selected meal types - not selecting any meal types"
+            "No meal types with foods - not selecting any meal types"
           );
           setSelectedMealTypes([]);
+
+          // Clear selected meal types in AsyncStorage
+          await AsyncStorage.removeItem("selectedMealTypes");
         }
 
         if (availableFoodsLoaded) {
@@ -962,26 +972,13 @@ export default function MealCreationScreen() {
       }, 150);
     }
 
-    // Add this meal type to selected types if not already selected
-    if (!selectedMealTypes.includes(mealTypeId)) {
-      console.log(`Adding meal type ${mealTypeId} to selected types`);
-      setSelectedMealTypes((prev) => {
-        const newSelectedTypes = [...prev, mealTypeId];
-        console.log("Updated selected meal types:", newSelectedTypes);
+    // We no longer automatically add meal types to selectedMealTypes here
+    // Meal types will only be considered selected when they have foods
+    // This is handled in the meal-type-foods screen when foods are selected
+    console.log(`Navigating to food selection for meal type: ${mealTypeId}`);
 
-        // Store in AsyncStorage for persistence
-        AsyncStorage.setItem(
-          "selectedMealTypes",
-          JSON.stringify(newSelectedTypes)
-        )
-          .then(() => console.log("Stored selected meal types in AsyncStorage"))
-          .catch((err) =>
-            console.error("Error storing selected meal types:", err)
-          );
-
-        return newSelectedTypes;
-      });
-    }
+    // We'll keep track of which meal types the user has clicked on for navigation purposes
+    // but we won't mark them as "selected" until they have foods
 
     // Validate meal name before proceeding
     if (!mealName.trim()) {
@@ -1023,13 +1020,24 @@ export default function MealCreationScreen() {
       return;
     }
 
-    if (selectedMealTypes.length === 0) {
+    // Check if any meal types have foods by looking at selectedFoodsCount
+    const mealTypesWithFoods = Object.keys(selectedFoodsCount).filter(
+      (mealType) => (selectedFoodsCount[mealType] || 0) > 0
+    );
+
+    console.log("Meal types with foods:", mealTypesWithFoods);
+
+    if (mealTypesWithFoods.length === 0) {
       Alert.alert(
         "Missing Information",
-        "Please select at least one meal type"
+        "Please select foods for at least one meal type"
       );
       return;
     }
+
+    // Update selectedMealTypes to match meal types that actually have foods
+    // This ensures consistency between selectedMealTypes and meal types with foods
+    setSelectedMealTypes(mealTypesWithFoods);
 
     // Check if any meal types have foods
     const hasFoods = Object.values(selectedFoodsCount).some(
@@ -1066,23 +1074,240 @@ export default function MealCreationScreen() {
       const allSelectedFoods = Object.values(selectedFoodsByMealType).flat();
 
       console.log("Creating meal with selected foods:", allSelectedFoods);
+      console.log("Selected meal types:", selectedMealTypes);
+      console.log("Meal types with foods:", mealTypesWithFoods);
+      console.log("Selected foods count:", selectedFoodsCount);
 
-      // Now create the meal in the database
-      const { error: mealError } = await supabase
-        .from("meals")
-        .insert({
-          name: mealName,
-          created_by: user.id,
-          meal_type: selectedMealTypes[0], // Store the first selected meal type
-          foods: allSelectedFoods, // Use all selected foods
-          created_at: new Date().toISOString(),
-        })
-        .select("id")
-        .single();
+      // Ensure user is authenticated before creating meal
+      if (!user || !user.id) {
+        console.error("Error creating meal: User not authenticated");
+        Alert.alert(
+          "Authentication Error",
+          "Please make sure you're logged in before creating a meal."
+        );
+        return;
+      }
 
-      if (mealError) {
-        console.error("Error creating meal:", mealError);
-        Alert.alert("Error", "Failed to create meal. Please try again.");
+      console.log("Creating meal with authenticated user ID:", user.id);
+
+      // Now create the meal in the database with explicit RLS check
+      try {
+        // First refresh the session to ensure we have valid authentication
+        const { data: refreshData, error: refreshError } =
+          await supabase.auth.refreshSession();
+
+        if (refreshError) {
+          console.error("Error refreshing session:", refreshError);
+          Alert.alert(
+            "Authentication Error",
+            "Failed to refresh your authentication session. Please try logging out and back in."
+          );
+          return;
+        }
+
+        // Verify we have a valid session after refresh
+        if (!refreshData.session) {
+          console.error("No session after refresh");
+          Alert.alert(
+            "Authentication Error",
+            "Your session could not be validated. Please try logging out and back in."
+          );
+          return;
+        }
+
+        console.log(
+          "Successfully refreshed session, user ID:",
+          refreshData.session.user.id
+        );
+
+        // Get the current user to ensure we have the latest user data
+        const { data: userData, error: userError } =
+          await supabase.auth.getUser();
+
+        if (userError) {
+          console.error("Error getting user after refresh:", userError);
+          Alert.alert(
+            "Authentication Error",
+            "Failed to get your user information. Please try logging out and back in."
+          );
+          return;
+        }
+
+        const currentUser = userData.user;
+        console.log("Current authenticated user ID:", currentUser.id);
+
+        // Verify the user exists in the users table before attempting to create a meal
+        // This is critical for RLS policies to work correctly
+        const { data: userExists, error: userCheckError } = await supabase
+          .from("users")
+          .select("id, role")
+          .eq("id", currentUser.id)
+          .single();
+
+        if (userCheckError || !userExists) {
+          console.log("User record not found in database, creating one...");
+
+          // Create a user record if it doesn't exist
+          const { error: createError } = await supabase.from("users").insert({
+            id: currentUser.id,
+            created_at: new Date().toISOString(),
+            role: "customer", // Ensure the user has a role
+          });
+
+          if (createError) {
+            console.error("Failed to create user record:", createError);
+            Alert.alert(
+              "User Setup Error",
+              "Failed to set up your user profile. Please try logging out and back in."
+            );
+            return;
+          }
+
+          console.log("User record created successfully");
+        } else {
+          console.log(
+            "User record exists in database, proceeding with meal creation"
+          );
+          console.log("User role:", userExists.role);
+
+          // If the user exists but doesn't have a role, update it
+          if (!userExists.role) {
+            console.log("User has no role, updating to 'customer'");
+
+            const { error: updateError } = await supabase
+              .from("users")
+              .update({ role: "customer" })
+              .eq("id", currentUser.id);
+
+            if (updateError) {
+              console.error("Failed to update user role:", updateError);
+              // Continue anyway, this is not critical
+            } else {
+              console.log("User role updated to 'customer'");
+            }
+          }
+        }
+
+        // Generate a unique meal_group_id for this meal plan
+        const mealGroupId = generateUUID();
+        console.log("Generated meal_group_id:", mealGroupId);
+
+        // Get the JWT token to check its claims
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData && sessionData.session) {
+          console.log(
+            "Access token available:",
+            !!sessionData.session.access_token
+          );
+
+          // Log JWT token details (safely - don't log the full token)
+          const tokenParts = sessionData.session.access_token.split(".");
+          if (tokenParts.length === 3) {
+            try {
+              // Only log the payload part (claims), not the signature
+              const payload = JSON.parse(atob(tokenParts[1]));
+              console.log(
+                "JWT token claims:",
+                JSON.stringify(
+                  {
+                    role: payload.role,
+                    aud: payload.aud,
+                    exp: payload.exp,
+                    sub: payload.sub,
+                    // Don't log the full payload for security reasons
+                  },
+                  null,
+                  2
+                )
+              );
+            } catch (e) {
+              console.log("Error parsing JWT token:", e);
+            }
+          }
+        }
+
+        // Array to store created meal IDs
+        const createdMealIds = [];
+        let hasError = false;
+
+        // Create a separate record for each meal type that has foods
+        for (const mealType of Object.keys(selectedFoodsByMealType)) {
+          const foodIds = selectedFoodsByMealType[mealType] || [];
+
+          // Skip meal types with no foods
+          if (foodIds.length === 0) {
+            console.log(`Skipping ${mealType} - no foods selected`);
+            continue;
+          }
+
+          console.log(
+            `Creating meal record for ${mealType} with ${foodIds.length} foods`
+          );
+
+          // Create meal data object for this meal type
+          const mealDataToInsert = {
+            name: mealName,
+            created_by: currentUser.id,
+            meal_type: mealType,
+            foods: JSON.stringify(foodIds), // Store only the food IDs for this meal type
+            meal_group_id: mealGroupId, // Use the same meal_group_id for all related records
+            created_at: new Date().toISOString(),
+          };
+
+          // Log the data being inserted
+          console.log(
+            `MEAL DATA FOR ${mealType}:`,
+            JSON.stringify(mealDataToInsert, null, 2)
+          );
+
+          // Insert the meal record
+          const { data: mealData, error: mealError } = await supabase
+            .from("meals")
+            .insert(mealDataToInsert)
+            .select("id")
+            .single();
+
+          if (mealError) {
+            console.error(`Error creating ${mealType} meal:`, mealError);
+            hasError = true;
+
+            // We'll continue trying to create other meal types, but mark that we had an error
+            continue;
+          }
+
+          console.log(
+            `Successfully created ${mealType} meal with ID:`,
+            mealData.id
+          );
+          createdMealIds.push(mealData.id);
+        }
+
+        // If we had errors creating any meal type, show an error message
+        if (hasError) {
+          Alert.alert(
+            "Partial Error",
+            "Some meal types could not be created. Please try again or contact support."
+          );
+          return;
+        }
+
+        // If no meals were created at all, show an error
+        if (createdMealIds.length === 0) {
+          console.error("No meals were created");
+          Alert.alert("Error", "Failed to create any meals. Please try again.");
+          return;
+        }
+
+        console.log(
+          "All meal types created successfully with meal_group_id:",
+          mealGroupId
+        );
+        console.log("Created meal IDs:", createdMealIds);
+
+        // All meal types have been created successfully
+      } catch (error: any) {
+        console.error("Exception creating meal:", error);
+        Alert.alert("Error", `An unexpected error occurred: ${error.message}`);
         return;
       }
 
@@ -1274,8 +1499,11 @@ export default function MealCreationScreen() {
           {/* Meal Type Cards */}
           <View style={styles.mealTypesGrid}>
             {MEAL_TYPES.map((mealType, index) => {
-              const isSelected = selectedMealTypes.includes(mealType.id);
+              // A meal type is selected ONLY if it has foods
               const foodCount = selectedFoodsCount[mealType.id] || 0;
+              const hasFood = foodCount > 0;
+              // Only consider a meal type selected if it has foods
+              const isSelected = hasFood;
 
               // Debug logging for each meal type
               console.log(
@@ -1364,89 +1592,91 @@ export default function MealCreationScreen() {
                       )}
                     </TouchableOpacity>
 
-                    {/* Food Preview Section - Always show for all meal types */}
-                    <View style={styles.foodPreviewSection}>
-                      {/* Total Price */}
-                      <View style={styles.totalPriceContainer}>
-                        <Text style={styles.totalPriceLabel}>
-                          {foodCount > 0
-                            ? `${foodCount} items selected`
-                            : "No items selected"}
-                        </Text>
-                        {foodCount > 0 && (
-                          <Text
-                            style={[
-                              styles.totalPriceValue,
-                              { color: mealType.color },
-                            ]}
-                            testID={`total-price-${mealType.id}`}
-                          >
-                            ₹{calculateTotalPriceForMealType(mealType.id)}
+                    {/* Food Preview Section - Only show for meal types with foods */}
+                    {foodCount > 0 && (
+                      <View style={styles.foodPreviewSection}>
+                        {/* Total Price */}
+                        <View style={styles.totalPriceContainer}>
+                          <Text style={styles.totalPriceLabel}>
+                            {foodCount > 0
+                              ? `${foodCount} items selected`
+                              : "No items selected"}
                           </Text>
-                        )}
-                      </View>
-
-                      {/* Scrollable Food Preview */}
-                      {foodCount > 0 ? (
-                        <View>
-                          {/* Debug info */}
-                          <Text
-                            style={{
-                              fontSize: 12,
-                              color: "#666",
-                              marginBottom: 8,
-                            }}
-                          >
-                            {mealType.id}: {foodCount} items -{" "}
-                            {calculateTotalPriceForMealType(
-                              mealType.id
-                            ).toFixed(2)}
-                            ₹
-                          </Text>
-
-                          {availableFoods.length > 0 ? (
-                            <FoodPreviewList
-                              mealTypeId={mealType.id}
-                              mealTypeColor={mealType.color}
-                              selectedFoodIds={
-                                selectedFoodsByMealType[mealType.id] || []
-                              }
-                              availableFoods={availableFoods}
-                              onRetry={() => handleMealTypeClick(mealType.id)}
-                            />
-                          ) : (
-                            <View style={styles.loadingFoodsContainer}>
-                              <ActivityIndicator
-                                size="small"
-                                color={mealType.color}
-                              />
-                              <Text style={styles.loadingFoodsText}>
-                                Loading food details...
-                              </Text>
-                            </View>
+                          {foodCount > 0 && (
+                            <Text
+                              style={[
+                                styles.totalPriceValue,
+                                { color: mealType.color },
+                              ]}
+                              testID={`total-price-${mealType.id}`}
+                            >
+                              ₹{calculateTotalPriceForMealType(mealType.id)}
+                            </Text>
                           )}
                         </View>
-                      ) : (
-                        <TouchableOpacity
-                          onPress={() => handleMealTypeClick(mealType.id)}
-                          style={styles.addFoodsButton}
-                        >
-                          <Text
-                            style={[
-                              styles.addFoodsButtonText,
-                              { color: mealType.color },
-                            ]}
+
+                        {/* Scrollable Food Preview */}
+                        {foodCount > 0 ? (
+                          <View>
+                            {/* Debug info */}
+                            <Text
+                              style={{
+                                fontSize: 12,
+                                color: "#666",
+                                marginBottom: 8,
+                              }}
+                            >
+                              {mealType.id}: {foodCount} items -{" "}
+                              {calculateTotalPriceForMealType(
+                                mealType.id
+                              ).toFixed(2)}
+                              ₹
+                            </Text>
+
+                            {availableFoods.length > 0 ? (
+                              <FoodPreviewList
+                                mealTypeId={mealType.id}
+                                mealTypeColor={mealType.color}
+                                selectedFoodIds={
+                                  selectedFoodsByMealType[mealType.id] || []
+                                }
+                                availableFoods={availableFoods}
+                                onRetry={() => handleMealTypeClick(mealType.id)}
+                              />
+                            ) : (
+                              <View style={styles.loadingFoodsContainer}>
+                                <ActivityIndicator
+                                  size="small"
+                                  color={mealType.color}
+                                />
+                                <Text style={styles.loadingFoodsText}>
+                                  Loading food details...
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            onPress={() => handleMealTypeClick(mealType.id)}
+                            style={styles.addFoodsButton}
                           >
-                            Tap to add foods
-                          </Text>
-                          <Ionicons
-                            name="add-circle-outline"
-                            size={18}
-                            color={mealType.color}
-                          />
-                        </TouchableOpacity>
-                      )}
-                    </View>
+                            <Text
+                              style={[
+                                styles.addFoodsButtonText,
+                                { color: mealType.color },
+                              ]}
+                            >
+                              Tap to add foods
+                            </Text>
+                            <Ionicons
+                              name="add-circle-outline"
+                              size={18}
+                              color={mealType.color}
+                            />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    )}
                   </Animated.View>
                 </AnimatedSafeView>
               );
@@ -1455,34 +1685,42 @@ export default function MealCreationScreen() {
         </AnimatedSafeView>
       </ScrollView>
 
-      {/* Bottom Buttons */}
+      {/* Bottom Buttons - with proper bottom-up animation */}
       <AnimatedSafeView
-        entering={SlideInUp.delay(300).duration(500).springify().damping(15)}
-        style={[styles.bottomButtonsContainer, { bottom: insets.bottom + 20 }]}
+        entering={FadeIn.delay(600).duration(300)}
+        style={[
+          styles.bottomButtonsContainerWrapper,
+          { bottom: insets.bottom },
+        ]}
       >
-        {/* We only need one Complete Meal button */}
-
-        {/* Complete Meal Button */}
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={completeMealCreation}
-          style={[
-            styles.saveButton,
-            saveButtonAnimatedStyle,
-            Object.values(selectedFoodsCount).some((count) => count > 0) &&
-              styles.saveButtonWithComplete,
-          ]}
-          disabled={isLoading}
+        <Animated.View
+          entering={SlideInUp.delay(700).duration(500).springify().damping(15)}
+          style={styles.bottomButtonsContainer}
         >
-          {isLoading ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
-          ) : (
-            <>
-              <Text style={styles.saveButtonText}>Complete Meal</Text>
-              <Ionicons name="checkmark-circle" size={20} color="#FFF" />
-            </>
-          )}
-        </TouchableOpacity>
+          {/* We only need one Complete Meal button */}
+
+          {/* Complete Meal Button */}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={completeMealCreation}
+            style={[
+              styles.saveButton,
+              saveButtonAnimatedStyle,
+              Object.values(selectedFoodsCount).some((count) => count > 0) &&
+                styles.saveButtonWithComplete,
+            ]}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <Text style={styles.saveButtonText}>Complete Meal</Text>
+                <Ionicons name="checkmark-circle" size={20} color="#FFF" />
+              </>
+            )}
+          </TouchableOpacity>
+        </Animated.View>
       </AnimatedSafeView>
 
       {/* AI Meal Plan Dialog */}
@@ -1671,12 +1909,16 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#FFF",
   },
-  bottomButtonsContainer: {
+  bottomButtonsContainerWrapper: {
     position: "absolute",
-    left: 20,
-    right: 20,
+    left: 0,
+    right: 0,
+    padding: 20,
+  },
+  bottomButtonsContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
+    width: "100%",
   },
   saveButton: {
     flex: 1,

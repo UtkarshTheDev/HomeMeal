@@ -89,22 +89,30 @@ created_at (timestamp)
 
 ### Meals Table (meals)
 
-Purpose: Stores user-created meals composed of food items.
+Purpose: Stores user-created meals composed of food items, with separate records for each meal type.
 
 Fields:
 id (UUID, primary key)
 
-name (varchar)
+name (varchar) - Name of the meal plan
 
-created_by (UUID, foreign key to users.id)
+created_by (UUID, foreign key to users.id) - User who created the meal
 
-meal_type (varchar)
+meal_type (varchar) - Type of meal ("breakfast", "lunch", "dinner", "snacks")
 
-foods (json: array of food IDs)
+foods (jsonb) - Array of food IDs for this specific meal type
+
+meal_group_id (UUID) - Common identifier linking related meal types together
 
 created_at (timestamp)
 
 updated_at (timestamp)
+
+Notes:
+
+- Each record represents a single meal type (breakfast, lunch, etc.)
+- Records with the same meal_group_id belong to the same overall meal plan
+- The foods field contains only the IDs of foods for that specific meal type
 
 ### Meal_Plans Table (meal_plans)
 
@@ -115,13 +123,18 @@ id (UUID, primary key)
 
 user_id (UUID, foreign key to users.id)
 
-meal_id (UUID, foreign key to meals.id)
+meal_group_id (UUID) - References the meal_group_id in the meals table
 
 applicable_days (json: array of days)
 
 created_at (timestamp)
 
 updated_at (timestamp)
+
+Notes:
+
+- Uses meal_group_id (not individual meal.id) to reference the entire meal plan
+- applicable_days contains the days of the week this meal plan applies to
 
 ### Orders Table (orders)
 
@@ -414,13 +427,31 @@ category (string)
 
 is_available (boolean)
 
+### Meal
+
+id (UUID)
+
+name (string)
+
+created_by (UUID)
+
+meal_type (string: 'breakfast', 'lunch', 'dinner', 'snacks')
+
+foods (array of UUIDs) - Food IDs for this specific meal type
+
+meal_group_id (UUID) - Links related meal types together
+
+created_at (Date)
+
+updated_at (Date)
+
 ### Order
 
 id (UUID)
 
 user_id (UUID)
 
-meal_id (UUID)
+meal_group_id (UUID) - References the meal group
 
 foods (array of UUIDs)
 

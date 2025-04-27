@@ -86,6 +86,7 @@ interface MealPlan {
   created_by: string;
   meal_type: string;
   foods: string[];
+  meal_group_id: string; // Added meal_group_id field
   created_at: string;
   applicable_days?: string[];
   foodDetails?: any[]; // Food details fetched from the database
@@ -131,9 +132,59 @@ export default function MealCreationSetupScreen() {
 
       if (error) throw error;
 
-      // Fetch food details for each meal
+      // Group meals by meal_group_id
+      const mealGroups: { [key: string]: MealPlan[] } = {};
+
+      // First, group all meals by their meal_group_id
+      (data || []).forEach((meal: MealPlan) => {
+        if (!meal.meal_group_id) return; // Skip meals without meal_group_id
+
+        if (!mealGroups[meal.meal_group_id]) {
+          mealGroups[meal.meal_group_id] = [];
+        }
+
+        mealGroups[meal.meal_group_id].push(meal);
+      });
+
+      // Create a single meal plan object for each group
+      const groupedMealPlans: MealPlan[] = [];
+
+      for (const [mealGroupId, meals] of Object.entries(mealGroups)) {
+        // Use the first meal's data for the group
+        const primaryMeal = meals[0];
+
+        // Combine all foods from all meal types in this group
+        const allFoods: string[] = [];
+        meals.forEach((meal) => {
+          if (meal.foods && Array.isArray(meal.foods)) {
+            try {
+              // Parse foods if it's a string
+              const foodIds =
+                typeof meal.foods === "string"
+                  ? JSON.parse(meal.foods)
+                  : meal.foods;
+              allFoods.push(...foodIds);
+            } catch (e) {
+              console.error("Error parsing foods:", e);
+              // If parsing fails, try to use it as is
+              if (Array.isArray(meal.foods)) {
+                allFoods.push(...meal.foods);
+              }
+            }
+          }
+        });
+
+        // Create a combined meal plan object
+        groupedMealPlans.push({
+          ...primaryMeal,
+          foods: allFoods,
+          meal_types: meals.map((m) => m.meal_type), // Keep track of all meal types
+        } as any);
+      }
+
+      // Fetch food details for each grouped meal plan
       const mealsWithFoodDetails = await Promise.all(
-        (data || []).map(async (meal: MealPlan) => {
+        groupedMealPlans.map(async (meal: MealPlan) => {
           if (!meal.foods || meal.foods.length === 0) {
             return meal;
           }
@@ -242,11 +293,11 @@ export default function MealCreationSetupScreen() {
 
     setIsLoading(true);
     try {
-      // First, check if a meal plan already exists for this meal
+      // First, check if a meal plan already exists for this meal group
       const { data: existingMealPlans, error: fetchError } = await supabase
         .from("meal_plans")
         .select("*")
-        .eq("meal_id", selectedMealPlan.id);
+        .eq("meal_group_id", selectedMealPlan.meal_group_id);
 
       if (fetchError) throw fetchError;
 
@@ -258,7 +309,7 @@ export default function MealCreationSetupScreen() {
             applicable_days: selectedDays,
             updated_at: new Date().toISOString(),
           })
-          .eq("meal_id", selectedMealPlan.id);
+          .eq("meal_group_id", selectedMealPlan.meal_group_id);
 
         if (updateError) throw updateError;
       } else {
@@ -267,7 +318,7 @@ export default function MealCreationSetupScreen() {
           .from("meal_plans")
           .insert({
             user_id: user?.id,
-            meal_id: selectedMealPlan.id,
+            meal_group_id: selectedMealPlan.meal_group_id, // Use meal_group_id instead of meal_id
             applicable_days: selectedDays,
             created_at: new Date().toISOString(),
           });
@@ -304,8 +355,14 @@ export default function MealCreationSetupScreen() {
   // Render a meal plan card
   const renderMealPlanCard = ({ item }: { item: MealPlan }) => {
     const isSelected = selectedMealPlan?.id === item.id;
+
+    // Get all meal types in this meal group
+    const mealTypes = (item as any).meal_types || [item.meal_type];
+
+    // Get the primary meal type for display
+    const primaryMealType = mealTypes[0];
     const mealTypeInfo =
-      MEAL_TYPES.find((type) => type.id === item.meal_type) || MEAL_TYPES[0];
+      MEAL_TYPES.find((type) => type.id === primaryMealType) || MEAL_TYPES[0];
 
     // Get food details if available
     const foodDetails = item.foodDetails || [];
@@ -340,6 +397,38 @@ export default function MealCreationSetupScreen() {
 
           <View style={styles.mealPlanDetails}>
             <Text style={styles.mealPlanName}>{item.name}</Text>
+
+            {/* Meal types included */}
+            <View style={styles.mealTypesContainer}>
+              {mealTypes.map((type: string) => {
+                const typeInfo =
+                  MEAL_TYPES.find((t) => t.id === type) || MEAL_TYPES[0];
+                return (
+                  <View
+                    key={type}
+                    style={[
+                      styles.mealTypeTag,
+                      { backgroundColor: typeInfo.color + "20" },
+                    ]}
+                  >
+                    <Ionicons
+                      name={typeInfo.icon as any}
+                      size={12}
+                      color={typeInfo.color}
+                      style={styles.mealTypeTagIcon}
+                    />
+                    <Text
+                      style={[
+                        styles.mealTypeTagText,
+                        { color: typeInfo.color },
+                      ]}
+                    >
+                      {typeInfo.name}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
 
             {/* Food count and preview */}
             <View style={styles.foodPreviewContainer}>
@@ -920,5 +1009,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "500",
     color: COLORS.text,
+  },
+  // New styles for meal type tags
+  mealTypesContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: 8,
+    gap: 6,
+  },
+  mealTypeTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 6,
+    marginBottom: 4,
+  },
+  mealTypeTagIcon: {
+    marginRight: 4,
+  },
+  mealTypeTagText: {
+    fontSize: 12,
+    fontWeight: "500",
   },
 });

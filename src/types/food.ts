@@ -52,9 +52,11 @@ export interface MealPlan {
   created_by: string;
   meal_type: string;
   foods: string[];
+  meal_group_id: string; // Added meal_group_id field to link related meal types
   created_at: string;
   updated_at?: string;
   applicable_days?: string[];
+  meal_types?: string[]; // Optional array of all meal types in this group
 }
 
 /**
@@ -62,12 +64,12 @@ export interface MealPlan {
  */
 export interface MealPlanItem {
   id?: string;
-  meal_id: string;
+  meal_group_id: string; // Changed from meal_id to meal_group_id
   food_id: string;
   quantity: number;
   created_at: string;
   user_id: string;
-  meal_type?: string;
+  meal_type: string; // Required field to identify which meal type this food belongs to
 }
 
 /**

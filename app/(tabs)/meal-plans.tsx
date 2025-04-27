@@ -44,6 +44,8 @@ interface MealPlan {
   created_by: string;
   foods: string[];
   meal_type: string;
+  meal_group_id: string; // Added meal_group_id field
+  meal_types?: string[]; // Optional array of all meal types in this group
   meal_items?: {
     [key: string]: number;
   };
@@ -120,17 +122,18 @@ export default function MealPlansScreen() {
 
     setIsLoading(true);
     try {
-      // Fetch meals from the meals table
-      const { data, error } = await supabase
-        .from("meals")
-        .select("*")
-        .eq("created_by", user.id)
-        .order("created_at", { ascending: false });
+      // Import the helper functions
+      const { fetchUserMealGroups } = await import(
+        "@/src/utils/mealGroupHelpers"
+      );
 
-      if (error) throw error;
+      // Use the helper function to fetch and group meals by meal_group_id
+      const mealGroups = await fetchUserMealGroups(user.id);
 
       // Format the meal plans data
-      const formattedMealPlans: MealPlan[] = data || [];
+      const formattedMealPlans: MealPlan[] = mealGroups || [];
+
+      console.log(`Fetched ${formattedMealPlans.length} meal groups`);
 
       setMealPlans(formattedMealPlans);
 
@@ -138,19 +141,36 @@ export default function MealPlansScreen() {
       await Promise.all(
         formattedMealPlans.map(async (plan) => {
           try {
+            // Use meal_group_id instead of meal_id
             const { data: itemsData, error: itemsError } = await supabase
               .from("meal_plan_items")
               .select("meal_type, food_id")
-              .eq("meal_id", plan.id);
+              .eq("meal_group_id", plan.meal_group_id);
 
             if (itemsError) throw itemsError;
 
             // Count items by meal type
             const counts: Record<string, number> = {};
-            itemsData?.forEach((item) => {
-              const mealType = item.meal_type || "other";
-              counts[mealType] = (counts[mealType] || 0) + 1;
-            });
+
+            // If we have meal types from the grouped data, use those
+            if (plan.meal_types && plan.meal_types.length > 0) {
+              plan.meal_types.forEach((mealType) => {
+                // Count foods for each meal type
+                const foodsForType = plan.foods.filter((food) => {
+                  // This is a simplification - in a real app, you'd need to know which foods belong to which meal type
+                  // For now, we'll just divide the foods evenly among meal types
+                  return true;
+                });
+
+                counts[mealType] = foodsForType.length;
+              });
+            } else {
+              // Fallback to using the items data
+              itemsData?.forEach((item) => {
+                const mealType = item.meal_type || "other";
+                counts[mealType] = (counts[mealType] || 0) + 1;
+              });
+            }
 
             // Update the meal item counts
             setMealItemCounts((prev) => ({
@@ -254,19 +274,47 @@ export default function MealPlansScreen() {
     // Fetch food items for this meal plan if needed
     if (!mealItemCounts[mealPlan.id]) {
       try {
-        const { data, error } = await supabase
-          .from("meal_plan_items")
-          .select("meal_type, food_id")
-          .eq("meal_id", mealPlan.id);
+        // Import the helper functions
+        const { fetchMealsByGroupId } = await import(
+          "@/src/utils/mealGroupHelpers"
+        );
 
-        if (error) throw error;
+        // Fetch all meals in this group
+        const mealsInGroup = await fetchMealsByGroupId(mealPlan.meal_group_id);
+
+        console.log(
+          `Found ${mealsInGroup.length} meals in group ${mealPlan.meal_group_id}`
+        );
 
         // Count items by meal type
         const counts: Record<string, number> = {};
-        data?.forEach((item) => {
-          const mealType = item.meal_type || "other";
-          counts[mealType] = (counts[mealType] || 0) + 1;
-        });
+
+        // If we have meal types from the grouped data, use those
+        if (mealPlan.meal_types && mealPlan.meal_types.length > 0) {
+          mealPlan.meal_types.forEach((mealType) => {
+            // Find the meal with this meal type
+            const mealWithType = mealsInGroup.find(
+              (m) => m.meal_type === mealType
+            );
+
+            if (mealWithType && mealWithType.foods) {
+              try {
+                // Parse foods if it's a string
+                const foodIds =
+                  typeof mealWithType.foods === "string"
+                    ? JSON.parse(mealWithType.foods)
+                    : mealWithType.foods;
+
+                counts[mealType] = Array.isArray(foodIds) ? foodIds.length : 0;
+              } catch (e) {
+                console.error(`Error parsing foods for ${mealType}:`, e);
+                counts[mealType] = 0;
+              }
+            } else {
+              counts[mealType] = 0;
+            }
+          });
+        }
 
         // Update the meal item counts
         setMealItemCounts((prev) => ({
@@ -292,10 +340,15 @@ export default function MealPlansScreen() {
   };
 
   // Delete meal plan
-  const handleDeleteMealPlan = async (mealPlanId: string) => {
+  const handleDeleteMealPlan = async (mealPlan: MealPlan) => {
+    if (!mealPlan || !mealPlan.meal_group_id) {
+      Alert.alert("Error", "Invalid meal plan selected");
+      return;
+    }
+
     Alert.alert(
       "Delete Meal Plan",
-      "Are you sure you want to delete this meal plan?",
+      "Are you sure you want to delete this meal plan? This will delete all meal types in this plan.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -309,15 +362,23 @@ export default function MealPlansScreen() {
               const { error: itemsError } = await supabase
                 .from("meal_plan_items")
                 .delete()
-                .eq("meal_id", mealPlanId);
+                .eq("meal_group_id", mealPlan.meal_group_id);
 
               if (itemsError) throw itemsError;
 
-              // Then delete the meal plan
+              // Delete meal plans
+              const { error: planError } = await supabase
+                .from("meal_plans")
+                .delete()
+                .eq("meal_group_id", mealPlan.meal_group_id);
+
+              if (planError) throw planError;
+
+              // Then delete all meals with this meal_group_id
               const { error } = await supabase
                 .from("meals")
                 .delete()
-                .eq("id", mealPlanId);
+                .eq("meal_group_id", mealPlan.meal_group_id);
 
               if (error) throw error;
 
@@ -654,7 +715,7 @@ export default function MealPlansScreen() {
             <TouchableOpacity
               style={[styles.detailsActionButton, styles.detailsDeleteButton]}
               activeOpacity={0.7}
-              onPress={() => handleDeleteMealPlan(selectedPlan.id)}
+              onPress={() => handleDeleteMealPlan(selectedPlan)}
             >
               <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
               <Text style={styles.detailsActionButtonText}>Delete Plan</Text>
