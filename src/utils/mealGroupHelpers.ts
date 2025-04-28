@@ -6,7 +6,9 @@ import { MealPlan } from "../types/food";
  * @param mealGroupId The meal group ID to fetch
  * @returns An array of meals in the group
  */
-export const fetchMealsByGroupId = async (mealGroupId: string): Promise<MealPlan[]> => {
+export const fetchMealsByGroupId = async (
+  mealGroupId: string
+): Promise<MealPlan[]> => {
   try {
     const { data, error } = await supabase
       .from("meals")
@@ -26,19 +28,21 @@ export const fetchMealsByGroupId = async (mealGroupId: string): Promise<MealPlan
  * @param meals Array of meals to group
  * @returns Object with meal_group_id as keys and arrays of meals as values
  */
-export const groupMealsByGroupId = (meals: MealPlan[]): Record<string, MealPlan[]> => {
+export const groupMealsByGroupId = (
+  meals: MealPlan[]
+): Record<string, MealPlan[]> => {
   const groups: Record<string, MealPlan[]> = {};
-  
-  meals.forEach(meal => {
+
+  meals.forEach((meal) => {
     if (!meal.meal_group_id) return;
-    
+
     if (!groups[meal.meal_group_id]) {
       groups[meal.meal_group_id] = [];
     }
-    
+
     groups[meal.meal_group_id].push(meal);
   });
-  
+
   return groups;
 };
 
@@ -49,38 +53,39 @@ export const groupMealsByGroupId = (meals: MealPlan[]): Record<string, MealPlan[
  */
 export const createCombinedMeal = (meals: MealPlan[]): MealPlan | null => {
   if (!meals || meals.length === 0) return null;
-  
+
   // Use the first meal as the base
   const primaryMeal = meals[0];
-  
+
   // Combine all foods from all meal types
   const allFoods: string[] = [];
   const mealTypes: string[] = [];
-  
-  meals.forEach(meal => {
+
+  meals.forEach((meal) => {
     // Add meal type
     if (meal.meal_type && !mealTypes.includes(meal.meal_type)) {
       mealTypes.push(meal.meal_type);
     }
-    
+
     // Add foods
     if (meal.foods) {
-      try {
-        // Parse foods if it's a string
-        const foodIds = typeof meal.foods === 'string' ? JSON.parse(meal.foods) : meal.foods;
-        if (Array.isArray(foodIds)) {
-          allFoods.push(...foodIds);
-        }
-      } catch (e) {
-        console.error("Error parsing foods:", e);
-        // If parsing fails, try to use it as is
-        if (Array.isArray(meal.foods)) {
-          allFoods.push(...meal.foods);
+      // Since foods is now stored as a JSONB array, it should already be an array
+      if (Array.isArray(meal.foods)) {
+        allFoods.push(...meal.foods);
+      } else if (typeof meal.foods === "string") {
+        // For backward compatibility, try to parse if it's a string
+        try {
+          const foodIds = JSON.parse(meal.foods);
+          if (Array.isArray(foodIds)) {
+            allFoods.push(...foodIds);
+          }
+        } catch (e) {
+          console.error("Error parsing foods:", e);
         }
       }
     }
   });
-  
+
   // Create a combined meal object
   return {
     ...primaryMeal,
@@ -94,30 +99,32 @@ export const createCombinedMeal = (meals: MealPlan[]): MealPlan | null => {
  * @param userId The user ID to fetch meal groups for
  * @returns An array of combined meal objects
  */
-export const fetchUserMealGroups = async (userId: string): Promise<MealPlan[]> => {
+export const fetchUserMealGroups = async (
+  userId: string
+): Promise<MealPlan[]> => {
   try {
     // Fetch all meals for the user
     const { data, error } = await supabase
       .from("meals")
       .select("*")
       .eq("created_by", userId);
-      
+
     if (error) throw error;
     if (!data || data.length === 0) return [];
-    
+
     // Group meals by meal_group_id
     const mealGroups = groupMealsByGroupId(data);
-    
+
     // Create combined meal objects for each group
     const combinedMeals: MealPlan[] = [];
-    
+
     for (const groupId in mealGroups) {
       const combinedMeal = createCombinedMeal(mealGroups[groupId]);
       if (combinedMeal) {
         combinedMeals.push(combinedMeal);
       }
     }
-    
+
     return combinedMeals;
   } catch (error) {
     console.error("Error fetching user meal groups:", error);

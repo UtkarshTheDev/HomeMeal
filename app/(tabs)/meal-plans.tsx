@@ -135,6 +135,28 @@ export default function MealPlansScreen() {
 
       console.log(`Fetched ${formattedMealPlans.length} meal groups`);
 
+      // Fetch assigned days for each meal plan
+      const { data: mealPlanData, error: mealPlanError } = await supabase
+        .from("meal_plans")
+        .select("meal_group_id, applicable_days")
+        .eq("user_id", user.id);
+
+      if (mealPlanError) {
+        console.error("Error fetching meal plan days:", mealPlanError);
+      } else if (mealPlanData) {
+        // Add weekdays to each meal plan
+        formattedMealPlans.forEach((plan) => {
+          const planData = mealPlanData.find(
+            (mp) => mp.meal_group_id === plan.meal_group_id
+          );
+          if (planData && planData.applicable_days) {
+            plan.weekdays = planData.applicable_days;
+          } else {
+            plan.weekdays = [];
+          }
+        });
+      }
+
       setMealPlans(formattedMealPlans);
 
       // Fetch meal item counts for each meal plan
@@ -226,12 +248,87 @@ export default function MealPlansScreen() {
     setIsLoading(true);
 
     try {
-      const { error } = await supabase
-        .from("meals")
-        .update({ weekdays: selectedPlanWeekdays })
-        .eq("id", selectedPlan.id);
+      // Check if any of the selected days are already assigned to other meal plans
+      const { data: existingAssignments, error: assignmentError } =
+        await supabase
+          .from("meal_plans")
+          .select("meal_group_id, applicable_days")
+          .eq("user_id", user?.id)
+          .neq("meal_group_id", selectedPlan.meal_group_id);
 
-      if (error) throw error;
+      if (assignmentError) throw assignmentError;
+
+      // Check for day conflicts
+      const conflictingDays: string[] = [];
+      const conflictingMealGroups: Record<string, string[]> = {};
+
+      if (existingAssignments && existingAssignments.length > 0) {
+        existingAssignments.forEach(
+          (assignment: {
+            meal_group_id: string;
+            applicable_days: string[];
+          }) => {
+            if (!assignment.applicable_days) return;
+
+            const conflicts = selectedPlanWeekdays.filter((day) =>
+              assignment.applicable_days.includes(day)
+            );
+
+            if (conflicts.length > 0) {
+              conflictingDays.push(...conflicts);
+              conflictingMealGroups[assignment.meal_group_id] = conflicts;
+            }
+          }
+        );
+      }
+
+      // If there are conflicts, show an alert and return
+      if (conflictingDays.length > 0) {
+        const uniqueConflictingDays = [...new Set(conflictingDays)];
+
+        Alert.alert(
+          "Day Conflict",
+          `The following days are already assigned to other meal plans: ${uniqueConflictingDays.join(
+            ", "
+          )}. Please select different days.`,
+          [{ text: "OK" }]
+        );
+        setIsLoading(false);
+        return;
+      }
+
+      // First, check if a meal plan already exists for this meal group
+      const { data: existingMealPlans, error: fetchError } = await supabase
+        .from("meal_plans")
+        .select("*")
+        .eq("meal_group_id", selectedPlan.meal_group_id);
+
+      if (fetchError) throw fetchError;
+
+      if (existingMealPlans && existingMealPlans.length > 0) {
+        // Update existing meal plan
+        const { error: updateError } = await supabase
+          .from("meal_plans")
+          .update({
+            applicable_days: selectedPlanWeekdays,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("meal_group_id", selectedPlan.meal_group_id);
+
+        if (updateError) throw updateError;
+      } else {
+        // Create new meal plan
+        const { error: insertError } = await supabase
+          .from("meal_plans")
+          .insert({
+            user_id: user?.id,
+            meal_group_id: selectedPlan.meal_group_id,
+            applicable_days: selectedPlanWeekdays,
+            created_at: new Date().toISOString(),
+          });
+
+        if (insertError) throw insertError;
+      }
 
       // Update local state
       setMealPlans((prevPlans) =>

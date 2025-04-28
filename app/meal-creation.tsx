@@ -1249,7 +1249,7 @@ export default function MealCreationScreen() {
             name: mealName,
             created_by: currentUser.id,
             meal_type: mealType,
-            foods: JSON.stringify(foodIds), // Store only the food IDs for this meal type
+            foods: foodIds, // Store food IDs as a JSONB array (no need to stringify)
             meal_group_id: mealGroupId, // Use the same meal_group_id for all related records
             created_at: new Date().toISOString(),
           };
